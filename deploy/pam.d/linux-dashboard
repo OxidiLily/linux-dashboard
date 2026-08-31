@@ -1,0 +1,8 @@
+# Service PAM untuk linux-dashboard.
+# Meminjam stack standar Debian/Ubuntu supaya kebijakan password, akun
+# terkunci, dan modul tambahan yang sudah dipasang admin tetap dipatuhi —
+# bukan membuat aturan autentikasi sendiri.
+@include common-auth
+@include common-account
+@include common-password
+@include common-session-noninteractive

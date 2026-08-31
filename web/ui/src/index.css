@@ -1,0 +1,357 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+
+@import "tailwindcss";
+
+
+:root {
+  /* Token contract — PRD §4.3 & TDD §4.1a.
+     Dark-only, neutral near-black. Warna HANYA untuk status
+     (ok/warn/crit/idle); tidak ada primary berwarna. */
+
+  --bg: #0A0A0A;
+  --surface: #0A0A0A;        /* card tanpa fill — dibedakan oleh border */
+  --surface-2: #262626;      /* tombol, input, avatar, track meter */
+  --surface-3: #212121;      /* card footer sidebar */
+
+  --sidebar-background: #171717;
+  --sidebar-accent: #2E2F2F; /* item sidebar aktif */
+  /* Hover di sidebar TIDAK boleh memakai --accent: nilainya #171717, persis
+     sama dengan --sidebar-background, sehingga latarnya berubah ke warna yang
+     sudah dipakai dan hover-nya tidak pernah terlihat. Juga tidak memakai
+     --sidebar-accent, karena item yang di-hover akan tampak identik dengan
+     item yang sedang aktif. Nilai ini duduk di antara keduanya. */
+  --sidebar-hover: #232323;
+
+  --border: #222222;         /* border card & divider row */
+  --border-shell: #171717;   /* border panel konten & pemisah shell */
+
+  --fg: #FAFAFA;
+  --muted: #A1A1A1;          /* label, meta, item sidebar nonaktif */
+  --muted-2: #8E8E8E;        /* versi app, ikon nonaktif */
+
+  --ok: #00BC7D;
+  --warn: #FE9A00;
+  --crit: #FB2C36;
+  --idle: #464646;
+
+  --accent: #171717;         /* hover row tabel & item sidebar */
+
+  --radius: 0.75rem;         /* card, panel konten, modal */
+  --radius-sm: 0.5rem;       /* tombol, input, item sidebar, pill */
+
+  --font-sans: 'Geist', 'Inter', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Mono hanya untuk terminal & path/perintah literal — bukan untuk angka. */
+  --font-mono: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  /* Alias shadcn — dipetakan ke token di atas, tanpa nilai hex sendiri. */
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--bg);
+  --popover-foreground: var(--fg);
+  --primary: var(--surface-2);
+  --primary-foreground: var(--fg);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--fg);
+  --muted-foreground: var(--muted);
+  --accent-foreground: var(--fg);
+  --destructive: var(--crit);
+  --destructive-foreground: var(--fg);
+  --input: var(--surface-2);
+  --ring: var(--muted);
+  --sidebar-foreground: var(--muted);
+  --sidebar-accent-foreground: var(--fg);
+  --sidebar-border: var(--border-shell);
+  /* Alias lama: aksi non-status dulu memakai "signal" (biru). Tema neutral
+     memetakannya ke foreground supaya tidak ada aksen berwarna. */
+  --signal: var(--fg);
+
+  /* ---- token chart (bklit live-line-chart) --------------------------
+     Generator shadcn menyuntikkan palet TERANG ke :root dan menaruh
+     versi gelapnya di blok `.dark`. Project ini tidak pernah memasang
+     class itu — temanya dark-only di :root — jadi grafiknya akan
+     tampil putih di atas panel near-black. Nilai di bawah menggantinya
+     dan diturunkan dari token panel yang sudah ada, supaya grafik
+     memakai palet yang sama dengan komponen lain.
+
+     Monokrom sesuai PRD §4.3: warna hanya dipakai untuk status. */
+  --chart-1: var(--fg);
+  --chart-2: var(--muted);
+  --chart-3: #6E6E6E;
+  --chart-4: var(--idle);
+  --chart-5: #2E2E2E;
+
+  --chart-background: var(--surface);
+  --chart-foreground: var(--muted);
+  --chart-foreground-muted: var(--muted-2);
+
+  --chart-line-primary: var(--fg);
+  --chart-line-secondary: var(--muted);
+
+  --chart-grid: var(--border);
+  --chart-brush-border: var(--border);
+  --chart-crosshair: var(--muted-2);
+  --chart-label: var(--muted);
+
+  --chart-tooltip-background: rgb(38 38 38 / 0.94);
+  --chart-tooltip-foreground: var(--fg);
+  --chart-tooltip-muted: var(--muted);
+
+  --chart-marker-background: var(--surface-2);
+  --chart-marker-border: var(--border);
+  --chart-marker-foreground: var(--fg);
+  --chart-marker-badge-background: var(--fg);
+  --chart-marker-badge-foreground: var(--bg);
+
+  --chart-indicator-color: var(--fg);
+  --chart-indicator-secondary-color: var(--muted);
+
+  --chart-segment-background: var(--surface-2);
+  --chart-segment-line: var(--border);
+
+  color-scheme: dark;
+
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-fg: var(--fg);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-shell: var(--border-shell);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-crit: var(--crit);
+  --color-idle: var(--idle);
+  --color-signal: var(--signal);
+
+  --color-sidebar-background: var(--sidebar-background);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-sm);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  /* Hanya empat utility chart-* yang dipakai komponen (bg-chart-tooltip-
+     background, text-chart-label, text-chart-tooltip-foreground,
+     text-chart-tooltip-muted). Generator memetakan 26 token dengan
+     `var(----nama)` — empat dash, sehingga tidak satu pun resolve. */
+  --color-chart-tooltip-background: var(--chart-tooltip-background);
+  --color-chart-tooltip-foreground: var(--chart-tooltip-foreground);
+  --color-chart-tooltip-muted: var(--chart-tooltip-muted);
+  --color-chart-label: var(--chart-label);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  /* Angka realtime tetap sans (PRD §4.3), tabular supaya digit tidak bergoyang. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .display {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .gauge {
+    font-weight: 600;
+    font-size: 1.875rem;
+    line-height: 1;
+    letter-spacing: -0.025em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Label metrik di card: uppercase, tracking lebar, muted. */
+  .eyebrow {
+    font-size: 0.6875rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  /* Label grup sidebar: sentence case 13px muted — bukan uppercase. */
+  .sidebar-group-label {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  /* Card/panel: tanpa fill, dibedakan oleh border. */
+  .panel {
+    background-color: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  /* Wrapper area konten utama (app shell). */
+  .shell-panel {
+    border: 1px solid var(--border-shell);
+    border-radius: var(--radius);
+  }
+
+  /* Rel status di sisi kiri card — hanya tampil saat warn/crit. */
+  .rail {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 3px;
+    border-start-start-radius: var(--radius);
+    border-end-start-radius: var(--radius);
+  }
+}
+
+/* Bar kemajuan pemasangan komponen dulu berupa animasi tak tentu, dengan alasan
+   "apt tidak melaporkan persentase yang bisa dipercaya". Alasan itu ternyata
+   tidak benar: apt melaporkan kemajuannya lewat APT::Status-Fd, dan panel kini
+   memakainya. Lebar bar diatur langsung dari nilai persen di komponennya, jadi
+   tidak ada lagi keyframe yang perlu disimpan di sini. */
+
+
+/* Tabel yang berubah jadi tumpukan kartu di layar sempit.
+
+   Tabel panel ini punya 4–7 kolom; di layar 375px satu-satunya cara membacanya
+   adalah menggeser horizontal berulang kali, dan kolom terpenting (nama, aksi)
+   justru yang paling sering hilang di luar layar.
+
+   Dikerjakan lewat CSS, bukan dengan menulis markup kedua per tabel: struktur
+   <table> tetap satu-satunya sumber, sehingga screen reader, urutan kolom, dan
+   sorting tidak punya versi kembar yang bisa menyimpang. Nama kolom diambil
+   dari atribut data-label pada tiap <td> — satu atribut, bukan satu elemen.
+
+   Yang harus dipatuhi pemakainya: SETIAP <td> wajib punya data-label, kecuali
+   sel yang memang tidak perlu label (kolom aksi, checkbox) yang diberi
+   data-label="" supaya labelnya kosong tapi tetap sengaja. */
+@media (width < 40rem) {
+  .tabel-kartu,
+  .tabel-kartu tbody,
+  .tabel-kartu tr,
+  .tabel-kartu td {
+    display: block;
+    width: 100%;
+  }
+
+  /* Header kolom tidak dibuang dari DOM — hanya disembunyikan secara visual,
+     karena data-label di bawah sudah mengulang isinya untuk mata. */
+  .tabel-kartu thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .tabel-kartu tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.75rem;
+  }
+
+  .tabel-kartu tr + tr {
+    margin-top: 0.5rem;
+  }
+
+  .tabel-kartu td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.25rem 0;
+    border: 0;
+    /* max-w-xs/max-w-md milik desktop membuat nilai jadi "…" di kartu yang
+       lebarnya sudah penuh; di sini nilai boleh memakai lebar yang ada. */
+    max-width: none;
+    /* Nilai panjang (path, command, daftar port) DIBUNGKUS, bukan dipotong.
+       `truncate` milik desktop tidak bisa dipakai di sini: teks sel jadi item
+       flex anonim, dan text-overflow tidak berlaku untuknya — hasilnya teks
+       meluber keluar kartu tanpa elipsis sama sekali. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    /* ponytail: nilai dibungkus penuh tanpa batas baris, jadi satu command
+       sepanjang argv Chrome bisa membuat kartunya setinggi layar. Dibiarkan
+       karena tidak ada yang disembunyikan dari user dan command di server
+       nyata pendek; kalau nanti mengganggu, potong dengan line-clamp pada
+       elemen pembungkus nilai (butuh <span> di dalam <td>, bukan teks telanjang). */
+  }
+
+  .tabel-kartu td::before {
+    content: attr(data-label);
+    flex: none;
+    color: var(--muted-2);
+    font-weight: 500;
+  }
+
+  /* Sel tanpa label (aksi, checkbox) jadi baris penuh: tombolnya butuh lebar,
+     bukan setengah sisa kolom nilai. */
+  .tabel-kartu td[data-label=""] {
+    justify-content: flex-start;
+  }
+
+  .tabel-kartu td[data-label=""]::before {
+    content: none;
+  }
+}
+
+/* Tombol tutup toast baru muncul saat kursor menyentuh toast-nya. Sonner
+   menampilkannya terus-menerus, dan dengan tumpukan sampai empat toast itu
+   berarti empat tanda silang yang bersaing perhatian dengan isi pesannya —
+   padahal toast hilang sendiri setelah TTL-nya.
+   Hanya di perangkat ber-hover: di layar sentuh tidak ada keadaan "kursor di
+   atas toast", jadi tombolnya harus tetap terlihat supaya tetap bisa ditutup.
+   Fokus keyboard juga memunculkannya kembali. */
+@media (hover: hover) {
+  [data-sonner-toast] [data-close-button] {
+    opacity: 0;
+  }
+  [data-sonner-toast]:hover [data-close-button],
+  [data-sonner-toast] [data-close-button]:focus-visible {
+    opacity: 1;
+  }
+}

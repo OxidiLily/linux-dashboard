@@ -1,0 +1,43 @@
+[Unit]
+Description=linux-dashboard helper daemon (privileged)
+Documentation=https://github.com/OxidiLily/linux-dashboard
+After=network.target
+Before=linux-dashboard-web.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/linux-dashboard-helper
+Restart=on-failure
+RestartSec=2
+
+RuntimeDirectory=linux-dashboard
+RuntimeDirectoryMode=0750
+StateDirectory=linux-dashboard
+StateDirectoryMode=0750
+
+# Daemon ini memang butuh root untuk useradd/systemctl/ufw dan untuk mem-fork
+# shell sebagai user lain, jadi CAP_* tidak bisa dipangkas banyak.
+#
+# ProtectKernelModules=yes SENGAJA TIDAK DIPAKAI meski terlihat masuk akal
+# untuk daemon seroot ini. systemd menerapkannya lewat mount namespace privat,
+# dan namespace itu menelan SEMUA mount yang dibuat helper: disk yang
+# disiapkan lewat panel dan pool mergerfs tetap hidup di dalam namespace
+# helper, tapi tidak pernah terlihat oleh sistem, user SSH, maupun web app.
+# Gejalanya menyesatkan — panel melaporkan pool "ter-mount" dengan kapasitas
+# gabungan yang benar, sementara di host mount point-nya masih folder kosong
+# di root filesystem, sehingga berkas yang ditulis ke sana diam-diam memenuhi
+# disk sistem alih-alih masuk ke pool. Implikasinya tidak bisa dibatalkan:
+# PrivateMounts=no maupun MountFlags=shared tidak mengembalikan propagasinya,
+# jadi satu-satunya jalan adalah tidak memakainya sama sekali. Mounting adalah
+# fungsi inti daemon ini, dan proteksi ini pun tipis nilainya untuk proses
+# yang sudah root penuh.
+NoNewPrivileges=no
+ProtectKernelTunables=no
+ProtectClock=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=no
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

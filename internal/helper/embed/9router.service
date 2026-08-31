@@ -1,0 +1,40 @@
+[Unit]
+Description=9router — OpenAI-compatible AI gateway (npm-global)
+Documentation=https://9router.com/
+# Node.js di-install oleh installer panel dari NodeSource; di WSL/lxc
+# tanpa systemd init yang utuh unit ini tetap bisa dijalankan manual
+# lewat `9router --no-browser --skip-update`.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# npm memasang bin-nya sebagai /usr/bin/9router → cli.js. Rilis panel
+# sebelumnya menjalankan `node /usr/lib/node_modules/9router/dist/index.js`
+# — berkas itu tidak ada di paket (isinya cli.js, src/, app/, hooks/), jadi
+# service mati seketika dan port 20128 tidak pernah terbuka. Gejalanya di
+# browser: "This site can't be reached", bukan pesan error apa pun di panel.
+#
+# --no-browser: tidak ada desktop session di server; --skip-update: start
+# deterministik tanpa menunggu registry npm. Host (0.0.0.0) dan port (20128)
+# sudah jadi default 9router, jadi tidak ditulis ulang di sini.
+ExecStart=/usr/bin/9router --no-browser --skip-update
+Restart=on-failure
+RestartSec=3
+# 9router memasang runtime-nya sendiri (sql.js, better-sqlite3, systray2) ke
+# $HOME/.9router/runtime saat postinstall npm — yang berjalan sebagai root,
+# jadi HOME di sini harus /root supaya daemon menemukan modul yang sama.
+Environment=HOME=/root
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+# Tanpa TTY, 9router otomatis masuk tray mode dan menjalankan server sebagai
+# child process. KillMode=control-group memastikan child itu ikut berhenti.
+KillMode=control-group
+TimeoutStartSec=30
+TimeoutStopSec=15
+# Sandbox systemd sengaja tidak dipakai: MemoryDenyWriteExecute mematikan JIT
+# V8, dan ProtectSystem/ProtectHome menutup $HOME/.9router yang justru tempat
+# 9router menyimpan config, database, dan runtime-nya.
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
