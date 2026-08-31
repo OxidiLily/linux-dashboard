@@ -1,0 +1,59 @@
+[Unit]
+Description=linux-dashboard web app
+Documentation=https://github.com/OxidiLily/linux-dashboard
+After=network.target linux-dashboard-helper.service
+Requires=linux-dashboard-helper.service
+
+[Service]
+Type=simple
+User=linux-dashboard
+Group=linux-dashboard
+ExecStart=/usr/local/bin/linux-dashboard-server
+Restart=on-failure
+RestartSec=2
+
+Environment=DASHBOARD_LISTEN=0.0.0.0:1122
+# Sertifikat bawaan yang dibuat installer kalau belum ada — panel bicara HTTPS
+# sejak instalasi pertama, seperti Proxmox, tanpa langkah manual. Self-signed,
+# jadi browser tetap menampilkan peringatan sekali. Berkas yang tidak ada
+# diperlakukan seperti tidak diset (lihat internal/config/config.go), jadi
+# menghapusnya membuat panel kembali ke HTTP polos, bukan mati.
+Environment=DASHBOARD_TLS_CERT=/etc/linux-dashboard/tls.crt
+Environment=DASHBOARD_TLS_KEY=/etc/linux-dashboard/tls.key
+# Setelan per-device (port, secure cookie, TLS) ditaruh di sini, BUKAN di unit
+# ini: unit ditimpa utuh tiap kali tombol Update ditekan, sedangkan berkas di
+# /etc/default tidak pernah disentuh installer kalau sudah ada. Dibaca setelah
+# Environment= di atas, jadi nilainya menang. Awalan "-" = boleh tidak ada.
+EnvironmentFile=-/etc/default/linux-dashboard
+
+StateDirectory=linux-dashboard
+StateDirectoryMode=0750
+
+# Proses web tidak pernah butuh root: semua operasi privileged dijalankan
+# helper daemon. Karena itu hardening di sini bisa ketat.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# AF_NETLINK wajib: `ip -j addr` (daftar interface di Settings → Network)
+# membuka socket netlink; tanpa ini handler selalu balas array kosong.
+# AF_VSOCK wajib di WSL: GPU di sana tidak pernah muncul di /sys/class/drm,
+# jadi namanya diambil dengan menjalankan powershell.exe lewat interop — dan
+# WSL2 merelai interop ke Windows lewat hvsocket. Tanpa AF_VSOCK panggilannya
+# gagal tanpa pesan dan panel selamanya menulis "GPU tidak terdeteksi".
+# Di luar WSL keluarga ini tidak dipakai sama sekali.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK AF_VSOCK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+bin/
+node_modules/
+web/dist/
+*.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm
+.env
+.playwright-mcp/
+
+# Config tooling AI per-mesin yang ditulis ke dalam repo oleh
+`graphify install --platform opencode`. Isinya mengikuti alat yang
+terpasang di mesin masing-masing, bukan bagian dari sumber project.
+.opencode/
+
+# Berkas test tidak dimasukkan ke repo publik (keputusan 2026-08-20).
+# Berkasnya tetap ada di working tree dan `go test ./...` tetap jalan lokal —
+# yang dicegah hanya ikut ter-push. Konsekuensinya: klon baru tidak punya
+# proteksi regresi, jadi test harus dijalankan dari mesin yang menyimpannya.
+*_test.go

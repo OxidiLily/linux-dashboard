@@ -1,0 +1,35 @@
+# Setelan per-device linux-dashboard.
+#
+# Berkas ini dibaca unit systemd lewat EnvironmentFile dan TIDAK PERNAH ditimpa
+# installer maupun tombol Update — semua yang diubah di sini bertahan melewati
+# pembaruan. Setelah mengubahnya:
+#
+#   systemctl restart linux-dashboard-web
+#
+# Alamat dengar. Kosongkan alamatnya (":1122") untuk semua interface.
+#DASHBOARD_LISTEN=0.0.0.0:1122
+
+# Cookie sesi hanya dikirim lewat koneksi terenkripsi. Sudah menyala sendiri
+# selama panel memakai sertifikatnya sendiri (lihat TLS di bawah). Yang perlu
+# mengisinya secara manual hanya pemasangan di belakang reverse proxy
+# (Caddy/Nginx/NPM), karena di situ panel tidak bisa tahu sisi luarnya HTTPS.
+# Menyalakannya tanpa HTTPS membuat login mustahil: browser tidak akan pernah
+# mengirim balik cookie-nya.
+#DASHBOARD_SECURE_COOKIE=true
+
+# TLS langsung di panel. Installer sudah membuat sertifikat self-signed di
+# /etc/linux-dashboard/tls.{crt,key} dan unit systemd menunjuk ke sana, jadi
+# panel bicara HTTPS tanpa perlu diisi di sini.
+#
+# Isi dua baris ini untuk memakai sertifikat lain — misal dari CA internal atau
+# Let's Encrypt. Berkasnya harus bisa dibaca user `linux-dashboard`.
+#DASHBOARD_TLS_CERT=/etc/ssl/certs/linux-dashboard.crt
+#DASHBOARD_TLS_KEY=/etc/ssl/private/linux-dashboard.key
+#
+# Kosongkan KEDUANYA (tanpa nilai, seperti di bawah) untuk mematikan TLS dan
+# kembali ke HTTP polos — dipakai kalau TLS diterminasi reverse proxy.
+#DASHBOARD_TLS_CERT=
+#DASHBOARD_TLS_KEY=
+
+# Umur sesi login, dalam jam.
+#DASHBOARD_SESSION_TTL_HOURS=12
