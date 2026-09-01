@@ -40,6 +40,12 @@ type component struct {
 	Description string
 	// RequiredFor = halaman panel yang butuh komponen ini.
 	RequiredFor string
+	// KelolaDi = halaman panel yang memegang kendali service komponen ini.
+	// Diisi kalau menjalankan service-nya tanpa konfigurasi dari halaman itu
+	// tidak masuk akal: cloudflared tanpa token tunnel cuma daemon yang hidup
+	// lalu mati, dan tombol "Jalankan" di sini justru menghidupkan kembali
+	// tunnel lama yang tokennya masih tertinggal di unit systemd.
+	KelolaDi string
 	// install/uninstall dijalankan sebagai langkah-langkah command array.
 	install   func() error
 	uninstall func() error
@@ -132,8 +138,10 @@ var components = map[string]*component{
 	"cloudflared": {
 		Name: "cloudflared", Binary: "cloudflared", Service: "cloudflared",
 		Category: katRuntime, Description: "Cloudflare Tunnel — ekspos service tanpa port forwarding.",
+		KelolaDi:  "Settings → Network",
 		install:   installCloudflared,
 		uninstall: uninstallCloudflared,
+		purge:     purgeCloudflared,
 		version:   func() string { return firstLine(tryRun("cloudflared", "--version")) },
 	},
 	"9router": {
@@ -320,7 +328,7 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	}
 	st := helperproto.ComponentStatus{
 		Name: name, Service: c.Service, Category: c.Category,
-		Description: c.Description, RequiredFor: c.RequiredFor,
+		Description: c.Description, RequiredFor: c.RequiredFor, KelolaDi: c.KelolaDi,
 	}
 	if c.terpasang != nil {
 		st.Installed = c.terpasang()
@@ -522,6 +530,46 @@ func uninstallComponent(name string, purge bool) (helperproto.ComponentStatus, e
 	return componentStatus(name), nil
 }
 
+// CopotComponentsArg adalah argv[1] yang menyuruh helper mencopot seluruh
+// komponen katalog lalu keluar. Dipanggil uninstall.sh mode "total".
+const CopotComponentsArg = "copot-components"
+
+// CopotSemuaKomponen mencopot setiap komponen katalog yang terpasang, berikut
+// datanya.
+//
+// Ini dijalankan oleh uninstall.sh, bukan ditulis ulang sebagai daftar paket
+// di dalam skrip bash itu: daftar bash tidak pernah ikut bertambah waktu
+// katalog di berkas ini bertambah, dan yang terlewat baru ketahuan setelah
+// user memilih "hapus total" lalu menemukan komponennya masih terpasang.
+// Uninstaller di sini juga tahu hal yang tidak diketahui `apt remove` —
+// repo & keyring vendor, unit systemd cloudflared beserta tokennya, paket npm
+// global, dan pipx.
+//
+// Urutannya dibalik dari urutan tampil: runtime (docker, nodejs) ada di awal
+// katalog, sementara yang berdiri di atasnya (agent npm, 9router) ada di
+// belakang. Mencopot dari belakang berarti npm masih hidup waktu paket npm
+// dicabut.
+//
+// Kegagalan satu komponen tidak menghentikan sisanya — uninstall yang berhenti
+// di tengah meninggalkan mesin dalam keadaan yang lebih membingungkan daripada
+// uninstall yang melewatkan satu paket dan mengatakannya.
+func CopotSemuaKomponen() int {
+	nama := ComponentNames()
+	for i := len(nama) - 1; i >= 0; i-- {
+		n := nama[i]
+		if !componentStatus(n).Installed {
+			continue
+		}
+		fmt.Printf("[i] Mencopot component %s…\n", n)
+		if _, err := uninstallComponent(n, true); err != nil {
+			fmt.Fprintf(os.Stderr, "[⚠] %s gagal dicopot: %v\n", n, err)
+			continue
+		}
+		fmt.Printf("[✓] %s dicopot\n", n)
+	}
+	return 0
+}
+
 func componentService(name, action string) error {
 	defer lupakanCacheKomponen()
 	c, ok := components[name]
@@ -530,6 +578,14 @@ func componentService(name, action string) error {
 	}
 	if c.Service == "" {
 		return errInvalid("component %s tidak punya service", name)
+	}
+	// Komponen yang service-nya dikelola halaman lain tidak bisa dijalankan
+	// dari sini — penolakannya di helper, bukan cuma tombol yang disembunyikan
+	// UI, karena endpoint-nya tetap bisa dipanggil langsung.
+	if c.KelolaDi != "" {
+		return errInvalid(
+			"service %s dijalankan dan dihentikan dari %s, bukan dari halaman Components",
+			c.Service, c.KelolaDi)
 	}
 	// WSL/lxc tanpa systemd init penuh: systemctl selalu gagal. Cek
 	// sekali di sini, sebelum perintah pertama dikirim, supaya semua
@@ -1085,10 +1141,11 @@ func installTailscale() error {
 		return err
 	}
 	defer bersihkan()
-	if _, err := run("/bin/sh", script); err != nil {
-		return err
-	}
-	return nil
+	// Seluruh pemasangan Tailscale terjadi di dalam skrip ini — tanpa membaca
+	// apt yang dipanggilnya, bar berhenti di 0% sampai instalasinya tiba-tiba
+	// selesai.
+	setProgres(2, "indeks", "menjalankan skrip resmi Tailscale")
+	return skripDenganProgres("/bin/sh", script, 2, batasPasang)
 }
 
 // uninstallTailscale ikut membuang repo yang ditulis skrip resmi Tailscale.
@@ -1124,13 +1181,43 @@ func installCloudflared() error {
 	return aptInstall("cloudflared")
 }
 
-// uninstallCloudflared ikut membuang repo & keyring supaya `apt update` tidak
-// terus menarik daftar paket yang sudah tidak dipakai.
+// uninstallCloudflared membuang unit systemd-nya lebih dulu, baru paket, repo,
+// dan keyring.
+//
+// Unit /etc/systemd/system/cloudflared.service ditulis oleh
+// `cloudflared service install <token>` — bukan oleh paket .deb — dan TOKEN
+// TUNNEL-nya ada di dalam ExecStart unit itu. `apt remove` tidak menyentuhnya,
+// jadi sebelum ini uninstall meninggalkan kunci tunnel utuh di mesin: pasang
+// ulang cloudflared lalu tekan "Jalankan" dan tunnel lama yang dikira sudah
+// dihapus langsung hidup lagi.
 func uninstallCloudflared() error {
+	if cloudflaredServiceInstalled() {
+		// `cloudflared service uninstall` adalah kebalikan resmi dari
+		// perintah yang memasangnya. Versi lawas tidak punya subcommand itu —
+		// untuk itu unitnya dibuang manual.
+		if _, err := run("cloudflared", "service", "uninstall"); err != nil {
+			_, _ = run("systemctl", "disable", "--now", "cloudflared")
+			_ = os.Remove(cloudflaredUnit)
+		}
+		_, _ = run("systemctl", "daemon-reload")
+	}
 	if err := aptRemoveTerpasang("cloudflared"); err != nil {
 		return err
 	}
 	hapusRepoAPT(cloudflaredList, cloudflaredKeyring)
+	return nil
+}
+
+// purgeCloudflared menghapus kredensial tunnel yang ditulis cloudflared di
+// luar paketnya: cert.pem akun dan berkas <tunnel-id>.json. Keduanya kunci,
+// bukan konfigurasi, jadi hanya dihapus kalau user mencentang "hapus data
+// juga" saat uninstall.
+func purgeCloudflared() error {
+	for _, dir := range []string{"/etc/cloudflared", "/root/.cloudflared"} {
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

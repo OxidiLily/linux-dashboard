@@ -39,7 +39,7 @@ export function FileOperationsView() {
   return (
     <Panel
       title={tr("File Operations Log")}
-      hint={tr("Riwayat operasi file (upload, copy, move, delete, rename)")}
+      hint={tr("Riwayat operasi file (upload, copy, move, delete, rename). Disimpan 1 bulan, setelah itu dihapus otomatis.")}
       actions={
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />

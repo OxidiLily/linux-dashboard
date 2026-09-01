@@ -25,6 +25,8 @@ type ComponentStatus = {
   note?: string
   /** Komponen menyimpan data di luar paketnya, jadi uninstall bisa menawarkan menghapusnya. */
   has_data?: boolean
+  /** Halaman yang memegang kendali service ini — di sini statusnya saja yang tampil. */
+  managed_in?: string
 }
 
 export function ComponentsView() {
@@ -231,8 +233,13 @@ export function ComponentsView() {
                 .map((c) => {
                   const isInstalled = !!c.installed
                   // Service kosong = paket alat baris perintah, tidak ada yang
-                  // bisa dijalankan/dihentikan.
+                  // bisa dijalankan/dihentikan. managed_in = service-nya ada,
+                  // tapi kendalinya milik halaman lain (cloudflared butuh token
+                  // tunnel dari Settings → Network; menghidupkannya dari sini
+                  // cuma menyalakan daemon tanpa tunnel — atau menghidupkan
+                  // kembali tunnel lama). Statusnya tetap ditampilkan.
                   const punyaService = !!c.service
+                  const bisaDikontrol = punyaService && !c.managed_in
                   const isActive = c.running
                   const sedangDikerjakan = aksi?.name === c.name
                   return (
@@ -297,15 +304,24 @@ export function ComponentsView() {
                               <span className="text-xs text-muted-foreground">
                                 {aksi?.jenis === "install" ? tr("Memasang") : tr("Memproses")}
                               </span>
-                              {progres && <span className="num text-[11px] text-muted-2">{progres.persen}%</span>}
+                              {!!progres?.persen && (
+                                <span className="num text-[11px] text-muted-2">{progres.persen}%</span>
+                              )}
                             </div>
                             {/* Bar isian, bukan animasi: posisinya menyatakan
                                 sejauh mana pekerjaannya, jadi ia harus diam
-                                kalau memang belum ada kabar dari apt. */}
+                                kalau memang sudah ada kabar dari apt. Sebelum
+                                laporan pertama datang — skrip vendor yang masih
+                                mengunduh, npm yang belum bicara — bar 0% tidak
+                                bisa dibedakan dari panel yang menggantung, jadi
+                                seluruh jalurnya berdenyut tanpa mengaku tahu
+                                posisi. */}
                             <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
                               <div
-                                className="h-full rounded-full bg-signal transition-[width] duration-500 ease-out"
-                                style={{ width: `${progres?.persen ?? 0}%` }}
+                                className={`h-full rounded-full bg-signal transition-[width] duration-500 ease-out ${
+                                  progres?.persen ? "" : "w-full animate-pulse opacity-40"
+                                }`}
+                                style={progres?.persen ? { width: `${progres.persen}%` } : undefined}
                               />
                             </div>
                             {progres?.fase && (
@@ -314,7 +330,7 @@ export function ComponentsView() {
                           </div>
                         ) : isInstalled ? (
                           <>
-                            {punyaService && (
+                            {bisaDikontrol && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -323,6 +339,11 @@ export function ComponentsView() {
                               >
                                 <Power className="mr-1 size-3.5" /> {isActive ? tr("Hentikan") : tr("Jalankan")}
                               </Button>
+                            )}
+                            {c.managed_in && (
+                              <span className="text-[11px] text-muted-foreground">
+                                {trf("Dijalankan dari {0}", tr(c.managed_in))}
+                              </span>
                             )}
                             {c.name === "9router" && (
                               <Button

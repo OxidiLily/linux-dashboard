@@ -9,6 +9,7 @@ import {
   HardDriveDownload,
   Bookmark,
   FileClock,
+  Bell,
   LogIn,
   UserCog,
   Network,
@@ -86,6 +87,7 @@ const NAV: NavGroup[] = [
   {
     group: "nav.logs",
     items: [
+      { to: "/logs/alerts", label: "nav.logsAll", icon: Bell },
       { to: "/logs/file-operations", label: "nav.fileOperations", icon: FileClock },
       { to: "/logs/activity", label: "nav.activityLogs", icon: LogIn },
     ],

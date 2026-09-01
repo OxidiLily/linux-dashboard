@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +76,17 @@ CREATE TABLE IF NOT EXISTS file_operations (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_fileops_id ON file_operations(id DESC);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL,
+  tone TEXT NOT NULL,
+  message TEXT NOT NULL,
+  detail TEXT,
+  page TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_id ON notifications(id DESC);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -186,6 +198,89 @@ func (s *Store) DeleteSession(id string) error {
 
 func (s *Store) PurgeExpiredSessions() {
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE expires_at < CURRENT_TIMESTAMP`)
+}
+
+// ---- retensi log ----
+
+// retensi menentukan berapa lama tiap jenis catatan disimpan sebelum dihapus
+// sendiri. Modifier tanggalnya diserahkan ke SQLite (`datetime('now', ?)`)
+// supaya "1 bulan" mengikuti kalender, bukan 30 hari yang dibulatkan.
+//
+// Angkanya beda karena gunanya beda: notifikasi dan operasi file adalah
+// riwayat operasional — yang dicari orang di sana selalu kejadian beberapa
+// hari terakhir. Activity log menyimpan siapa login, siapa mengubah user, dan
+// siapa mencopot komponen; pertanyaan seperti itu baru muncul jauh setelah
+// kejadiannya, jadi ia disimpan dua tahun.
+var retensi = []struct{ tabel, umur string }{
+	{"notifications", "-1 month"},
+	{"file_operations", "-1 month"},
+	{"activity_log", "-2 years"},
+}
+
+// PurgeLogLama menghapus catatan yang sudah lewat masa simpannya. Dipanggil
+// saat server start dan sekali sejam setelahnya.
+func (s *Store) PurgeLogLama() {
+	for _, r := range retensi {
+		// Nama tabel dari konstanta di atas, bukan dari input — tidak ada
+		// jalan untuk menyisipkan tabel lain lewat sini.
+		if _, err := s.db.Exec(
+			`DELETE FROM `+r.tabel+` WHERE created_at < datetime('now', ?)`, r.umur); err != nil {
+			log.Printf("purge %s: %v", r.tabel, err)
+		}
+	}
+}
+
+// ---- notifikasi ----
+
+// Notification adalah satu alert yang tampil di panel — pesan yang sama
+// dengan toast-nya, disimpan supaya bisa dibaca lagi setelah toast-nya hilang.
+type Notification struct {
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	Tone      string `json:"tone"`
+	Message   string `json:"message"`
+	Detail    string `json:"detail"`
+	Page      string `json:"page"`
+	CreatedAt string `json:"created_at"`
+}
+
+// NadaNotifikasi adalah nada yang dikenal — nada lain ditolak supaya tabelnya
+// tidak menampung nilai bebas yang tidak bisa diwarnai UI.
+var NadaNotifikasi = map[string]bool{"ok": true, "err": true, "warn": true, "info": true}
+
+func (s *Store) LogNotification(username, tone, message, detail, page string) {
+	_, _ = s.db.Exec(
+		`INSERT INTO notifications(username, tone, message, detail, page) VALUES(?,?,?,?,?)`,
+		username, tone, message, detail, page)
+}
+
+func (s *Store) Notifications(username, tone string, limit, offset int) ([]Notification, error) {
+	q := `SELECT id, username, tone, message, COALESCE(detail,''), COALESCE(page,''), created_at FROM notifications WHERE 1=1`
+	var args []any
+	if username != "" {
+		q += ` AND username = ?`
+		args = append(args, username)
+	}
+	if tone != "" {
+		q += ` AND tone = ?`
+		args = append(args, tone)
+	}
+	q += ` ORDER BY id DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Notification{}
+	for rows.Next() {
+		var n Notification
+		if err := rows.Scan(&n.ID, &n.Username, &n.Tone, &n.Message, &n.Detail, &n.Page, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
 
 // ---- activity log ----

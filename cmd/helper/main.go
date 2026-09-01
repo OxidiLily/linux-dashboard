@@ -19,6 +19,16 @@ func main() {
 		os.Exit(helper.RunWorker())
 	}
 
+	// Mode copot-components: dipanggil uninstall.sh mode "total" supaya
+	// pencopotan memakai uninstaller yang sama dengan halaman Components,
+	// bukan daftar paket yang ditulis ulang di dalam skrip bash.
+	if len(os.Args) > 1 && os.Args[1] == helper.CopotComponentsArg {
+		if os.Geteuid() != 0 {
+			log.Fatal("copot-components harus dijalankan sebagai root")
+		}
+		os.Exit(helper.CopotSemuaKomponen())
+	}
+
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("[helper] ")
 

@@ -34,8 +34,9 @@ const MODE: { id: Mode; judul: string; rincian: string[] }[] = [
     judul: "Hapus total (termasuk components)",
     rincian: [
       "Semua yang di atas",
-      "Components apt yang dipasang panel dicopot: Samba, mergerfs, NFS, ufw, Fail2ban, WireGuard",
-      "Docker, Node.js, Tailscale, dan cloudflared dibiarkan — terlalu sering dipakai hal lain",
+      "SEMUA components yang bisa dipasang panel dicopot, termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI",
+      "Token tunnel cloudflared dan data component (mis. password 9router) ikut dihapus",
+      "Image & volume Docker di /var/lib/docker TIDAK dihapus — isinya milik container Anda",
     ],
   },
 ]
@@ -130,7 +131,7 @@ export function UninstallModal({ username, onClose }: { username?: string; onClo
               </label>
             ))}
             <p className="rounded border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
-              {tr("Berkas pribadi di ~/DATA setiap akun tidak pernah ikut dihapus, mode mana pun. Konfigurasi Samba, NFS, WireGuard, dan firewall juga ditinggalkan apa adanya.")}
+              {tr("Berkas pribadi di ~/DATA setiap akun tidak pernah ikut dihapus, mode mana pun. Akun Linux Anda juga tidak — yang dihapus hanya akun sistem linux-dashboard milik service. Konfigurasi Samba, NFS, dan WireGuard ditinggalkan apa adanya; pada mode hapus total, izin firewall milik komponen yang dicopot ikut dicabut.")}
             </p>
           </div>
         )}

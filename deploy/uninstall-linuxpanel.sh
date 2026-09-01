@@ -21,7 +21,7 @@
 # menyertakan skrip uninstall.
 #
 # TIDAK menghapus: ~/DATA/* user, konfigurasi Samba/NFS/WireGuard/firewall,
-# docker, nodejs, tailscale, cloudflared.
+# serta image & volume Docker di /var/lib/docker.
 set -uo pipefail
 
 PREFIX="${PREFIX:-/usr/local/bin}"
@@ -45,9 +45,10 @@ Mode:
                Database panel & bookmark TETAP ADA.
   panel-data   Semua di atas + database panel, kunci sesi, sertifikat TLS,
                /etc/default/linux-dashboard, akun service linux-dashboard.
-  total        Semua di atas + apt-copot Samba, mergerfs, NFS, ufw,
-               Fail2ban, WireGuard. (Docker/Node/Tailscale/cloudflared
-               dibiarkan — terlalu sering dipakai hal lain.)
+  total        Semua di atas + copot SEMUA component yang dipasang panel,
+               termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI,
+               berikut datanya (token tunnel cloudflared, password 9router).
+               Image & volume Docker di /var/lib/docker tetap ada.
 
 Dipanggil tanpa sudo: otomatis re-exec lewat sudo. Installernya hanya
 menaruh command ini di /usr/local/bin; tidak ada symlink di tempat lain.
@@ -108,7 +109,7 @@ if [[ -z "$MODE_RAW" ]]; then
   echo "Pilih mode uninstall:"
   echo "  1) panel         — binary + service + PAM + unit systemd"
   echo "  2) panel-data    — + database, sertifikat TLS, /etc/default"
-  echo "  3) total         — + apt-copot components yang dipasang panel"
+  echo "  3) total         — + copot SEMUA components yang dipasang panel"
   read -r -p "Mode [1/2/3, default 1]: " pilih
   case "${pilih:-1}" in
     1|"") MODE_RAW="panel" ;;
@@ -136,8 +137,10 @@ if (( ASSUME_YES == 0 )); then
       ;;
     total)
       echo "  — semua mode panel-data"
-      echo "  — Samba, mergerfs, NFS, ufw, Fail2ban, WireGuard dicopot"
-      echo "  — Docker/Node/Tailscale/cloudflared DIBIARKAN"
+      echo "  — SEMUA components yang dipasang panel dicopot, termasuk"
+      echo "    Docker, Node.js, Tailscale, cloudflared, dan alat AI"
+      echo "  — Data component ikut dihapus (token cloudflared, password 9router)"
+      echo "  — Image & volume Docker di /var/lib/docker TETAP ADA"
       ;;
   esac
   echo "  — ~/DATA/ setiap akun TIDAK disentuh"

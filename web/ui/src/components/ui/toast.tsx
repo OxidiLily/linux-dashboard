@@ -37,7 +37,31 @@ function detailNode(detail?: string) {
   )
 }
 
+/**
+ * Simpan alert ke halaman Logs.
+ *
+ * Yang dicatat adalah pesan yang benar-benar dilihat user — termasuk kegagalan
+ * yang tidak pernah sampai ke server (validasi di browser, koneksi putus),
+ * yang justru tidak akan pernah muncul di activity log. Server menyimpannya
+ * satu bulan lalu menghapusnya sendiri.
+ *
+ * Sengaja fire-and-forget dan sengaja TIDAK memakai apiSend: kegagalan
+ * pencatatan tidak boleh memunculkan toast baru — satu toast gagal akan
+ * mencatat, gagal lagi, lalu memunculkan toast berikutnya tanpa henti. Toast
+ * di halaman login juga ditolak server (belum ada sesi) dan itu memang
+ * dibiarkan diam.
+ */
+function rekam(tone: Tone, message: string, detail?: string) {
+  void fetch("/api/logs/notifications", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tone, message, detail: detail ?? "", page: window.location.pathname }),
+  }).catch(() => undefined)
+}
+
 function tampil(tone: Tone, message: string, detail?: string) {
+  rekam(tone, message, detail)
   const opsi = { duration: TTL[tone], description: detailNode(detail) }
   switch (tone) {
     case "ok":
@@ -58,8 +82,10 @@ export const notify = {
   warn: (message: string, detail?: string) => tampil("warn", message, detail),
 
   /** Pesan netral tanpa ikon status — untuk kabar yang bukan berhasil/gagal. */
-  pesan: (message: string, detail?: string) =>
-    sonner(message, { duration: TTL.info, description: detailNode(detail) }),
+  pesan: (message: string, detail?: string) => {
+    rekam("info", message, detail)
+    return sonner(message, { duration: TTL.info, description: detailNode(detail) })
+  },
 
   /**
    * Satu toast untuk seluruh umur sebuah operasi: berputar selama berjalan,
@@ -88,15 +114,20 @@ export const notify = {
       // Bentuk objek, bukan string: hanya lewat sini description bisa diisi
       // ReactNode, dan durasinya bisa dibedakan antara sukses dan gagal
       // seperti nada lain di berkas ini.
-      success: (hasil: T) => ({
-        message: typeof pesan.sukses === "function" ? pesan.sukses(hasil) : pesan.sukses,
-        description: detailNode(pesan.detail?.(hasil)),
-        duration: TTL.ok,
-      }),
-      error: (e: unknown) => ({
-        message: typeof pesan.gagal === "function" ? pesan.gagal(e) : pesan.gagal,
-        duration: TTL.err,
-      }),
+      // Pencatatan ikut di dalam callback ini, bukan di pemanggil: toast
+      // berumur-panjang tidak lewat tampil(), jadi tanpa ini hasil operasi
+      // yang paling penting (install, hapus, deploy) justru absen dari Logs.
+      success: (hasil: T) => {
+        const teks = typeof pesan.sukses === "function" ? pesan.sukses(hasil) : pesan.sukses
+        const rinci = pesan.detail?.(hasil)
+        rekam("ok", teks, rinci)
+        return { message: teks, description: detailNode(rinci), duration: TTL.ok }
+      },
+      error: (e: unknown) => {
+        const teks = typeof pesan.gagal === "function" ? pesan.gagal(e) : pesan.gagal
+        rekam("err", teks)
+        return { message: teks, duration: TTL.err }
+      },
     })
     return kerja
   },

@@ -44,10 +44,13 @@ rm -f /etc/systemd/system/linux-dashboard-web.service \
 systemctl daemon-reload
 ok "Unit systemd dihapus"
 
-rm -f "${PREFIX}/linux-dashboard-server" "${PREFIX}/linux-dashboard-helper"
+# Binary helper sengaja BELUM dihapus di sini: mode "total" memakainya untuk
+# mencopot components (bagian 2), dan uninstaller komponen yang sesungguhnya
+# ada di dalam binary itu. Penghapusannya menyusul di bagian 4.
+rm -f "${PREFIX}/linux-dashboard-server"
 rm -f /etc/pam.d/linux-dashboard
 rm -rf "$SRC"
-ok "Binary, konfigurasi PAM, dan sumber dihapus"
+ok "Binary web, konfigurasi PAM, dan sumber dihapus"
 
 # ---- 1b. Command CLI -----------------------------------------------------
 # Mode 'panel' mempertahankan `uninstall-linuxpanel` supaya user bisa reinstall
@@ -60,7 +63,30 @@ else
   ok "Command uninstall-linuxpanel dihapus"
 fi
 
-# ---- 2. Data & config panel ---------------------------------------------
+# ---- 2. Components ------------------------------------------------------
+# Dijalankan SEBELUM data panel dihapus: penanda status sebagian komponen
+# tinggal di /var/lib/linux-dashboard (ponytail), dan komponen yang penandanya
+# sudah lenyap terbaca "belum terpasang" lalu dilewati — pendaftaran plugin di
+# tiap agent tidak pernah dicabut.
+# Pencopotannya dijalankan binary helper (mode copot-components), bukan daftar
+# paket yang ditulis ulang di sini. Daftar bash tidak pernah ikut bertambah
+# saat katalog di internal/helper/components.go bertambah — itulah kenapa
+# docker, Node.js, Tailscale, cloudflared, dan seluruh alat AI sempat tetap
+# terpasang setelah user memilih "hapus total". Helper juga tahu hal yang
+# tidak diketahui `apt remove`: repo & keyring vendor, unit systemd cloudflared
+# beserta token tunnelnya, paket npm global, dan pipx.
+if [[ "$MODE" == "total" ]]; then
+  if [[ -x "${PREFIX}/linux-dashboard-helper" ]]; then
+    log "Mencopot components yang dipasang panel…"
+    "${PREFIX}/linux-dashboard-helper" copot-components ||
+      echo "[⚠] Sebagian components gagal dicopot — cek daftarnya di atas" >&2
+    ok "Components selesai diproses"
+  else
+    echo "[⚠] Binary helper tidak ada — components dilewati, copot manual lewat apt" >&2
+  fi
+fi
+
+# ---- 3. Data & config panel ---------------------------------------------
 if [[ "$MODE" != "panel" ]]; then
   # Database panel (akun panel, bookmark, threshold, log aktivitas), kunci
   # sesi, dan berkas kerja pembaruan. Tidak ada di sini yang bisa dipulihkan.
@@ -75,37 +101,30 @@ if [[ "$MODE" != "panel" ]]; then
 
   # Akun service dihapus belakangan: selama /var/lib masih ada, folder itu
   # miliknya. --force supaya proses sisa tidak menggagalkan penghapusan.
-  if id -u "$SERVICE_USER" >/dev/null 2>&1; then
-    userdel --force "$SERVICE_USER" >/dev/null 2>&1
-    ok "Akun sistem ${SERVICE_USER} dihapus"
+  #
+  # Pagar UID + shell: yang boleh dihapus HANYA akun sistem buatan installer
+  # (`useradd --system --no-create-home --shell /usr/sbin/nologin`), yaitu
+  # UID < 1000 dengan shell nologin/false. Kalau di mesin ini "linux-dashboard"
+  # ternyata akun manusia dengan home dan shell sungguhan, uninstall panel
+  # tidak berhak menghapusnya — dan tidak ada cara mengembalikan akun yang
+  # sudah dihapus. `userdel` juga dipanggil tanpa `-r`, jadi home directory
+  # tidak pernah ikut terhapus meski akunnya lolos pagar.
+  if uid=$(id -u "$SERVICE_USER" 2>/dev/null); then
+    shell=$(getent passwd "$SERVICE_USER" | cut -d: -f7)
+    if (( uid < 1000 )) && [[ "$shell" == */nologin || "$shell" == */false ]]; then
+      userdel --force "$SERVICE_USER" >/dev/null 2>&1
+      ok "Akun sistem ${SERVICE_USER} dihapus"
+    else
+      echo "[⚠] Akun ${SERVICE_USER} (uid ${uid}, shell ${shell}) bukan akun sistem buatan installer — TIDAK dihapus" >&2
+    fi
   fi
 fi
 
-# ---- 3. Components ------------------------------------------------------
-# Daftarnya sengaja sama dengan katalog di internal/helper/components.go —
-# hanya software yang memang dipasang lewat halaman Components.
-if [[ "$MODE" == "total" ]]; then
-  paket=(samba mergerfs nfs-kernel-server ufw fail2ban wireguard wireguard-tools)
-  ada=()
-  for p in "${paket[@]}"; do
-    dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed" && ada+=("$p")
-  done
-  if (( ${#ada[@]} > 0 )); then
-    log "Mencopot components: ${ada[*]}"
-    DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq "${ada[@]}" >/dev/null 2>&1 &&
-      ok "Components dicopot" || echo "[⚠] Sebagian components gagal dicopot — cek dengan apt" >&2
-  else
-    log "Tidak ada component apt yang terpasang"
-  fi
+# ---- 4. Binary helper ---------------------------------------------------
+rm -f "${PREFIX}/linux-dashboard-helper"
+ok "Binary helper dihapus"
 
-  # docker, nodejs, tailscale, cloudflared SENGAJA tidak ikut dicopot:
-  # keempatnya lazim dipakai hal lain di mesin yang sama, dan mencabutnya bisa
-  # menghancurkan container, service, atau tunnel yang tidak ada hubungannya
-  # dengan panel. Copot manual lewat apt kalau memang mau.
-  echo "[i] docker, nodejs, tailscale, dan cloudflared dibiarkan — copot manual kalau perlu."
-fi
-
-# ---- 4. Yang sengaja ditinggalkan ---------------------------------------
+# ---- 5. Yang sengaja ditinggalkan ---------------------------------------
 echo "[i] Folder data akun (~/DATA/*) TIDAK dihapus — isinya milik pemilik akun."
 echo "[i] Konfigurasi layanan di luar panel (Samba, NFS, WireGuard, firewall) tetap apa adanya."
 ok "Uninstall selesai (mode ${MODE})."

@@ -76,6 +76,7 @@ daftarkanTerjemahan({
     "WireGuard-based mesh VPN, remote access without opening ports.",
   "Cloudflare Tunnel — ekspos service tanpa port forwarding.":
     "Cloudflare Tunnel — expose services without port forwarding.",
+  "Dijalankan dari {0}": "Started from {0}",
   "VPN peer-to-peer, dikonfigurasi di Settings → Network.":
     "Peer-to-peer VPN, configured in Settings → Network.",
   "Gateway API AI lokal (butuh Node.js).": "Local AI API gateway (requires Node.js).",
@@ -540,6 +541,25 @@ daftarkanTerjemahan({
   "ssh atau 22": "ssh or 22",
   "Buat Jail": "Create Jail",
   "Riwayat operasi file (upload, copy, move, delete, rename)": "History of file operations (upload, copy, move, delete, rename)",
+  "Riwayat operasi file (upload, copy, move, delete, rename). Disimpan 1 bulan, setelah itu dihapus otomatis.":
+    "History of file operations (upload, copy, move, delete, rename). Kept for 1 month, then deleted automatically.",
+  "Semua alert panel — berhasil, gagal, peringatan, info. Disimpan 1 bulan, setelah itu dihapus otomatis.":
+    "Every panel alert — success, failure, warning, info. Kept for 1 month, then deleted automatically.",
+  "Semua aksi sistem & login. Disimpan 2 tahun, setelah itu dihapus otomatis.":
+    "All system actions & logins. Kept for 2 years, then deleted automatically.",
+  "Riwayat event login / logout. Disimpan 2 tahun, setelah itu dihapus otomatis.":
+    "Login / logout event history. Kept for 2 years, then deleted automatically.",
+  "Berhasil": "Success",
+  "Gagal": "Failed",
+  "Peringatan": "Warning",
+  "Info": "Info",
+  "Semua": "All",
+  "Status": "Status",
+  "Pesan": "Message",
+  "Halaman": "Page",
+  "Detail": "Detail",
+  "Belum ada alert yang tercatat.": "No alerts recorded yet.",
+  "Belum ada alert dengan status {0}.": "No alerts with status {0} yet.",
   "Operasi": "Operation",
   "Sumber": "Source",
   "Tujuan": "Destination",
@@ -848,12 +868,14 @@ daftarkanTerjemahan({
     "Panel database, session key, and update work files removed",
   "Akun sistem linux-dashboard dihapus": "The linux-dashboard system account is removed",
   "Hapus total (termasuk components)": "Remove everything (components included)",
-  "Components apt yang dipasang panel dicopot: Samba, mergerfs, NFS, ufw, Fail2ban, WireGuard":
-    "Apt components the panel installed are removed: Samba, mergerfs, NFS, ufw, Fail2ban, WireGuard",
-  "Docker, Node.js, Tailscale, dan cloudflared dibiarkan — terlalu sering dipakai hal lain":
-    "Docker, Node.js, Tailscale, and cloudflared are left alone — too often used by other things",
-  "Berkas pribadi di ~/DATA setiap akun tidak pernah ikut dihapus, mode mana pun. Konfigurasi Samba, NFS, WireGuard, dan firewall juga ditinggalkan apa adanya.":
-    "Personal files in every account's ~/DATA are never removed, in any mode. Samba, NFS, WireGuard, and firewall configs are left as they are.",
+  "SEMUA components yang bisa dipasang panel dicopot, termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI":
+    "EVERY component the panel can install is removed, including Docker, Node.js, Tailscale, cloudflared, and the AI tools",
+  "Token tunnel cloudflared dan data component (mis. password 9router) ikut dihapus":
+    "The cloudflared tunnel token and component data (e.g. the 9router password) are deleted too",
+  "Image & volume Docker di /var/lib/docker TIDAK dihapus — isinya milik container Anda":
+    "Docker images & volumes in /var/lib/docker are NOT deleted — they belong to your containers",
+  "Berkas pribadi di ~/DATA setiap akun tidak pernah ikut dihapus, mode mana pun. Akun Linux Anda juga tidak — yang dihapus hanya akun sistem linux-dashboard milik service. Konfigurasi Samba, NFS, dan WireGuard ditinggalkan apa adanya; pada mode hapus total, izin firewall milik komponen yang dicopot ikut dicabut.":
+    "Personal files in each account's ~/DATA are never deleted, in any mode. Neither are your Linux accounts — only the linux-dashboard system account used by the service is removed. Samba, NFS and WireGuard configuration is left untouched; in full-removal mode, firewall permissions belonging to the removed components are revoked with them.",
   "Konfirmasi uninstall": "Confirm uninstall",
   "Password root": "Root password",
   "Password akun {0}": "Password for {0}",
