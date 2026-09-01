@@ -93,8 +93,65 @@ func updateStatus(args helperproto.UpdateArgs) helperproto.UpdateStatus {
 				st.Tertinggal = lokalSha == "" || !strings.HasPrefix(f[0], lokalSha[:7])
 			}
 		}
+		if st.Tertinggal && args.Rinci {
+			st.Perubahan, st.PerubahanPasti = daftarPerubahan(lokalSha)
+		}
 	}
 	return st
+}
+
+// Jumlah commit remote yang ditarik untuk daftar "apa yang akan dipasang".
+// Cukup dalam untuk beberapa rilis, cukup dangkal supaya fetch-nya tetap
+// hitungan detik di mesin kecil.
+const jendelaPerubahan = 20
+
+// daftarPerubahan mengambil judul commit yang belum ada di mesin ini.
+//
+// `HEAD..FETCH_HEAD` TIDAK bisa dipakai: checkout di /usr/local/src dibuat
+// `git clone --depth 1` (lihat install.sh), jadi tidak ada nenek moyang bersama
+// yang bisa dipakai git untuk menghitung selisih. Yang dilakukan: ambil
+// beberapa commit terakhir dari remote, lalu potong tepat sebelum commit yang
+// sudah terpasang. Kalau commit itu tidak ketemu di jendela yang diambil —
+// riwayat lokal berasal dari sumber lain, atau ketinggalan terlalu jauh —
+// daftarnya tetap dikembalikan apa adanya dengan penanda pasti=false, karena
+// "ini commit terbaru di GitHub" masih jauh lebih berguna daripada kosong.
+//
+// Fetch-nya sengaja tanpa --filter: partial clone menandai repo sebagai
+// promisor, dan sejak itu operasi git biasa di checkout produksi bisa diam-diam
+// butuh jaringan. Beberapa ratus KB per pembukaan modal lebih murah daripada
+// checkout yang tidak bisa dipakai saat GitHub tidak terjangkau.
+func daftarPerubahan(lokalSha string) ([]string, bool) {
+	if _, err := run("git", "-C", updateSrc, "fetch", "--quiet",
+		"--depth", strconv.Itoa(jendelaPerubahan), updateRepo, updateCabang); err != nil {
+		return nil, false
+	}
+	res, err := run("git", "-C", updateSrc, "log",
+		"--format=%h %s", "-n", strconv.Itoa(jendelaPerubahan), "FETCH_HEAD")
+	if err != nil {
+		return nil, false
+	}
+	return potongSampaiTerpasang(res.Stdout, lokalSha)
+}
+
+// potongSampaiTerpasang memotong keluaran `git log` tepat sebelum commit yang
+// sudah terpasang. Nilai kedua = commit itu ketemu, jadi daftarnya benar-benar
+// selisih; false berarti daftarnya sekadar commit terbaru di remote.
+func potongSampaiTerpasang(logGit, lokalSha string) ([]string, bool) {
+	var out []string
+	for _, baris := range strings.Split(strings.TrimSpace(logGit), "\n") {
+		baris = strings.TrimSpace(baris)
+		if baris == "" {
+			continue
+		}
+		sha, _, _ := strings.Cut(baris, " ")
+		// %h dipendekkan git, sementara lokalSha panjang penuh — jadi
+		// perbandingannya prefiks, bukan kesamaan.
+		if lokalSha != "" && sha != "" && strings.HasPrefix(lokalSha, sha) {
+			return out, true
+		}
+		out = append(out, baris)
+	}
+	return out, false
 }
 
 // ekorLog memotong log ke bagian belakangnya saja. Baris pertama hasil potongan
