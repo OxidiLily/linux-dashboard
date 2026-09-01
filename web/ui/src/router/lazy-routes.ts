@@ -14,6 +14,7 @@ export const pemuatRute: Record<string, () => Promise<unknown>> = {
   "/files/pool": () => import("@/views/mergerfs"),
   "/files/nfs": () => import("@/views/nfs"),
   "/files/bookmarks": () => import("@/views/bookmarks"),
+  "/logs/alerts": () => import("@/views/logs"),
   "/logs/file-operations": () => import("@/views/file-operations"),
   "/logs/activity": () => import("@/views/activity-logs"),
   "/settings/account": () => import("@/views/account"),

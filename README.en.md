@@ -43,7 +43,7 @@ Components menus).
 | Home | Dashboard (CPU, RAM, Storage, GPU, Network in real time; empty disks can be formatted & mounted from here) |
 | File manager | File Manager (text editor, file creation, printing) · Samba (shares + users) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (agent CLI sessions inside the panel: claude-code, codex, opencode, hermes, openclaw) |
-| Logs | File Operations · Activity Logs |
+| Logs | Logs (every panel alert) · File Operations · Activity Logs |
 | Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
 | System | Processes · Docker (per-container actions, logs, compose & `.env` editors) · Terminal |
 
@@ -55,6 +55,16 @@ Uninstall panel (sudoers only), and Sign out. The route is still
 Pages that need specific software (Samba, ufw, Docker, mergerfs, NFS, fail2ban)
 show **"Not Installed"** with a button to Components — not an empty list or a raw
 `command not found` error.
+
+The **Logs** menu holds three views whose retention the server actually
+enforces rather than merely promising: **Logs** (every panel alert — success,
+failure, warning, info — filterable by status, **1 month**), **File
+Operations** (**1 month**), and **Activity Logs** (the login & admin-action
+audit trail, **2 years**). Anything past its age is deleted by a sweep that
+runs at server start and once an hour after that. The Logs page records the
+notifications that actually appeared on screen, so failures that never reached
+the server — browser-side validation, a dropped connection — still leave a
+trace, together with the page they came from and their raw output.
 
 The panel is fully usable on a **phone screen**: below `lg` the sidebar becomes a
 drawer with a scrim (dismissed by the scrim, Escape, or picking a menu item), and
@@ -88,9 +98,11 @@ repository — is recognized as-is and **never reinstalled**.
 While an install runs, the component card shows a **percentage bar** whose
 numbers come from apt itself (`APT::Status-Fd`), not from a stopwatch: index
 0–10%, download 10–55%, install 55–99%, and the number never goes backwards.
-Components whose installer is not apt (docker, nodejs, the agent CLIs) sit at
-zero until they finish — that gap is deliberately not filled with invented
-motion.
+Vendor install scripts are read too: the apt they invoke writes to the same fd
+via `APT_CONFIG`, so Tailscale gets real numbers as well. Until the first
+report arrives — npm installers, or a script still fetching its own files —
+the bar pulses without a number instead of sitting at a zero that is
+indistinguishable from a hung panel.
 
 **Removing a component** offers a "delete its data too" checkbox, but only for
 components that actually store something outside their package (flagged
@@ -98,6 +110,20 @@ components that actually store something outside their package (flagged
 brought back. A concrete use: `~/.9router` holds a password the user has already
 changed, and while that folder exists, reinstalling will never restore the
 initial password.
+
+`cloudflared` is the one component with **no** start/stop button on this page:
+its tunnel means nothing without a token, and the token is entered in Settings →
+Network — so control lives there and Components only shows the status. Removing
+it also deletes the `cloudflared.service` systemd unit written by
+`cloudflared service install <token>`; the tunnel token lives inside that unit
+and is not part of the .deb, so without this step the old tunnel key survives
+the uninstall.
+
+The panel uninstaller's **"Full removal"** mode now removes every component the
+panel can install — Docker, Node.js, Tailscale, cloudflared and the AI tools
+included — along with their data, using the same uninstallers as the Components
+page. Docker images and volumes in `/var/lib/docker` are still left alone: they
+belong to your containers, not to the panel.
 
 ### Required AI Agent tools & skills
 

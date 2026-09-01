@@ -41,7 +41,7 @@ untuk menu Docker, Firewall, Fail2ban, Samba, Disk Pool, NFS, dan Components).
 | Home | Dashboard (CPU, RAM, Storage, GPU, Network real-time; disk kosong bisa diformat & di-mount dari sini) |
 | File manager | File Manager (editor teks, buat file, cetak berkas) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (sesi CLI agent di dalam panel: claude-code, codex, opencode, hermes, openclaw) |
-| Logs | File Operations · Activity Logs |
+| Logs | Logs (semua alert panel) · File Operations · Activity Logs |
 | Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
 | System | Processes · Docker (aksi per container, log, editor compose & `.env`) · Terminal |
 
@@ -52,6 +52,16 @@ sudoer), dan Keluar. Rutenya tetap `/settings/account`.
 Halaman yang butuh software tertentu (Samba, ufw, Docker, mergerfs, NFS,
 fail2ban) menampilkan **"Belum Terpasang"** dengan tombol ke Components, bukan
 daftar kosong atau error `command not found`.
+
+Menu **Logs** berisi tiga sudut pandang dengan masa simpan yang ditegakkan
+server, bukan sekadar dijanjikan: **Logs** (semua alert panel — berhasil,
+gagal, peringatan, info — bisa disaring per status, **1 bulan**),
+**File Operations** (**1 bulan**), dan **Activity Logs** (jejak audit login &
+aksi admin, **2 tahun**). Catatan yang lewat umurnya dihapus sendiri lewat
+sapuan yang jalan saat server start dan sekali sejam sesudahnya. Halaman Logs
+mencatat notifikasi yang benar-benar muncul di layar, jadi kegagalan yang tidak
+pernah sampai ke server — validasi di browser, koneksi putus — tetap punya
+jejak, lengkap dengan halaman asalnya dan keluaran mentahnya.
 
 Panel dipakai penuh dari **layar HP**: di bawah `lg` sidebar berubah jadi drawer
 dengan scrim (ditutup oleh scrim, Escape, atau pemilihan menu), tabel berubah
@@ -85,8 +95,11 @@ dikenali apa adanya dan **tidak dipasang ulang**.
 Selama instalasi berjalan, kartu komponen menampilkan **bar berpersen** yang
 angkanya datang dari apt sendiri (`APT::Status-Fd`), bukan dari stopwatch:
 indeks 0–10%, unduh 10–55%, pasang 55–99%, dan angkanya tidak pernah turun.
-Komponen yang installernya bukan apt (docker, nodejs, agent CLI) barnya diam di
-nol sampai selesai — kekosongan itu sengaja tidak diisi gerakan buatan.
+Skrip installer vendor ikut terbaca: apt yang dipanggil di dalamnya menulis
+status ke fd yang sama lewat `APT_CONFIG`, jadi Tailscale pun punya angka.
+Selama laporan pertama belum datang — installer npm, atau skrip yang masih
+mengunduh berkasnya sendiri — bar berdenyut tanpa angka, bukan diam di nol
+yang tidak bisa dibedakan dari panel menggantung.
 
 **Mencopot komponen** menawarkan centang "hapus data juga", tapi hanya untuk
 komponen yang memang menyimpan sesuatu di luar paketnya (ditandai `has_data`
@@ -94,6 +107,20 @@ dari helper). Default-nya mati, karena yang dihapus tidak bisa dikembalikan.
 Contoh gunanya: `~/.9router` menyimpan password yang sudah diganti user, dan
 selama folder itu ada, install ulang tidak akan pernah mengembalikan password
 awal.
+
+`cloudflared` adalah satu-satunya komponen yang **tidak** punya tombol
+Jalankan/Hentikan di halaman ini: tunnel-nya tidak berarti apa-apa tanpa token,
+dan tokennya diisi di Settings → Network — jadi kendalinya ada di sana, halaman
+Components hanya menampilkan statusnya. Mencopotnya ikut membuang unit systemd
+`cloudflared.service` yang ditulis `cloudflared service install <token>`;
+token tunnel ada di dalam unit itu dan bukan bagian dari paket .deb, jadi tanpa
+langkah ini kunci tunnel lama tetap tertinggal di mesin setelah uninstall.
+
+Uninstall panel mode **"Hapus total"** mencopot seluruh komponen yang bisa
+dipasang panel — termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI
+— berikut datanya, memakai uninstaller yang sama dengan halaman Components.
+Image dan volume Docker di `/var/lib/docker` tetap ditinggalkan: isinya milik
+container Anda, bukan milik panel.
 
 ### Alat & skill wajib AI Agent
 

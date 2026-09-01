@@ -1,8 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -439,6 +441,70 @@ func (s *Server) handleLogFileOps(w http.ResponseWriter, r *http.Request) {
 		username = q
 	}
 	list, err := s.store.FileOps(username, queryInt(r, "limit", 100), queryInt(r, "offset", 0))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// handleLogNotifikasi menyimpan satu alert yang tampil di panel.
+//
+// Sumbernya frontend, bukan backend: yang dicatat adalah pesan yang benar-benar
+// dilihat user (termasuk kegagalan yang tidak pernah sampai ke server, mis.
+// validasi di browser atau koneksi yang putus). Halaman Logs menampilkan
+// kembali daftar itu setelah toast-nya hilang dari layar.
+func (s *Server) handleLogNotifikasi(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Tone    string `json:"tone"`
+		Message string `json:"message"`
+		Detail  string `json:"detail"`
+		Page    string `json:"page"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "body tidak valid")
+		return
+	}
+	req.Message = strings.TrimSpace(req.Message)
+	if req.Message == "" {
+		writeErr(w, http.StatusBadRequest, "message wajib diisi")
+		return
+	}
+	if !store.NadaNotifikasi[req.Tone] {
+		writeErr(w, http.StatusBadRequest, "tone tidak dikenal")
+		return
+	}
+	// Batas panjang ditegakkan di sini, bukan dipercayakan ke pemanggil:
+	// detail toast bisa berisi keluaran mentah apt atau journal yang panjang,
+	// dan tabel log bukan tempat menyimpan berkas.
+	s.store.LogNotification(sessionFrom(r).Username, req.Tone,
+		potong(req.Message, 500), potong(req.Detail, 4000), potong(req.Page, 200))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func potong(s string, maks int) string {
+	if len(s) <= maks {
+		return s
+	}
+	return s[:maks]
+}
+
+func (s *Server) handleLogNotifikasiList(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	// Non-sudoer hanya melihat alert dari sesinya sendiri, sama seperti
+	// halaman log lain.
+	username := ""
+	if !sess.Sudo {
+		username = sess.Username
+	} else if q := r.URL.Query().Get("username"); q != "" {
+		username = q
+	}
+	tone := r.URL.Query().Get("tone")
+	if tone != "" && !store.NadaNotifikasi[tone] {
+		writeErr(w, http.StatusBadRequest, "tone tidak dikenal")
+		return
+	}
+	list, err := s.store.Notifications(username, tone, queryInt(r, "limit", 200), queryInt(r, "offset", 0))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

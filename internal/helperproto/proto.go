@@ -593,6 +593,10 @@ type ComponentStatus struct {
 	// komponen ini — halaman tersebut menampilkan "Belum Terpasang" alih-alih
 	// daftar kosong atau error mentah dari command yang tidak ada.
 	RequiredFor string `json:"required_for,omitempty"`
+	// KelolaDi diisi kalau service komponen ini dikendalikan halaman lain —
+	// cloudflared dijalankan dari Settings → Network bersama token tunnelnya.
+	// Halaman Components menampilkan keterangan itu, bukan tombol jalankan.
+	KelolaDi string `json:"managed_in,omitempty"`
 	// Note membawa keterangan yang hanya relevan setelah komponen terpasang
 	// dan tidak bisa ditulis di Description statis — mis. kredensial awal
 	// yang dibuat panel untuk 9router.

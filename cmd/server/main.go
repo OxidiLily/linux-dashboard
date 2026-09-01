@@ -86,7 +86,14 @@ func main() {
 	_ = httpSrv.Shutdown(shutdownCtx)
 }
 
+// purgeSessions membuang session kedaluwarsa DAN catatan log yang sudah lewat
+// masa simpannya (notifikasi & operasi file 1 bulan, activity log 2 tahun —
+// lihat store.retensi). Sapuan pertama jalan langsung saat start: mesin yang
+// mati berbulan-bulan tidak perlu menunggu satu jam dulu sebelum log lamanya
+// dibersihkan.
 func purgeSessions(ctx context.Context, st *store.Store) {
+	st.PurgeExpiredSessions()
+	st.PurgeLogLama()
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
@@ -95,6 +102,7 @@ func purgeSessions(ctx context.Context, st *store.Store) {
 			return
 		case <-t.C:
 			st.PurgeExpiredSessions()
+			st.PurgeLogLama()
 		}
 	}
 }

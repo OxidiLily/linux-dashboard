@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,17 +82,47 @@ const (
 // APT::Status-Fd. fd 3 dipakai karena ExtraFiles menempatkan berkas pertama di
 // sana — 0,1,2 sudah dipakai stdin/stdout/stderr.
 func aptDenganProgres(args []string, awal, akhir int) error {
-	r, w, err := os.Pipe()
-	if err != nil {
-		// Tanpa pipe, instalasi tetap harus jalan — yang hilang cuma barnya.
-		_, e := run("apt-get", args...)
-		return e
-	}
 	penuh := append([]string{"-o", "APT::Status-Fd=3"}, args...)
 	cmd := exec.Command("apt-get", penuh...)
-	cmd.Env = []string{
+	cmd.Env = envInstall()
+	return jalankanDenganStatusAPT(cmd, awal, akhir)
+}
+
+// skripDenganProgres menjalankan skrip installer vendor sambil tetap membaca
+// kemajuan apt yang dipanggil DI DALAM skrip itu.
+//
+// Skrip vendor (Tailscale, NodeSource) memanggil apt-get sendiri, jadi tidak
+// ada tempat menyisipkan `-o APT::Status-Fd`. APT_CONFIG menunjuk berkas
+// konfigurasi tambahan yang dibaca setiap apt-get anak skrip tersebut — hasil
+// akhirnya sama: baris status mengalir ke fd 3 yang diwarisi dari sini.
+// Skrip yang tidak menyentuh apt sama sekali cuma tidak mengirim baris apa pun.
+func skripDenganProgres(shell, path string, awal, akhir int) error {
+	konf := filepath.Join(filepath.Dir(path), "apt-status.conf")
+	if err := os.WriteFile(konf, []byte("APT::Status-Fd \"3\";\n"), 0o600); err != nil {
+		// Instalasi lebih penting daripada barnya.
+		_, e := run(shell, path)
+		return e
+	}
+	cmd := exec.Command(shell, path)
+	cmd.Env = append(envInstall(), "APT_CONFIG="+konf)
+	return jalankanDenganStatusAPT(cmd, awal, akhir)
+}
+
+// envInstall adalah lingkungan tetap untuk semua pemasangan: PATH yang tidak
+// bergantung shell pemanggil, dan apt yang tidak pernah menunggu jawaban user.
+func envInstall() []string {
+	return []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOME=/root", "DEBIAN_FRONTEND=noninteractive", "LC_ALL=C",
+	}
+}
+
+// jalankanDenganStatusAPT menjalankan cmd dengan fd 3 tersambung ke pembaca
+// status apt.
+func jalankanDenganStatusAPT(cmd *exec.Cmd, awal, akhir int) error {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return err
 	}
 	cmd.ExtraFiles = []*os.File{w}
 	var stderr strings.Builder

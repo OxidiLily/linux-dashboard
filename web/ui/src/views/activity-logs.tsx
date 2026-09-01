@@ -96,7 +96,11 @@ export function ActivityLogsView() {
   return (
     <Panel
       title={tr("Activity Logs")}
-      hint={scopeAll ? tr("Semua aksi sistem & login") : tr("Riwayat event login / logout")}
+      hint={
+        scopeAll
+          ? tr("Semua aksi sistem & login. Disimpan 2 tahun, setelah itu dihapus otomatis.")
+          : tr("Riwayat event login / logout. Disimpan 2 tahun, setelah itu dihapus otomatis.")
+      }
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs cursor-pointer text-muted-foreground">

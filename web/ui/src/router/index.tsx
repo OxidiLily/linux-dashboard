@@ -34,6 +34,7 @@ const MergerfsView = rute("/files/pool", "MergerfsView")
 const NFSView = rute("/files/nfs", "NFSView")
 const Fail2banView = rute("/settings/fail2ban", "Fail2banView")
 const BookmarksView = rute("/files/bookmarks", "BookmarksView")
+const LogsView = rute("/logs/alerts", "LogsView")
 const FileOperationsView = rute("/logs/file-operations", "FileOperationsView")
 const ActivityLogsView = rute("/logs/activity", "ActivityLogsView")
 const AccountView = rute("/settings/account", "AccountView")
@@ -122,6 +123,7 @@ export const router = createBrowserRouter([
       { path: "files/pool", element: <Dijaga name="mergerfs" label="mergerfs"><MergerfsView /></Dijaga> },
       { path: "files/nfs", element: <Dijaga name="nfs-server" label="NFS server"><NFSView /></Dijaga> },
       { path: "files/bookmarks", element: <Lazy><BookmarksView /></Lazy> },
+      { path: "logs/alerts", element: <Lazy><LogsView /></Lazy> },
       { path: "logs/file-operations", element: <Lazy><FileOperationsView /></Lazy> },
       { path: "logs/activity", element: <Lazy><ActivityLogsView /></Lazy> },
       { path: "settings/account", element: <Lazy><AccountView /></Lazy> },

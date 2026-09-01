@@ -147,6 +147,8 @@ func (s *Server) Routes() http.Handler {
 
 			r.Get("/logs/file-operations", s.handleLogFileOps)
 			r.Get("/logs/activity", s.handleLogActivity)
+			r.Get("/logs/notifications", s.handleLogNotifikasiList)
+			r.Post("/logs/notifications", s.handleLogNotifikasi)
 
 			r.Put("/settings/account/password", s.handleChangePassword)
 			r.Put("/settings/account/hostname", s.handleSetHostname)

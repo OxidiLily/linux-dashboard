@@ -18,6 +18,7 @@ const kamus: Kamus = {
   "nav.nfs": { id: "NFS Exports", en: "NFS Exports" },
   "nav.bookmarks": { id: "Bookmarks", en: "Bookmarks" },
   "nav.logs": { id: "Logs", en: "Logs" },
+  "nav.logsAll": { id: "Logs", en: "Logs" },
   "nav.fileOperations": { id: "File Operations", en: "File Operations" },
   "nav.activityLogs": { id: "Activity Logs", en: "Activity Logs" },
   "nav.settings": { id: "Settings", en: "Settings" },
