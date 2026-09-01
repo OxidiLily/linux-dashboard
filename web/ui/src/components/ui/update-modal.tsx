@@ -15,6 +15,10 @@ type UpdateStatus = {
   lokal?: string
   remote?: string
   tertinggal: boolean
+  /** Judul commit yang belum terpasang, terbaru dulu. */
+  perubahan?: string[]
+  /** Commit terpasang ketemu di riwayat remote, jadi daftarnya persis selisihnya. */
+  perubahan_pasti?: boolean
 }
 
 // Selang polling saat pembaruan jalan. Keluarannya berupa langkah build yang
@@ -42,7 +46,12 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
 
     const tarik = async (cek: boolean) => {
       try {
-        const data = await apiGet<UpdateStatus>(`/api/settings/update${cek ? "?cek=1" : ""}`)
+        // rinci=1 hanya di permintaan pertama (saat modal dibuka): daftar
+        // perubahan butuh git fetch di server, dan polling log tiap 1,5 detik
+        // tidak boleh ikut menariknya.
+        const data = await apiGet<UpdateStatus>(
+          `/api/settings/update${cek ? "?cek=1&rinci=1" : ""}`,
+        )
         if (!hidup) return
         setSt(data)
         setTerputus(false)
@@ -148,9 +157,39 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
+        {!!st?.perubahan?.length && (
+          <div className="max-h-56 overflow-auto border-b border-border px-4 py-3">
+            <p className="text-xs font-medium">
+              {st.perubahan_pasti
+                ? trf("Yang akan ikut terpasang ({0} commit)", st.perubahan.length)
+                : trf("Commit terbaru di GitHub ({0})", st.perubahan.length)}
+            </p>
+            {!st.perubahan_pasti && (
+              /* Riwayat lokal tidak menyambung ke remote — daftarnya tetap
+                 ditampilkan, tapi jangan mengaku sebagai selisih yang persis. */
+              <p className="mt-0.5 text-[11px] text-muted-2">
+                {tr("Versi terpasang tidak ditemukan di riwayat itu, jadi sebagian mungkin sudah ada di mesin ini.")}
+              </p>
+            )}
+            <ul className="mt-2 space-y-1">
+              {st.perubahan.map((baris) => {
+                const spasi = baris.indexOf(" ")
+                const sha = spasi > 0 ? baris.slice(0, spasi) : baris
+                const judul = spasi > 0 ? baris.slice(spasi + 1) : ""
+                return (
+                  <li key={baris} className="flex gap-2 text-xs">
+                    <span className="num shrink-0 text-muted-2">{sha}</span>
+                    <span className="min-w-0 break-words text-muted-foreground">{judul}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+
         <pre
           ref={logRef}
-          className="num min-h-40 flex-1 overflow-auto whitespace-pre-wrap break-words bg-surface-2 p-3 text-[11px] leading-relaxed text-muted-foreground"
+          className="num min-h-24 flex-1 overflow-auto whitespace-pre-wrap break-words bg-surface-2 p-3 text-[11px] leading-relaxed text-muted-foreground"
         >
           {st?.log || tr("Belum ada pembaruan yang dijalankan di mesin ini.")}
         </pre>

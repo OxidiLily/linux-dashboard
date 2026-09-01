@@ -15,7 +15,13 @@ func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	// Pengecekan versi remote butuh jaringan, jadi hanya saat diminta —
 	// polling log di modal tidak boleh ikut memanggil ls-remote tiap detik.
-	args := helperproto.UpdateArgs{Cek: r.URL.Query().Get("cek") == "1"}
+	// rinci=1 hanya dikirim modal Update yang sedang dibuka: daftar perubahan
+	// butuh `git fetch`, sementara pengecekan versi di sidebar berjalan tiap
+	// lima menit dan harus tetap semurah `git ls-remote`.
+	args := helperproto.UpdateArgs{
+		Cek:   r.URL.Query().Get("cek") == "1",
+		Rinci: r.URL.Query().Get("rinci") == "1",
+	}
 	var st helperproto.UpdateStatus
 	if err := s.helper.Call(helperproto.CmdUpdateStatus, sessionFrom(r).Username, args, &st); err != nil {
 		writeHelperErr(w, err)

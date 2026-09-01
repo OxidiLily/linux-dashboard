@@ -777,6 +777,10 @@ daftarkanTerjemahan({
 
   // ---- pembaruan panel ----
   "Pembaruan panel": "Panel update",
+  "Yang akan ikut terpasang ({0} commit)": "What this will install ({0} commits)",
+  "Commit terbaru di GitHub ({0})": "Latest commits on GitHub ({0})",
+  "Versi terpasang tidak ditemukan di riwayat itu, jadi sebagian mungkin sudah ada di mesin ini.":
+    "The installed version was not found in that history, so some of these may already be on this machine.",
   "Memeriksa versi…": "Checking version…",
   "Terpasang: {0}": "Installed: {0}",
   "Versi terpasang tidak terbaca — sumber belum ada di mesin ini.":

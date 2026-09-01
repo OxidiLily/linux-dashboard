@@ -694,12 +694,28 @@ type UpdateStatus struct {
 	Lokal      string `json:"lokal,omitempty"`
 	Remote     string `json:"remote,omitempty"`
 	Tertinggal bool   `json:"tertinggal"`
+	// Perubahan berisi judul commit yang ada di remote tapi belum terpasang,
+	// terbaru dulu — isi modal Update supaya user tahu apa yang akan dipasang
+	// sebelum menekan tombolnya. Hanya diisi kalau diminta (UpdateArgs.Rinci):
+	// mengambilnya butuh fetch, sementara pengecekan versi biasa jalan tiap
+	// lima menit di latar.
+	Perubahan []string `json:"perubahan,omitempty"`
+	// PerubahanPasti = commit yang terpasang ketemu di riwayat yang diambil,
+	// jadi daftar di atas benar-benar "yang belum terpasang". Kalau false,
+	// daftarnya adalah commit terbaru di remote apa adanya — terjadi saat
+	// riwayat lokal tidak menyambung ke remote (checkout dangkal dari sumber
+	// lain, atau ketinggalan lebih jauh dari jendela yang diambil).
+	PerubahanPasti bool `json:"perubahan_pasti,omitempty"`
 }
 
 // UpdateArgs menyalakan pengecekan versi remote — sengaja opsional karena
 // pengecekan itu memerlukan jaringan dan tidak boleh ikut tiap polling log.
 type UpdateArgs struct {
 	Cek bool `json:"cek"`
+	// Rinci ikut mengambil daftar commit yang belum terpasang. Dipisah dari
+	// Cek karena butuh `git fetch` — pengecekan versi di sidebar yang jalan
+	// tiap lima menit cukup dengan `git ls-remote` yang tidak menarik objek.
+	Rinci bool `json:"rinci,omitempty"`
 }
 
 // WireGuard mode server: panel yang membuat config, kunci, NAT, dan daftar
