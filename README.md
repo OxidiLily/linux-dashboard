@@ -98,8 +98,12 @@ indeks 0–10%, unduh 10–55%, pasang 55–99%, dan angkanya tidak pernah turun
 Skrip installer vendor ikut terbaca: apt yang dipanggil di dalamnya menulis
 status ke fd yang sama lewat `APT_CONFIG`, jadi Tailscale pun punya angka.
 Selama laporan pertama belum datang — installer npm, atau skrip yang masih
-mengunduh berkasnya sendiri — bar berdenyut tanpa angka, bukan diam di nol
-yang tidak bisa dibedakan dari panel menggantung.
+mengunduh berkasnya sendiri — yang berjalan sepotong kecil isian menyeberangi
+jalur, dan keterangannya menyebut langkah yang sedang dikerjakan ("mengunduh
+dan memasang paket npm"). Jalur yang terisi penuh sengaja dihindari: itu
+terbaca sebagai pekerjaan 100% yang menggantung. Selama aksinya berjalan,
+badge kartu berbunyi "Sedang dipasang", bukan "Belum Terpasang" yang berdiri
+di sebelah bar yang sedang jalan.
 
 **Mencopot komponen** menawarkan centang "hapus data juga", tapi hanya untuk
 komponen yang memang menyimpan sesuatu di luar paketnya (ditandai `has_data`
@@ -421,7 +425,7 @@ internal/api          REST handler + WebSocket
 internal/metrics      collector gopsutil + deteksi GPU multi-vendor
 internal/platform     deteksi OS/kernel/platform (14 skenario)
 internal/store        SQLite: session, log, bookmark, threshold, stack
-internal/terminal     kuota sesi terminal berbasis jumlah core
+internal/terminal     kuota + daftar sesi terminal berbasis jumlah core
 internal/config       konfigurasi dari environment
 web/embed.go          go:embed hasil build React
 web/ui                sumber frontend (React TSX + Vite + Tailwind v4)
@@ -542,8 +546,11 @@ Semua lewat environment variable; nilai di bawah adalah default.
 ## Catatan keamanan
 
 - **Terminal web** setara akses SSH penuh lewat browser, dibatasi murni oleh
-  permission Unix akun yang login. Ini keputusan produk yang disengaja, tapi
-  membuat helper daemon jadi komponen paling sensitif di sistem.
+  permission Unix akun yang login. Tombol **Hapus sesi** di header Terminal
+  menutup semua sesi sekaligus (termasuk milik user lain), jadi panel meminta
+  password akun dan memverifikasinya lewat PAM sebelum menjalankannya. Ini
+  keputusan produk yang disengaja, tapi membuat helper daemon jadi komponen
+  paling sensitif di sistem.
 - **Menu Docker mensyaratkan sudo.** Akses ke `docker.sock` setara root karena
   container bisa mem-bind mount filesystem host.
 - **Menu Components mensyaratkan sudo** — memasang paket mengubah sistem secara

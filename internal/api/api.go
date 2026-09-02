@@ -206,6 +206,7 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/docker/stacks/{id}/env", s.handleStackEnvSet)
 
 			r.Get("/terminal/capacity", s.handleTerminalCapacity)
+			r.Post("/terminal/sessions/reset", s.handleTerminalReset)
 		})
 	})
 

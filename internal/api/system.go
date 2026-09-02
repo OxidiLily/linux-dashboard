@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/shirou/gopsutil/v4/process"
 
+	"linux-dashboard/OxidiLily/internal/helperclient"
 	"linux-dashboard/OxidiLily/internal/helperproto"
 	"linux-dashboard/OxidiLily/internal/platform"
 	"linux-dashboard/OxidiLily/internal/terminal"
@@ -104,6 +105,54 @@ func (s *Server) handleMetricsSnapshot(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTerminalCapacity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.terminals.Capacity())
+}
+
+// handleTerminalReset menutup semua sesi terminal sehingga hitungan sesi
+// kembali 0. Sesi yang tergantung (tab ditutup paksa, jaringan putus di
+// tengah) kalau tidak begini hanya hilang saat helper-nya sendiri menyerah,
+// dan sampai itu terjadi kuota ikut terpakai.
+//
+// Password akun diverifikasi lewat PAM (jalur yang sama dengan login) sebelum
+// satu sesi pun ditutup — menutup shell orang lain bukan aksi yang boleh
+// terjadi hanya karena satu klik nyasar. Password TIDAK pernah ikut ke log.
+func (s *Server) handleTerminalReset(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ip := clientIP(r)
+	key := sess.Username + "|" + ip
+	if ok, retry := s.throttle.allowed(key); !ok {
+		writeJSON(w, http.StatusTooManyRequests, errBody{
+			Error: "Terlalu banyak percobaan. Coba lagi dalam " + retry.Round(time.Second).String(),
+		})
+		return
+	}
+	err := s.helper.Call(helperproto.CmdAuthLogin, sess.Username,
+		helperproto.LoginArgs{Username: sess.Username, Password: body.Password}, nil)
+	if err != nil {
+		// Sama seperti login: hanya `denied` dari PAM yang berarti password
+		// salah. Helper mati dilaporkan apa adanya supaya user tidak mengetik
+		// ulang password yang sebenarnya benar.
+		if helperclient.Code(err) != helperproto.ErrDenied {
+			writeErr(w, http.StatusServiceUnavailable,
+				"Layanan autentikasi tidak tersedia. Cek status linux-dashboard-helper.service.")
+			return
+		}
+		s.throttle.record(key)
+		writeErr(w, http.StatusUnauthorized, "Password salah")
+		return
+	}
+	s.throttle.reset(key)
+
+	n := s.terminals.CloseAll()
+	s.store.LogActivity(sess.Username, "terminal_reset", "hapus semua sesi terminal",
+		map[string]any{"ditutup": n}, ip)
+	writeJSON(w, http.StatusOK, map[string]any{"closed": n})
 }
 
 // ---- processes ----

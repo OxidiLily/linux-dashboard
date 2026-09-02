@@ -98,6 +98,12 @@ export function useTerminalSession({ cmd, aktif = true, labelTutup, onSesi }: Op
         case 1005:
           term.write(`\r\n\x1b[90m[${labelTutup}]\x1b[0m\r\n`)
           break
+        // 4409 = sesi dihapus lewat tombol "Hapus sesi" di halaman Terminal.
+        // Bukan error: penutupannya diminta user sendiri, jadi ditulis sebagai
+        // baris keterangan di terminal, bukan banner merah.
+        case 4409:
+          term.write(`\r\n\x1b[90m[${tr("Sesi terminal dihapus dari panel")}]\x1b[0m\r\n`)
+          break
         case 4401:
           setErr({ kind: "auth", message: tr("Sesi login tidak valid. Muat ulang halaman untuk login ulang.") })
           break

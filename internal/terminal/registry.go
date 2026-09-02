@@ -28,32 +28,57 @@ var ErrFull = errors.New("Sesi terminal penuh, coba lagi nanti")
 
 type Registry struct {
 	mu     sync.Mutex
-	active int
-	max    int
+	nextID int64
+	// sesi: satu entry per sesi terminal aktif. Nilainya kanal yang ditutup
+	// saat sesi dilepas atau dihapus paksa — handler WebSocket menunggu di
+	// kanal itu untuk tahu kapan harus menutup koneksinya sendiri. Jumlah
+	// entry = jumlah sesi aktif, jadi tidak ada penghitung terpisah yang
+	// bisa melenceng dari daftar sesi yang sebenarnya.
+	sesi map[int64]chan struct{}
+	max  int
 }
 
 func NewRegistry() *Registry {
-	return &Registry{max: MaxSessions(runtime.NumCPU())}
+	return &Registry{sesi: map[int64]chan struct{}{}, max: MaxSessions(runtime.NumCPU())}
 }
 
 // Acquire mengambil satu slot sesi. Ditolak eksplisit saat penuh — bukan
-// dibiarkan lewat lalu membebani mesin.
-func (r *Registry) Acquire() error {
+// dibiarkan lewat lalu membebani mesin. Kanal yang dikembalikan ditutup saat
+// sesi dihentikan (Release sendiri atau CloseAll dari panel).
+func (r *Registry) Acquire() (int64, <-chan struct{}, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.active >= r.max {
-		return ErrFull
+	if len(r.sesi) >= r.max {
+		return 0, nil, ErrFull
 	}
-	r.active++
-	return nil
+	r.nextID++
+	stop := make(chan struct{})
+	r.sesi[r.nextID] = stop
+	return r.nextID, stop, nil
 }
 
-func (r *Registry) Release() {
+func (r *Registry) Release(id int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.active > 0 {
-		r.active--
+	if stop, ok := r.sesi[id]; ok {
+		delete(r.sesi, id)
+		close(stop)
 	}
+}
+
+// CloseAll menghentikan semua sesi terminal dan mengembalikan jumlah sesi yang
+// ditutup. Slot dikosongkan lewat kanal stop, bukan dengan menolkan penghitung:
+// sesi yang koneksinya masih hidup harus benar-benar ditutup, kalau tidak
+// angka "0" di panel berbohong soal shell yang sebetulnya masih berjalan.
+func (r *Registry) CloseAll() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := len(r.sesi)
+	for id, stop := range r.sesi {
+		delete(r.sesi, id)
+		close(stop)
+	}
+	return n
 }
 
 type Capacity struct {
@@ -71,7 +96,7 @@ type Capacity struct {
 
 func (r *Registry) Capacity() Capacity {
 	r.mu.Lock()
-	active := r.active
+	active := len(r.sesi)
 	r.mu.Unlock()
 	return Capacity{
 		Active:     active,

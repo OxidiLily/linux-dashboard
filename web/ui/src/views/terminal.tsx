@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useState } from "react"
-import { useTr } from "@/stores/i18n"
-import { apiGet } from "@/lib/api"
+import { trf, useTr } from "@/stores/i18n"
+import { apiGet, apiSend } from "@/lib/api"
 import { Panel } from "@/components/ui/panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { RefreshCw } from "lucide-react"
+import { promptDialog } from "@/components/ui/prompt"
+import { notify } from "@/components/ui/toast"
+import { pesanError } from "@/lib/pesan-error"
+import { useAuth } from "@/stores/auth"
+import { RefreshCw, Trash2 } from "lucide-react"
 import type { TerminalCapacity } from "@/lib/types"
 import { TerminalError, useTerminalSession } from "@/hooks/use-terminal-session"
 
 export function TerminalView() {
   const tr = useTr()
+  const username = useAuth((s) => s.user?.username)
   const [cap, setCap] = useState<TerminalCapacity | null>(null)
 
   // Kapasitas dibaca ulang tiap sesi dibuka/ditutup, bukan sekali saat mount.
@@ -29,6 +34,31 @@ export function TerminalView() {
     onSesi: muatKapasitas,
   })
 
+  // Hapus sesi menutup SEMUA sesi terminal, termasuk yang sedang dibuka tab
+  // ini — hitungan kembali 0. Gunanya untuk sesi yang tergantung (tab ditutup
+  // paksa, jaringan putus) yang masih memakan kuota padahal shell-nya sudah
+  // tidak dipakai siapa pun. Password akun diminta karena aksi ini juga
+  // memutus shell user lain.
+  const hapusSesi = async () => {
+    const sandi = await promptDialog({
+      title: tr("Hapus semua sesi terminal"),
+      label: trf("Password akun {0}", username ?? ""),
+      detail: tr("Semua sesi terminal ditutup, termasuk yang sedang terbuka di tab ini."),
+      confirmLabel: tr("Hapus sesi"),
+      password: true,
+    })
+    if (!sandi) return
+    try {
+      const res = await apiSend<{ closed: number }>("/api/terminal/sessions/reset", "POST", {
+        password: sandi,
+      })
+      notify.ok(trf("{0} sesi terminal ditutup.", String(res.closed)))
+    } catch (e: any) {
+      notify.err(trf("Gagal menghapus sesi: {0}", pesanError(e)))
+    }
+    muatKapasitas()
+  }
+
   return (
     <Panel
       title={tr("Terminal")}
@@ -43,6 +73,15 @@ export function TerminalView() {
               )
             </Badge>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={hapusSesi}
+            title={tr("Hapus semua sesi terminal")}
+            aria-label={tr("Hapus semua sesi terminal")}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
           <Button variant="outline" size="sm" onClick={bukaUlang} title={tr("Buka ulang sesi")}>
             <RefreshCw className="size-3.5" />
           </Button>

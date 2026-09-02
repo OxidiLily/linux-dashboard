@@ -112,7 +112,8 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	// Kuota dicek SEBELUM PTY di-spawn, dan ditolak dengan pesan jelas —
 	// bukan gagal diam-diam atau membiarkan mesin kelebihan beban.
-	if err := s.terminals.Acquire(); err != nil {
+	slot, stop, err := s.terminals.Acquire()
+	if err != nil {
 		if errors.Is(err, terminal.ErrFull) {
 			writeWSError(w, r, 4408, "Kuota sesi terminal penuh")
 			return
@@ -120,13 +121,7 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 		writeWSError(w, r, 4500, err.Error())
 		return
 	}
-	released := false
-	release := func() {
-		if !released {
-			released = true
-			s.terminals.Release()
-		}
-	}
+	release := func() { s.terminals.Release(slot) }
 	defer release()
 
 	cols := uint16(queryInt(r, "cols", 80))
@@ -168,6 +163,16 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+
+	// Sesi dihapus dari panel ("Hapus sesi") → kanal stop ditutup. Koneksi
+	// ditutup dengan kode sendiri supaya browser bisa membedakannya dari
+	// putus koneksi biasa. Release sendiri juga menutup kanal ini, jadi
+	// goroutine-nya selalu selesai saat handler selesai.
+	go func() {
+		<-stop
+		_ = conn.Close(4409, "Sesi terminal dihapus")
+		cancel()
+	}()
 
 	// PTY → browser.
 	go func() {

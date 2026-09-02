@@ -29,6 +29,15 @@ type ComponentStatus = {
   managed_in?: string
 }
 
+// Fase apt dari helper ditulis sebagai kalimat, bukan satu kata teknis:
+// "indeks" sendirian di bawah bar tidak memberi tahu apa pun kepada yang
+// membacanya. Fase yang tidak dikenal ditampilkan apa adanya.
+const ketFase: Record<string, string> = {
+  indeks: "memperbarui daftar paket",
+  unduh: "mengunduh paket",
+  pasang: "memasang paket",
+}
+
 export function ComponentsView() {
   const tr = useTr()
   const [list, setList] = useState<ComponentStatus[]>([])
@@ -41,7 +50,7 @@ export function ComponentsView() {
   // Kemajuan nyata dari apt, bukan hitungan detik. Angka dari stopwatch tidak
   // tahu apa-apa soal isi pekerjaannya: pada mesin lambat atau paket besar ia
   // menjanjikan sesuatu yang tidak ia ketahui.
-  const [progres, setProgres] = useState<{ persen: number; fase?: string } | null>(null)
+  const [progres, setProgres] = useState<{ persen: number; fase?: string; pesan?: string } | null>(null)
   const actionLoading = aksi?.name ?? null
 
   useEffect(() => {
@@ -52,12 +61,15 @@ export function ComponentsView() {
     setProgres(null)
     let batal = false
     const tanya = () => {
-      apiGet<{ name: string; persen: number; fase?: string; aktif: boolean }>("/api/components/progress")
+      apiGet<{ name: string; persen: number; fase?: string; pesan?: string; aktif: boolean }>(
+        "/api/components/progress",
+      )
         .then((p) => {
           if (batal) return
           // Laporan untuk komponen lain diabaikan: instalasi yang baru saja
           // selesai bisa sempat terbaca sebelum state helper dibersihkan.
-          if (p?.aktif && p.name === aksi.name) setProgres({ persen: p.persen, fase: p.fase })
+          if (p?.aktif && p.name === aksi.name)
+            setProgres({ persen: p.persen, fase: p.fase, pesan: p.pesan })
         })
         .catch(() => undefined)
     }
@@ -242,6 +254,14 @@ export function ComponentsView() {
                   const bisaDikontrol = punyaService && !c.managed_in
                   const isActive = c.running
                   const sedangDikerjakan = aksi?.name === c.name
+                  // Keterangan di bawah bar: fase apt kalau ada angkanya,
+                  // kalau tidak pesan langkah dari helper (npm, pipx, skrip
+                  // vendor — jalur yang tidak punya laporan persen).
+                  const ketProgres = sedangDikerjakan
+                    ? progres?.fase
+                      ? ketFase[progres.fase] || progres.fase
+                      : progres?.pesan
+                    : undefined
                   return (
                     <div
                       key={c.name}
@@ -263,8 +283,28 @@ export function ComponentsView() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="num text-sm font-semibold">{c.name}</p>
-                          <Badge tone={isInstalled ? "ok" : c.required_for ? "warn" : "muted"}>
-                            {isInstalled ? tr("Terpasang") : tr("Belum Terpasang")}
+                          {/* Selama aksinya berjalan, status lama tidak
+                              ditampilkan: "Belum Terpasang" di sebelah bar yang
+                              sedang berjalan membuat kartu membantah dirinya
+                              sendiri — pembacanya tidak tahu mana yang benar. */}
+                          <Badge
+                            tone={
+                              sedangDikerjakan
+                                ? "signal"
+                                : isInstalled
+                                  ? "ok"
+                                  : c.required_for
+                                    ? "warn"
+                                    : "muted"
+                            }
+                          >
+                            {sedangDikerjakan
+                              ? aksi?.jenis === "install"
+                                ? tr("Sedang dipasang")
+                                : tr("Sedang diproses")
+                              : isInstalled
+                                ? tr("Terpasang")
+                                : tr("Belum Terpasang")}
                           </Badge>
                           {!isInstalled && c.required_for && (
                             <Badge tone="warn">
@@ -301,32 +341,42 @@ export function ComponentsView() {
                             aria-label={tr("Kemajuan pemasangan")}
                           >
                             <div className="flex items-baseline justify-between gap-2">
-                              <span className="text-xs text-muted-foreground">
-                                {aksi?.jenis === "install" ? tr("Memasang") : tr("Memproses")}
+                              {/* Langkah yang sedang berjalan, bukan kata
+                                  "Memasang" yang sudah diucapkan badge di
+                                  sebelah kiri kartu. Sebelum laporan pertama
+                                  datang, jenis aksinya yang dipakai — kolom ini
+                                  tidak pernah kosong. */}
+                              <span className="truncate text-xs text-muted-foreground">
+                                {ketProgres
+                                  ? tr(ketProgres)
+                                  : aksi?.jenis === "install"
+                                    ? tr("Memasang")
+                                    : tr("Memproses")}
                               </span>
                               {!!progres?.persen && (
-                                <span className="num text-[11px] text-muted-2">{progres.persen}%</span>
+                                <span className="num shrink-0 text-[11px] text-muted-2">
+                                  {progres.persen}%
+                                </span>
                               )}
                             </div>
                             {/* Bar isian, bukan animasi: posisinya menyatakan
                                 sejauh mana pekerjaannya, jadi ia harus diam
-                                kalau memang sudah ada kabar dari apt. Sebelum
-                                laporan pertama datang — skrip vendor yang masih
-                                mengunduh, npm yang belum bicara — bar 0% tidak
-                                bisa dibedakan dari panel yang menggantung, jadi
-                                seluruh jalurnya berdenyut tanpa mengaku tahu
-                                posisi. */}
+                                kalau memang sudah ada kabar dari apt. Tanpa
+                                angka — npm dan skrip vendor tidak melaporkan
+                                persen — yang berjalan hanya sepotong kecil.
+                                Jalur yang terisi penuh terbaca sebagai 100%
+                                yang menggantung, persis kebalikan dari yang
+                                ingin dikatakan. */}
                             <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
                               <div
-                                className={`h-full rounded-full bg-signal transition-[width] duration-500 ease-out ${
-                                  progres?.persen ? "" : "w-full animate-pulse opacity-40"
+                                className={`h-full rounded-full bg-signal ${
+                                  progres?.persen
+                                    ? "transition-[width] duration-500 ease-out"
+                                    : "bar-menunggu"
                                 }`}
                                 style={progres?.persen ? { width: `${progres.persen}%` } : undefined}
                               />
                             </div>
-                            {progres?.fase && (
-                              <p className="mt-0.5 truncate text-[10px] text-muted-2">{tr(progres.fase)}</p>
-                            )}
                           </div>
                         ) : isInstalled ? (
                           <>

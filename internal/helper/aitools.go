@@ -98,6 +98,7 @@ func salinBinary(src, dst string) error {
 // tiap agent butuh flag berbeda. Itu urusan siapkanToolingAgent, yang jalan
 // per-user tepat sebelum sesi agent dibuka.
 func installRTK() error {
+	tahapBaru("menjalankan skrip resmi rtk")
 	script, bersihkan, err := unduhSkrip(
 		"https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh", "rtk-install.sh")
 	if err != nil {
@@ -147,6 +148,7 @@ func installGraphify() error {
 			return err
 		}
 	}
+	tahapBaru("memasang graphify lewat pipx")
 	_, err := runIn("", envPipx(), "pipx", "install", "graphifyy")
 	return err
 }
