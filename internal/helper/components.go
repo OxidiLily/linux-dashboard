@@ -252,6 +252,22 @@ var components = map[string]*component{
 		"mDNS/Bonjour — server dikenali sebagai <hostname>.local di LAN.", "avahi-daemon"),
 		portKomponen{"5353", "udp", "mDNS"}),
 
+	// Technitium dipasang lewat skrip resmi vendor: tidak ada paket .deb-nya,
+	// dan yang diunduh skrip itu bukan cuma servernya — runtime ASP.NET Core
+	// ikut dipasang ke /opt/dotnet.
+	"technitium-dns": denganPort(&component{
+		Name: "technitium-dns", Service: "dns", Category: katBerbagi,
+		Description: "Server DNS lengkap (blocklist, DoH/DoT, cache) — web console di port 5380, login awal admin/admin. Pemasangannya mematikan systemd-resolved.",
+		install:     installTechnitium,
+		uninstall:   uninstallTechnitium,
+		purge:       purgeTechnitium,
+		terpasang:   technitiumTerpasang,
+		version:     versiTechnitium,
+	},
+		portKomponen{"53", "tcp", "DNS"},
+		portKomponen{"53", "udp", "DNS"},
+		portKomponen{"5380", "tcp", "web console"}),
+
 	// Binary yang dicek adalah cupsd, bukan lpstat: lpstat ikut paket
 	// cups-client yang bisa terpasang sendirian di mesin yang justru MENCETAK
 	// ke server lain. Yang dikelola halaman ini adalah servernya.
@@ -314,7 +330,7 @@ func ComponentNames() []string {
 		"docker", "nodejs", "tailscale", "cloudflared", "wireguard", "9router",
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
 		"rtk", "graphify", "ponytail",
-		"samba", "nfs-server", "cifs-utils", "avahi", "print-server", "mergerfs",
+		"samba", "nfs-server", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs",
 		"ufw", "fail2ban",
 		"lm-sensors", "smartmontools", "nvme-cli", "qemu-guest-agent",
 		"htop", "ncdu", "fastfetch", "restic",
@@ -332,6 +348,12 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	}
 	if c.terpasang != nil {
 		st.Installed = c.terpasang()
+		// Tanpa binary di PATH tidak ada yang bisa diprobe `--version`;
+		// komponen yang punya versi membacanya dari berkasnya sendiri, jadi
+		// murah dan tidak perlu ikut cache probe.
+		if st.Installed && c.version != nil {
+			st.Version = c.version()
+		}
 	} else if path, ok := lookBinary(c.Binary); ok {
 		st.Installed = true
 		// Satu kali probe saja: fallback `--version` kedua berarti komponen
@@ -1595,5 +1617,178 @@ func installHermes() error {
 func uninstallHermes() error {
 	_ = os.Remove("/usr/local/bin/hermes")
 	_ = os.RemoveAll("/usr/local/lib/hermes-agent")
+	return nil
+}
+
+// ---- Technitium DNS Server ----------------------------------------------
+//
+// Tidak ada paket .deb-nya: vendor hanya menyediakan install.sh yang mengunduh
+// runtime ASP.NET Core ke /opt/dotnet, mengekstrak servernya, lalu memasang
+// unit dns.service. Skrip yang sama dipakai untuk memperbarui.
+//
+// Efek samping skrip itu yang perlu diketahui sebelum menekan Pasang: ia
+// mematikan systemd-resolved dan menulis ulang /etc/resolv.conf ke 127.0.0.1
+// (cadangan berkas lama disimpan di direktori aplikasinya).
+
+// dirTechnitium: /opt/technitium/dns untuk pemasangan baru, /etc/dns untuk
+// mesin yang sudah memasang versi lama — install.sh memilih yang kedua kalau
+// /etc/dns/config sudah ada. Config selalu di /etc/dns pada dua-duanya.
+var dirTechnitium = []string{"/opt/technitium/dns", "/etc/dns"}
+
+func technitiumTerpasang() bool {
+	for _, d := range dirTechnitium {
+		if _, err := os.Stat(filepath.Join(d, "DnsServerApp.dll")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// versiTechnitium membaca versi dari deps.json milik aplikasinya —
+// `dotnet DnsServerApp.dll --version` berarti menyalakan runtime .NET hanya
+// untuk satu baris teks, dan halaman Components memanggil ini tiap refresh.
+func versiTechnitium() string {
+	for _, d := range dirTechnitium {
+		b, err := os.ReadFile(filepath.Join(d, "DnsServerApp.deps.json"))
+		if err != nil {
+			continue
+		}
+		if v := versiDariDeps(string(b)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// versiDariDeps mengambil versi proyek dari deps.json .NET, yang menuliskan
+// paket akarnya sebagai "<nama>/<versi>". Bukan json.Unmarshal: kuncinya ada
+// di dalam dua peta bersarang yang namanya ikut berubah tiap rilis runtime,
+// jadi memodelkannya berarti memelihara struct yang menua sendiri.
+func versiDariDeps(isi string) string {
+	_, sisa, ok := strings.Cut(isi, `"DnsServerApp/`)
+	if !ok {
+		return ""
+	}
+	v, _, ok := strings.Cut(sisa, `"`)
+	if !ok {
+		return ""
+	}
+	return v
+}
+
+func installTechnitium() error {
+	// Skrip vendor berhenti dengan exit 1 kalau tidak menemukan init yang
+	// dikenalnya — setelah mengunduh runtime .NET ~100 MB. Ditolak di sini
+	// supaya user tidak menunggu unduhan yang sudah pasti berakhir gagal.
+	// Jalur OpenRC milik skrip itu tidak dihitung: panel ini mengendalikan
+	// service lewat systemctl saja, jadi komponennya akan terpasang tanpa
+	// tombol Jalankan/Hentikan yang berfungsi.
+	if hasNoSystemd() {
+		return errInvalid(
+			"mesin ini tidak menjalankan systemd — Technitium DNS butuh unit " +
+				"systemd untuk dijalankan panel (WSL: `wsl --update` lalu restart dengan init)")
+	}
+	script, bersihkan, err := unduhSkrip("https://download.technitium.com/dns/install.sh", "technitium-install.sh")
+	if err != nil {
+		return err
+	}
+	defer bersihkan()
+	tahapBaru("menjalankan skrip resmi Technitium DNS")
+	if err := skripDenganProgres("/bin/sh", script, 2, batasPasang); err != nil {
+		// Skrip vendor menulis kegagalannya ke stdout dan detailnya ke
+		// install.log, jadi yang sampai ke sini cuma "exit status 1" — sebutkan
+		// di mana alasannya bisa dibaca, bukan biarkan user menebak.
+		return errInvalid("skrip Technitium gagal (%v) — detail di %s/install.log", err, dirTechnitium[0])
+	}
+	return nil
+}
+
+// uninstallTechnitium membuang server berikut unitnya, DAN mengembalikan
+// resolusi nama mesin ini.
+//
+// Bagian kedua itu bukan tambahan sopan santun: install.sh mematikan
+// systemd-resolved lalu mengarahkan /etc/resolv.conf ke 127.0.0.1. Mencopot
+// servernya tanpa membatalkan itu meninggalkan mesin yang menanyakan setiap
+// nama ke port 53 yang sudah tidak ada isinya — apt, update panel, dan semua
+// yang lain berhenti bekerja, dengan gejala yang tidak menyerupai penyebabnya.
+//
+// Data server (/etc/dns: zona, blocklist, setelan) sengaja ditinggal, sama
+// seperti komponen lain — hanya dihapus lewat purge kalau user memintanya.
+func uninstallTechnitium() error {
+	_, _ = run("systemctl", "disable", "--now", "dns.service")
+	// Dinyalakan lebih dulu supaya stub-nya sudah ada saat resolv.conf
+	// dikembalikan. Mesin tanpa systemd-resolved (container) cuma gagal di sini.
+	_, _ = run("systemctl", "enable", "--now", "systemd-resolved")
+	pulihkanResolvConf()
+	_ = os.Remove("/etc/systemd/system/dns.service")
+	_, _ = run("systemctl", "daemon-reload")
+	// ponytail: pemasangan lama yang tinggal di /etc/dns cukup kehilangan
+	// DnsServerApp.dll — sisa pustakanya menganggur dan ditimpa lagi kalau
+	// dipasang ulang. Menyapu isinya berarti ikut menghapus config di folder
+	// yang sama.
+	_ = os.Remove(filepath.Join("/etc/dns", "DnsServerApp.dll"))
+	// dns=none di NetworkManager.conf yang ditulis installer tidak dikembalikan:
+	// resolv.conf sudah pulih, dan menyunting balik berkas itu bisa menimpa
+	// setelan yang memang milik admin.
+	return os.RemoveAll("/opt/technitium")
+}
+
+// penandaResolvTechnitium adalah baris pertama /etc/resolv.conf tulisan
+// installer Technitium. Dipakai untuk mengenali berkas buatannya sendiri —
+// di dua tempat yang sama-sama menentukan.
+const penandaResolvTechnitium = "# Generated by Technitium DNS Server Installer"
+
+// pulihkanResolvConf mengembalikan /etc/resolv.conf dari cadangan yang dibuat
+// installer Technitium (`cp -a`, jadi symlink ke stub systemd-resolved tetap
+// berupa symlink). Tanpa cadangan, stub systemd-resolved dipakai kalau ada.
+func pulihkanResolvConf() {
+	// Yang bukan tulisan installer tidak disentuh sama sekali: admin yang
+	// sudah menyetel resolver sendiri setelah memasang Technitium tidak boleh
+	// kehilangan setelan itu gara-gara mencopot komponennya. Berkas yang tidak
+	// terbaca (hilang, symlink menggantung) tetap diperbaiki.
+	if isi, err := os.ReadFile("/etc/resolv.conf"); err == nil &&
+		!strings.Contains(string(isi), penandaResolvTechnitium) {
+		return
+	}
+	for _, d := range dirTechnitium {
+		bak := filepath.Join(d, "resolv.conf.bak")
+		if _, err := os.Lstat(bak); err != nil {
+			continue
+		}
+		// Cadangan yang isinya justru berkas buatan installer dilewati.
+		// Cara resmi memperbarui Technitium adalah menjalankan install.sh
+		// lagi, dan skrip itu menyalin resolv.conf yang sedang berlaku —
+		// yang pada pemasangan kedua sudah berisi "nameserver 127.0.0.1"
+		// tulisannya sendiri. Memulihkannya berarti mengarahkan seluruh
+		// resolusi nama ke server yang baru saja dicopot.
+		if isi, err := os.ReadFile(bak); err == nil &&
+			strings.Contains(string(isi), penandaResolvTechnitium) {
+			continue
+		}
+		// Tanpa menghapus lebih dulu: `cp -a` menimpa berkas yang sudah ada,
+		// termasuk saat cadangannya berupa symlink. Menghapus duluan hanya
+		// membuka jeda dengan mesin yang sama sekali tidak punya resolv.conf
+		// kalau salinannya gagal.
+		if _, err := run("cp", "-a", bak, "/etc/resolv.conf"); err == nil {
+			return
+		}
+	}
+	const stub = "/run/systemd/resolve/stub-resolv.conf"
+	if _, err := os.Stat(stub); err != nil {
+		return
+	}
+	_ = os.Remove("/etc/resolv.conf")
+	_ = os.Symlink(stub, "/etc/resolv.conf")
+}
+
+// purgeTechnitium menghapus yang dibuat server ini sendiri: config, zona,
+// blocklist, riwayat, log, dan akun sistem yang memilikinya.
+func purgeTechnitium() error {
+	for _, p := range []string{"/etc/dns", "/var/log/technitium"} {
+		if err := os.RemoveAll(p); err != nil {
+			return err
+		}
+	}
+	_, _ = run("userdel", "dns-server")
 	return nil
 }

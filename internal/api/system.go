@@ -37,16 +37,18 @@ func (s *Server) handleHostname(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleOpenURL adalah endpoint diagnostik yang mengembalikan URL absolut
-// untuk komponen 9router (default http://<hostname>:20128). Dipakai tombol
-// "Buka 9router" di halaman Components — tanpa ini user harus mengingat
-// port dan mengetik manual, yang sering salah di WSL/lxc yang tidak punya
-// hostname tetap.
+// untuk komponen yang punya antarmuka web sendiri — 9router (:20128) dan
+// Technitium DNS (:5380). Dipakai tombol "Buka" di halaman Components — tanpa
+// ini user harus mengingat port dan mengetik manual, yang sering salah di
+// WSL/lxc yang tidak punya hostname tetap.
 func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	component := chi.URLParam(r, "name")
 	var port int
 	switch component {
 	case "9router":
 		port = 20128
+	case "technitium-dns":
+		port = 5380
 	default:
 		writeErr(w, http.StatusNotFound, "tidak ada URL langsung untuk komponen "+component)
 		return
@@ -74,8 +76,9 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	// (self-signed cert), tapi 9router adalah plain HTTP — kalau pakai
 	// scheme panel, browser dapat "ERR_SSL_PROTOCOL_ERROR" atau
 	// "invalid response" karena 9router tidak berbicara TLS. Selalu
-	// pakai http untuk 9router; tambahkan kasus khusus untuk komponen
-	// lain yang mungkin mendukung HTTPS.
+	// pakai http di sini — konsol web Technitium juga melayani plain HTTP
+	// di 5380 (HTTPS-nya ada di port lain, 53443, dengan cert sendiri).
+	// Tambahkan kasus khusus kalau ada komponen yang hanya bicara HTTPS.
 	scheme := "http"
 	portStr := strconv.Itoa(port)
 	writeJSON(w, http.StatusOK, map[string]string{

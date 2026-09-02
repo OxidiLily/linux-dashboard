@@ -84,7 +84,7 @@ dipasang/dicopot dari panel:
 |---|---|
 | Runtime & tunnel | docker · nodejs · tailscale · cloudflared · wireguard |
 | AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail |
-| Berbagi file & jaringan | samba · nfs-server · cifs-utils · avahi · print-server · mergerfs |
+| Berbagi file & jaringan | samba · nfs-server · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
 | Keamanan | ufw · fail2ban |
 | Monitoring & disk | lm-sensors · smartmontools · nvme-cli · qemu-guest-agent |
 | Utilitas | htop · ncdu · fastfetch · restic |

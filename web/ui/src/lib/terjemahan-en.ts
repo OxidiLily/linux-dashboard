@@ -80,6 +80,8 @@ daftarkanTerjemahan({
   "VPN peer-to-peer, dikonfigurasi di Settings → Network.":
     "Peer-to-peer VPN, configured in Settings → Network.",
   "Gateway API AI lokal (butuh Node.js).": "Local AI API gateway (requires Node.js).",
+  "Server DNS lengkap (blocklist, DoH/DoT, cache) — web console di port 5380, login awal admin/admin. Pemasangannya mematikan systemd-resolved.":
+    "Full DNS server (blocklists, DoH/DoT, caching) — web console on port 5380, first login admin/admin. Installing it disables systemd-resolved.",
   "Server file sharing SMB/CIFS. Halaman File manager → Samba butuh ini.":
     "SMB/CIFS file sharing server. Required by File manager → Samba.",
   "Server NFS untuk klien Linux/Unix.": "NFS server for Linux/Unix clients.",
@@ -674,8 +676,8 @@ daftarkanTerjemahan({
   "Buka": "Open",
   "Sesi di server mungkin masih aktif — periksa koneksi lalu muat ulang halaman.":
     "The session on the server may still be active — check your connection and reload the page.",
-  "Buka antarmuka 9router di tab baru": "Open 9router interface in a new tab",
-  "Tidak bisa membuka 9router: {0}": "Could not open 9router: {0}",
+  "Buka antarmuka {0} di tab baru": "Open the {0} interface in a new tab",
+  "Tidak bisa membuka {0}: {1}": "Could not open {0}: {1}",
 
   // ---- AI → AI Agent ----
   "AI Agent": "AI Agent",
@@ -880,6 +882,8 @@ daftarkanTerjemahan({
     "Panel database, session key, and update work files removed",
   "Akun sistem linux-dashboard dihapus": "The linux-dashboard system account is removed",
   "Hapus total (termasuk components)": "Remove everything (components included)",
+  "Server DNS Technitium ikut dicopot — zona, blocklist, dan setelannya hilang; resolusi nama mesin dikembalikan ke systemd-resolved":
+    "The Technitium DNS server is removed too — its zones, blocklists, and settings are gone; name resolution goes back to systemd-resolved",
   "SEMUA components yang bisa dipasang panel dicopot, termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI":
     "EVERY component the panel can install is removed, including Docker, Node.js, Tailscale, cloudflared, and the AI tools",
   "Token tunnel cloudflared dan data component (mis. password 9router) ikut dihapus":
@@ -975,6 +979,7 @@ daftarkanTerjemahan({
   "memasang runtime Node.js": "installing the Node.js runtime",
   "mengunduh dan memasang paket npm": "downloading and installing the npm package",
   "menjalankan skrip resmi Tailscale": "running the official Tailscale script",
+  "menjalankan skrip resmi Technitium DNS": "running the official Technitium DNS script",
   "menjalankan skrip resmi Hermes": "running the official Hermes script",
   "menjalankan skrip resmi rtk": "running the official rtk script",
   "memasang graphify lewat pipx": "installing graphify with pipx",

@@ -183,17 +183,22 @@ export function ComponentsView() {
     }
   }
 
-  // buka9Router membuka tab baru ke URL yang dikembalikan server. Pakai
+  // Komponen yang punya antarmuka web sendiri — tombol "Buka" muncul di
+  // kartunya. Portnya ada di backend (handleOpenURL), bukan di sini: yang
+  // perlu diketahui halaman ini cuma komponen mana yang punya halaman.
+  const punyaUIWeb = ["9router", "technitium-dns"]
+
+  // bukaUIWeb membuka tab baru ke URL yang dikembalikan server. Pakai
   // endpoint (bukan hard-code "http://localhost:20128") supaya WSL/lxc
   // yang hostname-nya bukan "localhost" tetap mendapat tautan yang benar
   // — menjalankan langsung `window.open("http://localhost:20128")` di
   // WSL akan membuka localhost di Windows, bukan di distro-nya.
-  const buka9Router = async () => {
+  const bukaUIWeb = async (name: string) => {
     try {
-      const r = await apiGet<{ url: string }>("/api/open-url/9router")
+      const r = await apiGet<{ url: string }>(`/api/open-url/${name}`)
       window.open(r.url, "_blank", "noopener,noreferrer")
     } catch (e: any) {
-      notify.err(trf("Tidak bisa membuka 9router: {0}", pesanError(e)))
+      notify.err(trf("Tidak bisa membuka {0}: {1}", name, pesanError(e)))
     }
   }
 
@@ -395,13 +400,13 @@ export function ComponentsView() {
                                 {trf("Dijalankan dari {0}", tr(c.managed_in))}
                               </span>
                             )}
-                            {c.name === "9router" && (
+                            {punyaUIWeb.includes(c.name) && (
                               <Button
                                 variant="outline"
                                 size="sm"
                                 disabled={actionLoading !== null}
-                                onClick={() => buka9Router()}
-                                title={tr("Buka antarmuka 9router di tab baru")}
+                                onClick={() => bukaUIWeb(c.name)}
+                                title={trf("Buka antarmuka {0} di tab baru", c.name)}
                               >
                                 <ExternalLink className="mr-1 size-3.5" /> {tr("Buka")}
                               </Button>
