@@ -793,6 +793,8 @@ daftarkanTerjemahan({
     "Installed version unreadable — the source is not on this machine yet.",
   "Ada versi baru di GitHub: {0}": "A newer version is on GitHub: {0}",
   "Sudah versi terbaru.": "Already up to date.",
+  "Versi di GitHub tidak terbaca — cek koneksi mesin ini ke github.com.":
+    "The GitHub version could not be read — check this machine's connection to github.com.",
   "Belum ada pembaruan yang dijalankan di mesin ini.":
     "No update has been run on this machine yet.",
   "Jalankan pembaruan panel?": "Run the panel update?",
