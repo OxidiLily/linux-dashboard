@@ -1144,7 +1144,7 @@ func installTailscale() error {
 	// Seluruh pemasangan Tailscale terjadi di dalam skrip ini — tanpa membaca
 	// apt yang dipanggilnya, bar berhenti di 0% sampai instalasinya tiba-tiba
 	// selesai.
-	setProgres(2, "indeks", "menjalankan skrip resmi Tailscale")
+	tahapBaru("menjalankan skrip resmi Tailscale")
 	return skripDenganProgres("/bin/sh", script, 2, batasPasang)
 }
 
@@ -1519,6 +1519,11 @@ func hasNoSystemd() bool {
 
 func npmInstallGlobal(pkg string) error {
 	if _, err := exec.LookPath("npm"); err != nil {
+		// npm tidak punya status-fd seperti apt, jadi kemajuannya tidak bisa
+		// dijadikan angka. Yang tetap bisa dilaporkan jujur adalah langkah
+		// mana yang sedang berjalan — tanpa ini kartu komponen menunggu
+		// berpuluh detik tanpa satu pun keterangan.
+		setProgres(0, "", "memasang runtime Node.js")
 		if err := installNode(); err != nil {
 			return err
 		}
@@ -1538,6 +1543,7 @@ func npmInstallGlobal(pkg string) error {
 	// Dua flag lainnya menutup penyebab lama yang masih mungkin ada di npmrc
 	// warisan image: omit=optional (binary per-platform tidak diunduh) dan
 	// ignore-scripts=true (postinstall dimatikan menyeluruh).
+	tahapBaru("mengunduh dan memasang paket npm")
 	_, err := run("npm", "install", "-g",
 		"--allow-scripts="+pkg, "--include=optional", "--ignore-scripts=false", pkg)
 	return err
@@ -1580,6 +1586,7 @@ func npmUninstallGlobal(pkg string) error {
 }
 
 func installHermes() error {
+	tahapBaru("menjalankan skrip resmi Hermes")
 	cmd := exec.Command("bash", "-c", "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-setup")
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	return cmd.Run()

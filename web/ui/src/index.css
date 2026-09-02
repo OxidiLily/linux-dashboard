@@ -208,6 +208,31 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Bar kemajuan tanpa angka (npm, pipx, skrip vendor yang tidak melapor):
+     sepotong isian yang berjalan menyeberang. Jalur penuh yang berdenyut —
+     bentuk sebelumnya — terbaca sebagai pekerjaan 100% yang menggantung. */
+  .bar-menunggu {
+    width: 35%;
+    animation: bar-menunggu 1.5s ease-in-out infinite;
+  }
+
+  /* Gerak yang tidak diminta dimatikan untuk yang memilih begitu; potongan
+     bar tetap terlihat sebagai tanda pekerjaan yang belum berangka. */
+  @media (prefers-reduced-motion: reduce) {
+    .bar-menunggu {
+      animation: none;
+    }
+  }
+
+  @keyframes bar-menunggu {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(285%);
+    }
+  }
+
   /* Label metrik di card: uppercase, tracking lebar, muted. */
   .eyebrow {
     font-size: 0.6875rem;

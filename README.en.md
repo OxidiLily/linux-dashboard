@@ -100,9 +100,12 @@ numbers come from apt itself (`APT::Status-Fd`), not from a stopwatch: index
 0–10%, download 10–55%, install 55–99%, and the number never goes backwards.
 Vendor install scripts are read too: the apt they invoke writes to the same fd
 via `APT_CONFIG`, so Tailscale gets real numbers as well. Until the first
-report arrives — npm installers, or a script still fetching its own files —
-the bar pulses without a number instead of sitting at a zero that is
-indistinguishable from a hung panel.
+report arrives — npm installers, or a script still fetching its own files — a
+small filled segment travels across the track and the caption names the step
+being run ("downloading and installing the npm package"). A track filled edge
+to edge is deliberately avoided: it reads as work stuck at 100%. While the
+action runs the card's badge reads "Installing", never "Not Installed" sitting
+next to a bar that is clearly moving.
 
 **Removing a component** offers a "delete its data too" checkbox, but only for
 components that actually store something outside their package (flagged
@@ -339,7 +342,7 @@ internal/api          REST handlers + WebSocket
 internal/metrics      gopsutil collector + multi-vendor GPU detection
 internal/platform     OS/kernel/platform detection (14 scenarios)
 internal/store        SQLite: sessions, logs, bookmarks, thresholds, stacks
-internal/terminal     terminal session quota based on the core count
+internal/terminal     terminal session quota + live session list, based on the core count
 internal/config       configuration from the environment
 web/embed.go          go:embed of the React build output
 web/ui                frontend sources (React TSX + Vite + Tailwind v4)
@@ -463,7 +466,9 @@ defaults.
 - **The web terminal** is equivalent to full SSH access through a browser, limited
   purely by the Unix permissions of the logged-in account. This is a deliberate
   product decision, but it makes the helper daemon the most sensitive component in
-  the system.
+  the system. The **Clear sessions** button in the Terminal header closes every
+  session at once (other users' included), so the panel asks for the account
+  password and verifies it through PAM before running it.
 - **The Docker menu requires sudo.** Access to `docker.sock` is equivalent to root
   because a container can bind-mount the host filesystem.
 - **The Components menu requires sudo** — installing packages changes the system

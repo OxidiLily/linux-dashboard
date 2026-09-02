@@ -32,8 +32,12 @@ var progres struct {
 func mulaiProgres(nama string) {
 	progres.Lock()
 	defer progres.Unlock()
+	// Fase sengaja kosong: sebelum ada laporan pertama, panel belum tahu
+	// pemasangan ini lewat apt atau bukan. Menebak "indeks" membuat kartu
+	// 9router — yang dipasang lewat npm dan tidak pernah menyentuh daftar
+	// paket — mengaku sedang memperbarui indeks selama satu menit penuh.
 	progres.ComponentProgress = helperproto.ComponentProgress{
-		Name: nama, Aktif: true, Persen: 0, Fase: "indeks",
+		Name: nama, Aktif: true, Persen: 0, Pesan: "menyiapkan pemasangan",
 	}
 }
 
@@ -59,6 +63,21 @@ func setProgres(persen int, fase, pesan string) {
 		progres.Fase = fase
 	}
 	progres.Pesan = pesan
+}
+
+// tahapBaru memulai tahap yang angkanya tidak bisa dibaca panel — npm, pipx,
+// skrip vendor yang diam. Persennya dikembalikan ke nol supaya bar kembali ke
+// bentuk "belum tahu posisi", bukan bertahan di 99% sisa tahap sebelumnya:
+// prasyarat apt (mis. Node.js untuk 9router) sudah menghabiskan seluruh
+// rentang, dan bar penuh yang masih berdetak lebih menyesatkan daripada bar
+// yang jujur mengaku tidak tahu.
+func tahapBaru(pesan string) {
+	progres.Lock()
+	defer progres.Unlock()
+	if !progres.Aktif {
+		return
+	}
+	progres.Persen, progres.Fase, progres.Pesan = 0, "", pesan
 }
 
 func ambilProgres() helperproto.ComponentProgress {
