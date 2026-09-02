@@ -53,7 +53,21 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
           `/api/settings/update${cek ? "?cek=1&rinci=1" : ""}`,
         )
         if (!hidup) return
-        setSt(data)
+        // Polling log TIDAK memakai cek=1, jadi jawabannya tidak memuat versi
+        // remote maupun daftar perubahan. Ditimpa mentah-mentah, keterangan
+        // "Ada versi baru" dan daftar commit-nya lenyap 1,5 detik setelah modal
+        // dibuka — sisanya cuma "Terpasang: …" tanpa penjelasan apa pun.
+        setSt((prev) =>
+          cek || !prev
+            ? data
+            : {
+                ...data,
+                remote: prev.remote,
+                tertinggal: prev.tertinggal,
+                perubahan: prev.perubahan,
+                perubahan_pasti: prev.perubahan_pasti,
+              },
+        )
         setTerputus(false)
         berjalan.current = data.running
         // Sinkronkan ke store bersama — dipakai AppShell untuk memutar
@@ -140,11 +154,16 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
                   ? trf("Terpasang: {0}", st.lokal)
                   : tr("Versi terpasang tidak terbaca — sumber belum ada di mesin ini.")}
             </p>
-            {!!st?.remote && (
+            {!memuat && !!st && (
               <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {st.tertinggal
-                  ? trf("Ada versi baru di GitHub: {0}", st.remote)
-                  : tr("Sudah versi terbaru.")}
+                {/* Remote kosong = `git ls-remote` gagal. Dibiarkan tanpa baris
+                    sama sekali, modal jadi diam soal satu-satunya hal yang
+                    dicarinya: apakah ada versi baru. */}
+                {!st.remote
+                  ? tr("Versi di GitHub tidak terbaca — cek koneksi mesin ini ke github.com.")
+                  : st.tertinggal
+                    ? trf("Ada versi baru di GitHub: {0}", st.remote)
+                    : tr("Sudah versi terbaru.")}
               </p>
             )}
           </div>

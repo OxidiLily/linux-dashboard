@@ -60,7 +60,12 @@ func updateStatus(args helperproto.UpdateArgs) helperproto.UpdateStatus {
 		st.Log = ekorLog(b)
 	}
 
-	if !st.Running {
+	// Hasil unit hanya berarti kalau pembaruan memang pernah dijalankan di mesin
+	// ini. Untuk unit yang tidak pernah ada, `systemctl show -p Result` tetap
+	// menjawab "success" — dibaca mentah, UI jadi mengaku "pembaruan selesai"
+	// padahal log-nya kosong. Log ditulis di langkah pertama updateStart, jadi
+	// keberadaannya yang menentukan apakah ada hasil untuk dilaporkan.
+	if !st.Running && st.Log != "" {
 		if res, err := run("systemctl", "show", "-p", "Result", "--value", updateUnit); err == nil {
 			st.Result = strings.TrimSpace(res.Stdout)
 		}
