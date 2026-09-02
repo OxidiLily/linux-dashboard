@@ -1060,6 +1060,21 @@ var dockerPaket = []string{
 // docker.io tertinggal beberapa rilis dan tidak membawa plugin compose v2,
 // padahal halaman System → Docker memanggil `docker compose`.
 func installDocker() error {
+	// Langkah pertama docs.docker.com/engine/install: buang paket lama.
+	// Bukan formalitas — `docker-ce` dan `docker-ce-cli` menyatakan
+	// `Conflicts: docker.io` TANPA `Replaces`, jadi apt tidak bisa
+	// menyelesaikannya sendiri dan install gagal total di mesin yang pernah
+	// memasang docker.io (perintah yang disebut hampir semua tutorial).
+	// `podman-docker` memasang /usr/bin/docker sendiri sehingga bentrok
+	// berkas dengan docker-ce-cli.
+	//
+	// Daftarnya lebih pendek daripada di dokumentasi: containerd dan runc
+	// sengaja tidak dibuang karena `containerd.io` punya `Replaces` untuk
+	// keduanya, jadi apt menggantinya sendiri — sementara membuang paksa bisa
+	// menjatuhkan runtime lain (k3s, podman) yang memakainya.
+	if err := aptRemoveTerpasang("docker.io", "docker-cli", "podman-docker"); err != nil {
+		return err
+	}
 	id, codename, err := distroAPT()
 	if err != nil {
 		return err
