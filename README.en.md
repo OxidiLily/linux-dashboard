@@ -87,7 +87,7 @@ install, installable and removable from the panel:
 |---|---|
 | Runtime & tunnel | docker · nodejs · tailscale · cloudflared · wireguard |
 | AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail |
-| File sharing & network | samba · nfs-server · cifs-utils · avahi · print-server · mergerfs |
+| File sharing & network | samba · nfs-server · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
 | Security | ufw · fail2ban |
 | Monitoring & disk | lm-sensors · smartmontools · nvme-cli · qemu-guest-agent |
 | Utilities | htop · ncdu · fastfetch · restic |
