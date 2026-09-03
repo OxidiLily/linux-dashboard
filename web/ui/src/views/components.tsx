@@ -326,12 +326,15 @@ export function ComponentsView() {
                         {c.description && (
                           <p className="mt-0.5 text-xs text-muted-foreground">{tr(c.description)}</p>
                         )}
-                        {/* Kredensial awal ditulis apa adanya (tanpa tr):
-                            isinya password yang dibuat panel, bukan kalimat
-                            tetap yang bisa diterjemahkan. */}
+                        {/* Sebagian catatan adalah kalimat tetap (mis. syarat
+                            logout setelah masuk grup docker) dan diterjemahkan;
+                            sebagian lagi isinya kredensial awal buatan panel
+                            yang memang tidak punya terjemahan. tr() melayani
+                            keduanya: kunci yang tidak ada di kamus dikembalikan
+                            apa adanya. */}
                         {c.note && (
                           <p className="num mt-1 rounded bg-surface-2 px-2 py-1 text-[11px] text-foreground">
-                            {c.note}
+                            {tr(c.note)}
                           </p>
                         )}
                       </div>
