@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { formatBytes, formatWaktu } from "@/lib/format"
+import { salinKeClipboard } from "@/lib/utils"
 import {
   Folder,
   File,
@@ -403,6 +404,17 @@ export function FileManagerView() {
       notify.ok(tr("Bookmark disimpan."))
     } catch (e: any) {
       notify.err(trf("Gagal menyimpan bookmark: {0}", pesanError(e)))
+    }
+  }
+
+  // Kegagalan dilaporkan, bukan didiamkan: tombol salin yang tidak berbunyi
+  // apa-apa membuat user menempel path lama tanpa sadar. Lihat catatan di
+  // salinKeClipboard soal kenapa jalur cadangan wajib ada di panel http.
+  const salinPath = async (path: string) => {
+    if (await salinKeClipboard(path)) {
+      notify.ok(tr("Path disalin"), path)
+    } else {
+      notify.err(tr("Gagal menyalin path"), path)
     }
   }
 
@@ -1080,11 +1092,27 @@ export function FileManagerView() {
       {previewContent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="flex max-h-[85dvh] w-full max-w-3xl flex-col rounded-lg border border-border bg-surface p-4 shadow-xl">
-            <div className="flex items-center justify-between border-b border-border pb-2">
-              <p className="font-semibold text-sm truncate">{previewContent.path}</p>
-              <Button variant="ghost" size="sm" onClick={() => setPreviewContent(null)}>
-                {tr("Tutup")}
-              </Button>
+            <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
+              {/* title= supaya path yang ter-truncate tetap bisa dibaca utuh
+                  lewat hover — tombol salin mengambil path LENGKAP, bukan
+                  teks terpotong yang terlihat di layar. */}
+              <p className="font-semibold text-sm truncate" title={previewContent.path}>
+                {previewContent.path}
+              </p>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title={tr("Salin path berkas")}
+                  aria-label={tr("Salin path berkas")}
+                  onClick={() => void salinPath(previewContent.path)}
+                >
+                  <CopyIcon className="size-3.5" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setPreviewContent(null)}>
+                  {tr("Tutup")}
+                </Button>
+              </div>
             </div>
             <div className="mt-3 flex-1 overflow-auto">
               {previewContent.isImg ? (
