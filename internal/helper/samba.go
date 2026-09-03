@@ -472,18 +472,77 @@ func sambaUserDelete(username string) error {
 const (
 	sambaTandaGlobal = "# ---- linux-dashboard: audit autentikasi (untuk fail2ban) ----"
 	sambaBackupConf  = sambaMainConf + ".lindash.bak"
+
+	sambaBarisMapToGuest = "   map to guest = Bad User"
+	// Persis seperti yang ditulis versi panel terdahulu — dicocokkan apa
+	// adanya supaya baris milik admin yang kebetulan bernilai sama tidak
+	// ikut tersentuh.
+	sambaBarisMapToGuestLama = "   map to guest = Never"
 )
+
+// perbaikiMapToGuestLama mengganti satu baris `map to guest = Never` yang
+// pernah ditulis panel di dalam bloknya sendiri. Dijalankan tiap kali blok
+// sudah ada, jadi server yang terlanjur dipatch versi lama ikut sembuh tanpa
+// perlu admin menghapus bloknya dengan tangan.
+func perbaikiMapToGuestLama(isi string, asli []byte) error {
+	baris := strings.Split(isi, "\n")
+	tandaKetemu := false
+	diubah := false
+	for i, l := range baris {
+		if strings.Contains(l, sambaTandaGlobal) {
+			tandaKetemu = true
+			continue
+		}
+		if !tandaKetemu {
+			continue
+		}
+		// Berhenti di header section berikutnya: baris serupa di section lain
+		// bukan milik panel.
+		if t := strings.TrimSpace(l); strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+			break
+		}
+		if l == sambaBarisMapToGuestLama {
+			baris[i] = sambaBarisMapToGuest
+			diubah = true
+			break
+		}
+	}
+	if !diubah {
+		return nil
+	}
+	if err := os.WriteFile(sambaMainConf, []byte(strings.Join(baris, "\n")), 0o644); err != nil {
+		return err
+	}
+	if _, err := run("testparm", "-s"); err != nil {
+		_ = os.WriteFile(sambaMainConf, asli, 0o644)
+		return errInvalid("konfigurasi Samba ditolak setelah perbaikan map to guest: %v", err)
+	}
+	_, err := run("systemctl", "restart", "smbd")
+	return err
+}
 
 // pastikanGlobalAuditSamba menyiapkan [global] supaya kegagalan login Samba
 // benar-benar tercatat dan bisa dibaca fail2ban. Dua setelan dibutuhkan:
 //
-//   - map to guest = Never. Bawaan Ubuntu "Bad User" membuat username yang
-//     tidak dikenal TIDAK ditolak, melainkan dipetakan diam-diam ke akun guest.
-//     Akibatnya tidak ada satu pun baris NT_STATUS_LOGON_FAILURE di log —
-//     percobaan login yang gagal terlihat sebagai sesi guest yang sukses, lalu
-//     mati belakangan sebagai "permission denied" saat menyentuh folder. Tanpa
-//     ini fail2ban tidak punya apa pun untuk dicocokkan dan brute force lewat
-//     begitu saja.
+//   - map to guest = Bad User. Nilai ini menentukan apa yang terjadi pada
+//     username yang tidak dikenal: "Bad User" memetakannya ke akun guest,
+//     "Never" menolaknya.
+//
+//     Versi pertama blok ini memakai Never, dengan alasan yang benar tapi
+//     akibat yang tidak diperiksa: percobaan login memang jadi tercatat
+//     sebagai NT_STATUS_LOGON_FAILURE, TAPI share "guest ok = yes" berhenti
+//     bekerja sama sekali. Klien yang menyambung tanpa kredensial datang
+//     sebagai sesi anonim, dan Never menolaknya — Windows lalu menampilkan
+//     kotak minta username/password untuk share yang justru dibuat supaya
+//     tidak perlu login. Satu setelan audit mematikan satu fitur produk.
+//
+//     Bad User mengembalikan guest tanpa membuat fail2ban buta: brute force
+//     nyata menyasar akun yang ADA (root, admin, nama user server), dan untuk
+//     username yang dikenal dengan password salah Samba tetap menolak dan
+//     tetap mencetak NT_STATUS_LOGON_FAILURE. Yang lolos dari catatan hanya
+//     percobaan dengan username yang tidak ada sama sekali — dan itu memang
+//     tidak bisa menembus apa pun selain share yang sengaja dibuka untuk
+//     umum.
 //   - log level = 0 auth_audit:3. Level umum tetap 0 supaya log tidak
 //     membengkak; hanya kelas auth_audit yang dinaikkan, dan itulah yang
 //     mencetak baris "Auth: ... status [NT_STATUS_...] ... remote host [...]".
@@ -503,8 +562,14 @@ func pastikanGlobalAuditSamba() error {
 	// Sudah pernah disiapkan. Tidak ditulis ulang: kalau admin mengubah atau
 	// membuang bloknya, itu keputusannya, bukan sesuatu yang panel pulihkan
 	// diam-diam di belakangnya.
+	//
+	// Satu pengecualian: `map to guest = Never` yang ditulis versi panel
+	// terdahulu. Itu bukan keputusan admin melainkan bug panel, dan selama
+	// baris itu ada tidak ada satu pun share guest yang bisa dipakai. Yang
+	// diperbaiki hanya baris itu, hanya kalau masih persis seperti yang
+	// dulu ditulis panel sendiri.
 	if strings.Contains(isi, sambaTandaGlobal) {
-		return nil
+		return perbaikiMapToGuestLama(isi, b)
 	}
 	// Cadangan dibuat sekali saja, sebelum perubahan pertama — kalau ditimpa
 	// setiap kali, cadangannya justru ikut berisi perubahan panel dan tidak
@@ -520,7 +585,7 @@ func pastikanGlobalAuditSamba() error {
 		sambaTandaGlobal,
 		"# Dibaca jail fail2ban \"samba\". Hapus blok ini untuk mengembalikan",
 		"# perilaku bawaan; baris asli di atas tidak pernah diubah.",
-		"   map to guest = Never",
+		sambaBarisMapToGuest,
 		"   log level = 0 auth_audit:3",
 		"",
 	}

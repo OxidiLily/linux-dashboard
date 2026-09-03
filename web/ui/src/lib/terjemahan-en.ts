@@ -127,6 +127,12 @@ daftarkanTerjemahan({
   "Username Linux": "Linux username",
   "Password Samba": "Samba password",
   "Belum ada Samba share yang dikonfigurasi.": "No Samba share configured yet.",
+  "Windows 10/11 memblokir akses guest secara bawaan":
+    "Windows 10/11 blocks guest access by default",
+  "Share ini akan bekerja dari Linux, macOS, dan Android, tapi Windows menolak login guest lewat SMB2/SMB3 sejak versi 1709 — bukan karena servernya salah. Dua pilihan: beri user Samba dan password lalu matikan Guest OK (dianjurkan), atau longgarkan kebijakan di PC Windows-nya.":
+    "This share will work from Linux, macOS, and Android, but Windows has refused guest logons over SMB2/SMB3 since version 1709 — the server is not at fault. Two options: give it a Samba user and password and turn Guest OK off (recommended), or relax the policy on the Windows PC.",
+  "Di PC Windows, jalankan PowerShell sebagai Administrator:":
+    "On the Windows PC, run PowerShell as Administrator:",
 
   // ---- storage: pool & nfs ----
   "Gabungkan beberapa folder/disk jadi satu mount point (mergerfs)":
