@@ -22,6 +22,32 @@ type LinuxUser = {
   locked: boolean
 }
 
+// Grup yang memberi akses setara root. Selalu ditampilkan dan tidak pernah
+// ikut terpotong: `sudo` sudah jelas, dan siapa pun di `docker` bisa
+// menjalankan container yang mem-bind mount `/` host.
+const GRUP_ISTIMEWA = ["sudo", "docker"]
+const MAKS_GRUP_BIASA = 3
+
+/**
+ * badgeGrup memisahkan grup jadi tiga bagian supaya kolom "Grup / Status"
+ * tidak pernah menyembunyikan sesuatu tanpa memberi tahu.
+ *
+ * Sebelumnya kolom itu menampilkan `groups.slice(0, 3)` begitu saja. Akun
+ * dengan delapan grup hanya memperlihatkan tiga yang pertama, tanpa satu pun
+ * tanda ada yang dipotong — jadi grup yang justru paling ingin dipastikan
+ * (`docker`, yang urutannya di belakang) tidak terlihat, dan layar ini
+ * terbaca sebagai "user tidak ada di grup itu" padahal sebenarnya ada.
+ */
+function badgeGrup(groups: string[] = []) {
+  const istimewa = GRUP_ISTIMEWA.filter((g) => groups.includes(g))
+  const sisa = groups.filter((g) => !GRUP_ISTIMEWA.includes(g))
+  return {
+    istimewa,
+    tampil: sisa.slice(0, MAKS_GRUP_BIASA),
+    tersembunyi: sisa.slice(MAKS_GRUP_BIASA),
+  }
+}
+
 export function AccountView() {
   const tr = useTr()
   const currentUser = useAuth((s) => s.user)
@@ -276,11 +302,25 @@ export function AccountView() {
                     <td data-label={tr("Shell")} className="num py-2.5 text-muted-foreground">{u.shell}</td>
                     <td data-label={tr("Grup / Status")} className="py-2.5">
                       <div className="flex flex-wrap gap-1">
-                        {u.groups?.includes("sudo") && <Badge tone="ok">sudo</Badge>}
-                        {u.locked && <Badge tone="crit">locked</Badge>}
-                        {u.groups.slice(0, 3).map((g) => (
-                          <Badge key={g} tone="muted">{g}</Badge>
-                        ))}
+                        {(() => {
+                          const g = badgeGrup(u.groups)
+                          return (
+                            <>
+                              {g.istimewa.map((n) => (
+                                <Badge key={n} tone="ok">{n}</Badge>
+                              ))}
+                              {u.locked && <Badge tone="crit">locked</Badge>}
+                              {g.tampil.map((n) => (
+                                <Badge key={n} tone="muted">{n}</Badge>
+                              ))}
+                              {g.tersembunyi.length > 0 && (
+                                <Badge tone="muted" title={g.tersembunyi.join(", ")}>
+                                  +{g.tersembunyi.length}
+                                </Badge>
+                              )}
+                            </>
+                          )
+                        })()}
                       </div>
                     </td>
                     <td data-label="" className="py-2.5 text-right">
