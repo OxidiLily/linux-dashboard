@@ -9,11 +9,13 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	"linux-dashboard/OxidiLily/internal/helperclient"
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
 
@@ -681,6 +683,88 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	s.streamFile(w, r, false)
 }
 
+// tipeMediaTambahan menambal ekstensi yang tidak selalu ada di tabel MIME
+// sistem. mime.TypeByExtension membaca /etc/mime.types, dan di instalasi
+// Ubuntu minimal (container, image cloud) berkas itu tipis atau tidak ada
+// sama sekali — .mkv dan .m4v hampir selalu absen. Tanpa tipe yang benar
+// jawabannya jadi application/octet-stream, dan X-Content-Type-Options:
+// nosniff melarang browser menebak sendiri, jadi <video> menolak memutarnya
+// bahkan untuk berkas yang codec-nya sebenarnya didukung.
+var tipeMediaTambahan = map[string]string{
+	".mp4":  "video/mp4",
+	".m4v":  "video/mp4",
+	".mkv":  "video/x-matroska",
+	".webm": "video/webm",
+	".ogv":  "video/ogg",
+	".mov":  "video/quicktime",
+	".avi":  "video/x-msvideo",
+	".mpeg": "video/mpeg",
+	".mpg":  "video/mpeg",
+	".ts":   "video/mp2t",
+	".mp3":  "audio/mpeg",
+	".m4a":  "audio/mp4",
+	".aac":  "audio/aac",
+	".ogg":  "audio/ogg",
+	".opus": "audio/ogg",
+	".flac": "audio/flac",
+	".wav":  "audio/wav",
+}
+
+func tipeKonten(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	// Tabel sendiri didahulukan: /etc/mime.types di sebagian distro memetakan
+	// .ts ke text/vnd.trolltech.linguist, yang membuat berkas video MPEG-TS
+	// dikirim sebagai teks.
+	if t, ok := tipeMediaTambahan[ext]; ok {
+		return t
+	}
+	if t := mime.TypeByExtension(ext); t != "" {
+		return t
+	}
+	return "application/octet-stream"
+}
+
+// rentangDiminta membaca header Range untuk satu rentang byte. Hanya bentuk
+// "bytes=awal-akhir", "bytes=awal-", dan "bytes=-n" yang dilayani; permintaan
+// multi-rentang (dipisah koma) dijawab sebagai berkas penuh, yang sah menurut
+// RFC 7233 dan tidak pernah dikirim pemutar media arus utama.
+//
+// Nilai balik: awal, akhir (-1 = sampai ujung), suffix (true untuk "bytes=-n",
+// yang butuh ukuran berkas lebih dulu), dan ok.
+func rentangDiminta(h string) (awal, akhir int64, suffix, ok bool) {
+	if !strings.HasPrefix(h, "bytes=") {
+		return 0, 0, false, false
+	}
+	spec := strings.TrimPrefix(h, "bytes=")
+	if strings.Contains(spec, ",") {
+		return 0, 0, false, false
+	}
+	kiri, kanan, found := strings.Cut(spec, "-")
+	if !found {
+		return 0, 0, false, false
+	}
+	kiri, kanan = strings.TrimSpace(kiri), strings.TrimSpace(kanan)
+	if kiri == "" {
+		n, err := strconv.ParseInt(kanan, 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false, false
+		}
+		return n, -1, true, true // n = jumlah byte terakhir yang diminta
+	}
+	a, err := strconv.ParseInt(kiri, 10, 64)
+	if err != nil || a < 0 {
+		return 0, 0, false, false
+	}
+	if kanan == "" {
+		return a, -1, false, true
+	}
+	b, err := strconv.ParseInt(kanan, 10, 64)
+	if err != nil || b < a {
+		return 0, 0, false, false
+	}
+	return a, b, false, true
+}
+
 func (s *Server) streamFile(w http.ResponseWriter, r *http.Request, asAttachment bool) {
 	sess := sessionFrom(r)
 	path := r.URL.Query().Get("path")
@@ -688,26 +772,47 @@ func (s *Server) streamFile(w http.ResponseWriter, r *http.Request, asAttachment
 		writeErr(w, http.StatusBadRequest, "parameter path wajib diisi")
 		return
 	}
-	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.Username,
-		helperproto.PathArgs{Path: path})
+
+	buka := func(offset, length int64) (*helperclient.Stream, helperproto.FileEntry, error) {
+		st, err := s.helper.Stream(helperproto.CmdFileRead, sess.Username,
+			helperproto.ReadArgs{Path: path, Offset: offset, Length: length})
+		if err != nil {
+			return nil, helperproto.FileEntry{}, err
+		}
+		var meta helperproto.FileEntry
+		if st.Resp != nil && len(st.Resp.Data) > 0 {
+			_ = json.Unmarshal(st.Resp.Data, &meta)
+		}
+		return st, meta, nil
+	}
+
+	awal, akhir, suffix, adaRentang := int64(0), int64(-1), false, false
+	if h := r.Header.Get("Range"); h != "" {
+		awal, akhir, suffix, adaRentang = rentangDiminta(h)
+	}
+
+	stream, meta, err := buka(0, 0)
 	if err != nil {
 		writeHelperErr(w, err)
 		return
 	}
-	defer stream.Close()
+	defer func() { stream.Close() }()
 
-	var meta helperproto.FileEntry
-	if stream.Resp != nil && len(stream.Resp.Data) > 0 {
-		_ = json.Unmarshal(stream.Resp.Data, &meta)
+	// "bytes=-n" baru bisa diterjemahkan jadi offset setelah ukuran berkas
+	// diketahui, dan ukuran itu datang bersama response awal helper. Stream
+	// pertama dibuang lalu dibuka ulang dari offset yang benar — satu
+	// perjalanan tambahan untuk bentuk Range yang praktis tidak pernah
+	// dikirim pemutar media, bukan beban di jalur normal.
+	if adaRentang && suffix {
+		n := awal
+		if n > meta.Size {
+			n = meta.Size
+		}
+		awal, akhir = meta.Size-n, meta.Size-1
 	}
-	ctype := mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
-	if ctype == "" {
-		ctype = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", ctype)
-	if meta.Size > 0 {
-		w.Header().Set("Content-Length", itoa(meta.Size))
-	}
+
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Content-Type", tipeKonten(path))
 	if asAttachment {
 		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+urlEscape(filepath.Base(path)))
 	} else {
@@ -717,9 +822,46 @@ func (s *Server) streamFile(w http.ResponseWriter, r *http.Request, asAttachment
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "sandbox")
 	}
-	if _, err := io.Copy(w, stream); err != nil {
+
+	if !adaRentang {
+		if meta.Size > 0 {
+			w.Header().Set("Content-Length", itoa(meta.Size))
+		}
+		_, _ = io.Copy(w, stream)
+		if asAttachment {
+			s.store.LogFileOp(sess.Username, "download", path, "")
+		}
 		return
 	}
+
+	if awal >= meta.Size {
+		// 416 wajib membawa Content-Range supaya klien tahu ukuran sebenarnya
+		// dan bisa meminta ulang, bukan menyerah.
+		w.Header().Set("Content-Range", "bytes */"+itoa(meta.Size))
+		w.Header().Del("Content-Length")
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
+	if akhir < 0 || akhir >= meta.Size {
+		akhir = meta.Size - 1
+	}
+	panjang := akhir - awal + 1
+
+	// Stream pembuka dipakai apa adanya hanya kalau rentangnya kebetulan
+	// seluruh berkas; selain itu dibuka ulang dengan offset yang diminta.
+	if awal != 0 || panjang != meta.Size {
+		stream.Close()
+		stream, _, err = buka(awal, panjang)
+		if err != nil {
+			writeHelperErr(w, err)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Range", "bytes "+itoa(awal)+"-"+itoa(akhir)+"/"+itoa(meta.Size))
+	w.Header().Set("Content-Length", itoa(panjang))
+	w.WriteHeader(http.StatusPartialContent)
+	_, _ = io.CopyN(w, stream, panjang)
 	if asAttachment {
 		s.store.LogFileOp(sess.Username, "download", path, "")
 	}
