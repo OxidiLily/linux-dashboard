@@ -155,6 +155,88 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 
 // ---- Compose stacks ----
 
+// slugProyek mengubah nama stack jadi nama project docker compose: huruf
+// kecil, tanpa spasi dan tanpa simbol. Nama project itulah yang jadi awalan
+// nama container (`<project>-<service>-<index>`), jadi stack bernama "cctv"
+// menghasilkan `cctv-agentdvr-1` alih-alih `agentdvr-agentdvr-1` yang
+// diturunkan compose dari nama folder.
+//
+// ponytail: pemisah ikut dibuang, bukan diganti "-", sesuai permintaan
+// "tanpa spasi maupun simbol". Konsekuensinya dua stack bernama "web 1" dan
+// "web-1" menghasilkan project yang sama. Jalan naiknya kalau itu jadi
+// masalah nyata: pertahankan "-" sebagai pemisah (compose menerimanya) atau
+// tolak nama yang slug-nya bentrok saat stack didaftarkan.
+func slugProyek(nama string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(nama) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+type composeLsRow struct {
+	Name        string
+	Status      string
+	ConfigFiles string
+}
+
+// daftarComposeLs membaca seluruh project compose yang dikenal Docker,
+// termasuk yang container-nya sedang berhenti (--all).
+func (s *Server) daftarComposeLs(username string) []composeLsRow {
+	res, err := s.dockerRun(username, "", "compose", "ls", "--all", "--format", "json")
+	if err != nil {
+		return nil
+	}
+	var rows []composeLsRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &rows); err != nil {
+		return nil
+	}
+	return rows
+}
+
+// proyekBerjalan memetakan berkas compose → nama project yang saat ini
+// memegangnya di Docker.
+func proyekBerjalan(rows []composeLsRow) map[string]string {
+	m := map[string]string{}
+	for _, r := range rows {
+		// ConfigFiles bisa memuat beberapa berkas dipisah koma.
+		for _, cfg := range strings.Split(r.ConfigFiles, ",") {
+			cfg = filepath.Clean(strings.TrimSpace(cfg))
+			if cfg == "" || cfg == "." {
+				continue
+			}
+			m[cfg] = r.Name
+		}
+	}
+	return m
+}
+
+// argsCompose menyusun awalan `compose -p <project> -f <berkas>` untuk satu
+// stack terdaftar.
+//
+// Project yang SUDAH memegang berkas compose ini menang atas slug nama stack.
+// Tanpa aturan itu, stack yang terlanjur jalan di bawah nama bawaan compose
+// (diturunkan dari nama folder) akan hilang dari panel begitu versi ini
+// dipasang: `ps` menanyakan project baru dan mendapat nol container, `down`
+// tidak menyentuh apa pun, dan `up` justru menyalakan set container KEDUA
+// yang langsung bentrok port dengan yang lama. Dengan aturan ini stack lama
+// tetap dikelola apa adanya, dan pindah ke nama baru dengan sendirinya
+// setelah sekali `down` — saat itu tidak ada lagi project yang memegangnya.
+func argsCompose(st store.Stack, pemegang map[string]string) []string {
+	proyek := slugProyek(st.Name)
+	if lama := pemegang[filepath.Clean(st.ComposePath)]; lama != "" {
+		proyek = lama
+	}
+	if proyek == "" {
+		// Nama stack tidak menyisakan satu pun karakter yang sah (mis. hanya
+		// simbol). Biarkan compose menentukan sendiri, jangan kirim -p kosong.
+		return []string{"compose", "-f", st.ComposePath}
+	}
+	return []string{"compose", "-p", proyek, "-f", st.ComposePath}
+}
+
 type stackView struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
@@ -181,11 +263,15 @@ func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Satu kali `compose ls` untuk seluruh daftar: dipakai menentukan project
+	// tiap stack terdaftar DAN menemukan stack yang belum terdaftar.
+	lsRows := s.daftarComposeLs(sess.Username)
+	pemegang := proyekBerjalan(lsRows)
 	out := make([]stackView, 0, len(stacks))
 	for _, st := range stacks {
 		v := stackView{ID: st.ID, Name: st.Name, ComposePath: st.ComposePath, Description: st.Description}
-		res, err := s.dockerRun(sess.Username, filepath.Dir(st.ComposePath),
-			"compose", "-f", st.ComposePath, "ps", "--format", "{{json .}}")
+		args := append(argsCompose(st, pemegang), "ps", "--format", "{{json .}}")
+		res, err := s.dockerRun(sess.Username, filepath.Dir(st.ComposePath), args...)
 		if err != nil {
 			v.Error = err.Error()
 		} else {
@@ -208,25 +294,13 @@ func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 	// Stack yang sudah hidup di Docker tapi belum terdaftar ikut ditampilkan.
 	// Tanpa ini panel terlihat kosong padahal servernya penuh stack berjalan,
 	// dan user mendaftarkan ulang compose yang sama sampai bentrok.
-	out = append(out, s.stackLuar(sess.Username, stacks)...)
+	out = append(out, stackLuar(lsRows, stacks)...)
 	writeJSON(w, http.StatusOK, out)
 }
 
-// stackLuar membaca `docker compose ls` dan menyaring yang path compose-nya
-// sudah terdaftar di panel.
-func (s *Server) stackLuar(username string, terdaftar []store.Stack) []stackView {
-	res, err := s.dockerRun(username, "", "compose", "ls", "--all", "--format", "json")
-	if err != nil {
-		return nil
-	}
-	var rows []struct {
-		Name        string
-		Status      string
-		ConfigFiles string
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &rows); err != nil {
-		return nil
-	}
+// stackLuar menyaring hasil `docker compose ls` menjadi stack yang path
+// compose-nya BELUM terdaftar di panel.
+func stackLuar(rows []composeLsRow, terdaftar []store.Stack) []stackView {
 	sudah := map[string]bool{}
 	for _, st := range terdaftar {
 		sudah[filepath.Clean(st.ComposePath)] = true
@@ -386,7 +460,7 @@ func (s *Server) handleStackAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "stack tidak ditemukan")
 		return
 	}
-	args := append([]string{"compose", "-f", st.ComposePath}, extra...)
+	args := append(argsCompose(st, proyekBerjalan(s.daftarComposeLs(sess.Username))), extra...)
 	res, err := s.dockerRun(sess.Username, filepath.Dir(st.ComposePath), args...)
 	if err != nil {
 		writeHelperErr(w, err)
