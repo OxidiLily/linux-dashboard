@@ -244,6 +244,20 @@ type WriteArgs struct {
 	Append bool `json:"append,omitempty"`
 }
 
+// ReadArgs membaca sebagian isi berkas. Offset/Length nol berarti seluruh
+// berkas dari awal — bentuk yang dipakai unduhan dan preview teks.
+//
+// Rentang dibutuhkan pemutar media: <video> meminta potongan lewat header
+// HTTP Range, dan tanpa jawaban 206 browser tidak bisa mencari posisi. MP4
+// yang `moov` atom-nya berada di akhir berkas bahkan gagal diputar sama
+// sekali, karena pemutar harus melompat ke ekor sebelum frame pertama.
+type ReadArgs struct {
+	Path   string `json:"path"`
+	Offset int64  `json:"offset,omitempty"`
+	// Length 0 = sampai akhir berkas.
+	Length int64 `json:"length,omitempty"`
+}
+
 type ChmodArgs struct {
 	Path string `json:"path"`
 	Mode uint32 `json:"mode"` // oktal, mis. 0o644

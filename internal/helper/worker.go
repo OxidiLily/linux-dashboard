@@ -39,6 +39,10 @@ type workerOp struct {
 	Append      bool `json:"append,omitempty"`
 	PID         int  `json:"pid,omitempty"`
 	Signal      int  `json:"signal,omitempty"`
+	// Offset/Length dipakai op "read" untuk melayani HTTP Range. Length 0 =
+	// sampai akhir berkas.
+	Offset int64 `json:"offset,omitempty"`
+	Length int64 `json:"length,omitempty"`
 }
 
 type workerResult struct {
@@ -172,7 +176,24 @@ func execWorkerOp(op workerOp, res *os.File) (json.RawMessage, error) {
 		meta, _ := json.Marshal(map[string]any{"size": st.Size()})
 		// Hasil dikirim duluan supaya parent tahu ukuran, baru data mengalir.
 		writeResult(res, workerResult{OK: true, Data: meta})
-		_, err = io.Copy(os.Stdout, f)
+		// Offset di luar ukuran berkas bukan error: parent sudah memvalidasi
+		// rentangnya terhadap ukuran hasil stat, dan Seek melewati EOF hanya
+		// menghasilkan nol byte. Menjawab dengan badan kosong lebih baik
+		// daripada memutus koneksi di tengah respons HTTP yang header-nya
+		// sudah terkirim.
+		if op.Offset > 0 {
+			if _, err := f.Seek(op.Offset, io.SeekStart); err != nil {
+				return nil, streamDone{err}
+			}
+		}
+		if op.Length > 0 {
+			_, err = io.CopyN(os.Stdout, f, op.Length)
+			if errors.Is(err, io.EOF) {
+				err = nil // berkas menyusut setelah stat — bukan kegagalan worker
+			}
+		} else {
+			_, err = io.Copy(os.Stdout, f)
+		}
 		return nil, streamDone{err}
 	case "write":
 		flags := os.O_CREATE | os.O_WRONLY

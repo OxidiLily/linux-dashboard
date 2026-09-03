@@ -78,6 +78,27 @@ function bisaDicetak(e: FileEntry): boolean {
   return !!ext && ext !== e.name.toLowerCase() && EKSTENSI_CETAK.includes(ext)
 }
 
+// Ekstensi yang dibuka dengan pemutar, bukan dibaca sebagai teks. Sebelumnya
+// setiap berkas non-gambar diambil utuh lalu ditampilkan lewat res.text():
+// satu klik pada rekaman 10 MB menarik seluruh isinya ke memori tab dan
+// menumpahkannya sebagai byte mentah di dalam <pre>.
+//
+// Daftar ini SENGAJA lebih luas daripada yang bisa diputar browser. Yang
+// menentukan berhasil tidaknya adalah codec di dalam wadah, dan itu tidak
+// bisa diketahui dari ekstensi — .mkv berisi H.264+AAC diputar Chrome,
+// .mkv berisi HEVC atau AV1 tidak; Firefox menolak wadah Matroska apa pun.
+// Menyaring daftar ini lebih ketat hanya akan menolak berkas yang sebenarnya
+// bisa diputar. Yang gagal ditangkap onError dan dijawab dengan tawaran
+// unduh, bukan dengan layar hitam tanpa keterangan.
+//
+// ponytail: tidak ada transcoding. Menambahkan ffmpeg berarti satu dependensi
+// besar, satu antrean kerja, dan CPU server dipakai tiap kali seseorang
+// mengklik berkas. Jalan naiknya kalau nanti benar-benar dibutuhkan: remux
+// on-the-fly ke fragmented MP4 lewat `ffmpeg -c copy`, yang murah selama
+// codec-nya memang sudah didukung browser.
+const EKSTENSI_VIDEO = ["mp4", "m4v", "mkv", "webm", "ogv", "mov", "avi", "mpeg", "mpg", "ts"]
+const EKSTENSI_AUDIO = ["mp3", "m4a", "aac", "ogg", "opus", "flac", "wav"]
+
 type ClipItem = { path: string; name: string }
 
 type ClipboardOp = { kind: "none" } | { kind: "copy" | "cut"; items: ClipItem[] }
@@ -137,7 +158,16 @@ export function FileManagerView() {
   const [roots, setRoots] = useState<FileRoot[]>([])
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState<"list" | "grid">("list")
-  const [previewContent, setPreviewContent] = useState<{ path: string; text?: string; isImg?: boolean } | null>(null)
+  const [previewContent, setPreviewContent] = useState<{
+    path: string
+    text?: string
+    isImg?: boolean
+    media?: "video" | "audio"
+  } | null>(null)
+  // Diset saat elemen <video>/<audio> gagal men-decode. Browser tidak
+  // memberitahu ALASAN kegagalan lewat API mana pun, jadi yang bisa
+  // ditawarkan hanya unduhan — lihat catatan di EKSTENSI_VIDEO.
+  const [mediaGagal, setMediaGagal] = useState(false)
   const [permTarget, setPermTarget] = useState<FileEntry | null>(null)
   const [permMode, setPermMode] = useState("755")
   // Editor teks: dipakai untuk membuat file baru dan mengubah isi file yang ada.
@@ -379,8 +409,19 @@ export function FileManagerView() {
   const handlePreview = (entry: FileEntry) => {
     const ext = entry.name.split(".").pop()?.toLowerCase()
     const imgExts = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
+    setMediaGagal(false)
     if (ext && imgExts.includes(ext)) {
       setPreviewContent({ path: entry.path, isImg: true })
+      return
+    }
+    // Media tidak diambil lebih dulu: elemen <video>/<audio> yang menarik
+    // sendiri lewat Range, sepotong demi sepotong sesuai posisi pemutaran.
+    if (ext && EKSTENSI_VIDEO.includes(ext)) {
+      setPreviewContent({ path: entry.path, media: "video" })
+      return
+    }
+    if (ext && EKSTENSI_AUDIO.includes(ext)) {
+      setPreviewContent({ path: entry.path, media: "audio" })
       return
     }
     void (async () => {
@@ -1052,6 +1093,48 @@ export function FileManagerView() {
                   alt={tr("Preview")}
                   className="max-h-[60dvh] object-contain mx-auto"
                 />
+              ) : previewContent.media ? (
+                <div className="space-y-3">
+                  {previewContent.media === "video" ? (
+                    <video
+                      key={previewContent.path}
+                      src={`/api/files/preview?path=${encodeURIComponent(previewContent.path)}`}
+                      controls
+                      autoPlay
+                      // Pemutaran dimulai tanpa suara supaya autoplay tidak
+                      // ditolak kebijakan browser; kontrol volume tetap ada.
+                      muted
+                      className="max-h-[60dvh] w-full rounded bg-black"
+                      onError={() => setMediaGagal(true)}
+                    />
+                  ) : (
+                    <audio
+                      key={previewContent.path}
+                      src={`/api/files/preview?path=${encodeURIComponent(previewContent.path)}`}
+                      controls
+                      autoPlay
+                      className="w-full"
+                      onError={() => setMediaGagal(true)}
+                    />
+                  )}
+                  {mediaGagal && (
+                    <div className="rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs">
+                      <p className="font-semibold">{tr("Browser tidak bisa memutar berkas ini")}</p>
+                      <p className="mt-1 text-muted-foreground">
+                        {tr(
+                          "Wadah atau codec di dalamnya tidak didukung browser ini — MKV dengan HEVC/AV1 dan AVI lama adalah kasus yang paling sering. Berkasnya sendiri tidak rusak: unduh lalu putar dengan VLC atau mpv.",
+                        )}
+                      </p>
+                      <a
+                        className="mt-2 inline-flex items-center gap-1 font-medium text-signal hover:underline"
+                        href={`/api/files/download?path=${encodeURIComponent(previewContent.path)}`}
+                        download
+                      >
+                        <Download className="size-3.5" /> {tr("Download")}
+                      </a>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <pre className="font-mono text-xs text-muted-foreground bg-background p-3 rounded overflow-x-auto whitespace-pre-wrap">
                   {previewContent.text}

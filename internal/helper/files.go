@@ -151,9 +151,13 @@ func filepathWalkChown(root string, uid, gid int) error {
 // byte mentah mengalir ke koneksi sampai EOF.
 func (s *Server) handleFileRead(conn net.Conn, u *userInfo, req helperproto.Request) {
 	defer conn.Close()
-	args, err := decodeArgs[helperproto.PathArgs](req)
+	args, err := decodeArgs[helperproto.ReadArgs](req)
 	if err != nil {
 		fail(conn, err)
+		return
+	}
+	if args.Offset < 0 || args.Length < 0 {
+		fail(conn, errInvalid("rentang baca tidak valid"))
 		return
 	}
 	path, err := s.checkPath(u, args.Path)
@@ -179,7 +183,12 @@ func (s *Server) handleFileRead(conn net.Conn, u *userInfo, req helperproto.Requ
 	meta, _ := json.Marshal(entry)
 	writeResp(conn, helperproto.Response{OK: true, Data: meta})
 
-	if _, err := runAsUser(u, workerOp{Op: "read", Path: path}, nil, conn); err != nil {
+	if _, err := runAsUser(u, workerOp{
+		Op:     "read",
+		Path:   path,
+		Offset: args.Offset,
+		Length: args.Length,
+	}, nil, conn); err != nil {
 		// Response sudah terkirim; satu-satunya sinyal error adalah koneksi
 		// ditutup lebih awal.
 		return
