@@ -532,6 +532,34 @@ export function SambaView() {
                 <span>{tr("Guest OK")}</span>
               </label>
             </div>
+            {/* Peringatan sisi KLIEN, bukan sisi server. Sejak versi 1709
+                Windows 10 mematikan "insecure guest logon" untuk SMB2/SMB3:
+                share yang guest ok-nya benar dan sudah diuji jalan dari Linux
+                atau Android tetap ditolak Windows dengan pesan yang
+                menyesatkan ("You can't access this shared folder because your
+                organization's security policies block unauthenticated guest
+                access"). Tidak ada setelan smb.conf yang bisa membatalkannya
+                — satu-satunya jalan adalah mengubah kebijakan di PC Windows,
+                atau tidak memakai guest sama sekali. Ditulis di sini supaya
+                yang mengaktifkan Guest OK tahu sebelum menyimpan, bukan
+                setelah setengah jam menyalahkan servernya. */}
+            {form.public && (
+              <div className="rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs">
+                <p className="font-semibold">{tr("Windows 10/11 memblokir akses guest secara bawaan")}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {tr(
+                    "Share ini akan bekerja dari Linux, macOS, dan Android, tapi Windows menolak login guest lewat SMB2/SMB3 sejak versi 1709 — bukan karena servernya salah. Dua pilihan: beri user Samba dan password lalu matikan Guest OK (dianjurkan), atau longgarkan kebijakan di PC Windows-nya.",
+                  )}
+                </p>
+                <p className="mt-2 text-muted-foreground">
+                  {tr("Di PC Windows, jalankan PowerShell sebagai Administrator:")}
+                </p>
+                <pre className="num mt-1 overflow-x-auto rounded bg-background p-2 text-[11px]">
+{`Set-ItemProperty -Path HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters \`
+  -Name AllowInsecureGuestAuth -Type DWord -Value 1`}
+                </pre>
+              </div>
+            )}
             <details className="rounded border border-border p-2">
               <summary className="cursor-pointer text-xs text-muted-foreground">
                 {tr("Set password Samba untuk share ini (opsional)")}
