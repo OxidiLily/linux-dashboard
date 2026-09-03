@@ -55,6 +55,8 @@ daftarkanTerjemahan({
     "Driver does not expose utilisation/VRAM (common on older amdgpu or LXC passthrough).",
 
   // ---- components ----
+  "Akun sudoer yang memasang Docker dimasukkan ke grup `docker` agar bisa memakai perintah docker dari shell sendiri. Keanggotaan grup baru berlaku pada sesi login BERIKUTNYA — logout lalu login lagi (atau jalankan `newgrp docker`) sebelum mencoba `docker ps`.":
+    "The sudoer who installed Docker is added to the `docker` group so they can run docker from their own shell. Group membership only takes effect in the NEXT login session — log out and back in (or run `newgrp docker`) before trying `docker ps`.",
   "Hanya yang belum terpasang": "Only not installed",
   "Memasang": "Installing",
   "Memproses": "Working",

@@ -369,6 +369,9 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	if st.Installed && name == "9router" {
 		st.Note = catatan9Router()
 	}
+	if st.Installed && name == "docker" {
+		st.Note = catatanGrupDocker
+	}
 	return st
 }
 
@@ -476,7 +479,7 @@ func AllComponentStatus() []helperproto.ComponentStatus {
 	return out
 }
 
-func installComponent(name string) (helperproto.ComponentStatus, error) {
+func installComponent(name, username string) (helperproto.ComponentStatus, error) {
 	defer lupakanCacheKomponen()
 	// Kemajuan dilaporkan selama pemasangan berjalan supaya UI bisa menampilkan
 	// bar yang benar-benar bergerak, bukan penghitung detik yang tidak tahu
@@ -497,6 +500,13 @@ func installComponent(name string) (helperproto.ComponentStatus, error) {
 		// memasang agent sebelum rilis ini punya agent tanpa satu pun alat.
 		if komponenAgenAI(name) {
 			pastikanToolchainAI()
+		}
+		// Alasan yang sama untuk grup docker: mesin yang memasang Docker
+		// sebelum rilis ini punya Docker tanpa satu pun user di grupnya, dan
+		// menekan "Pasang" lagi adalah satu-satunya jalan yang tersedia di
+		// panel untuk memperbaikinya.
+		if name == "docker" {
+			tambahkanKeGrupDocker(username)
 		}
 		return st, nil
 	}
@@ -525,6 +535,9 @@ func installComponent(name string) (helperproto.ComponentStatus, error) {
 	// (lihat pastikanToolchainAI), hanya tercatat di log helper.
 	if komponenAgenAI(name) {
 		pastikanToolchainAI()
+	}
+	if name == "docker" {
+		tambahkanKeGrupDocker(username)
 	}
 	return componentStatus(name), nil
 }
@@ -1103,6 +1116,52 @@ func uninstallDocker() error {
 	}
 	hapusRepoAPT(dockerList, dockerKeyring)
 	return nil
+}
+
+// catatanGrupDocker ditampilkan halaman Components selama Docker terpasang.
+// Kalimat "logout dulu" adalah bagian terpentingnya: usermod TIDAK menyentuh
+// sesi yang sedang berjalan, jadi tanpa keterangan ini user mencoba
+// `docker ps` di shell yang sama, tetap ditolak, dan menyimpulkan panel gagal
+// memasukkannya ke grup.
+const catatanGrupDocker = "Akun sudoer yang memasang Docker dimasukkan ke grup `docker` " +
+	"agar bisa memakai perintah docker dari shell sendiri. Keanggotaan grup baru berlaku " +
+	"pada sesi login BERIKUTNYA — logout lalu login lagi (atau jalankan `newgrp docker`) " +
+	"sebelum mencoba `docker ps`."
+
+// tambahkanKeGrupDocker memasukkan user yang memasang Docker ke grup `docker`.
+// Tanpa ini `docker ps` dari shell user sendiri berhenti di "permission denied
+// while trying to connect to the docker API at unix:///var/run/docker.sock":
+// soket itu milik root:docker, dan panel bisa memakainya hanya karena helper-nya
+// berjalan sebagai root.
+//
+// Yang ditambahkan HANYA akun yang menekan tombol pasang, bukan semua sudoer.
+// Keanggotaan grup docker setara akses root — siapa pun di dalamnya bisa
+// menjalankan container yang mem-bind mount `/` — jadi memberikannya ke akun
+// yang tidak memintanya bukan keputusan yang boleh diambil panel diam-diam.
+// Akun ini sendiri sudah sudoer (syarat seluruh menu Docker), jadi tidak ada
+// wewenang baru yang sebenarnya diberikan, hanya jalan pintas yang lebih pendek.
+//
+// Kegagalannya TIDAK membatalkan instalasi: Docker-nya sudah terpasang dan
+// panel tetap bisa memakainya lewat helper. Yang hilang cuma kenyamanan
+// memakai docker dari shell, dan itu bisa disusulkan kapan saja dengan satu
+// perintah — membatalkan instalasi yang sudah berhasil justru lebih merugikan.
+func tambahkanKeGrupDocker(username string) {
+	// root memakai soket docker lewat kepemilikan berkas, bukan lewat grup.
+	if username == "" || username == "root" {
+		return
+	}
+	// Grup `docker` dibuat oleh paket docker-ce. Kalau belum ada, instalasinya
+	// belum benar-benar selesai dan usermod hanya akan menghasilkan error yang
+	// membingungkan di log.
+	if err := validGroups([]string{"docker"}); err != nil {
+		log.Printf("docker: %v — usermod dilewati", err)
+		return
+	}
+	// -aG, bukan -G: tanpa -a seluruh keanggotaan grup sekunder user DIGANTI,
+	// yang berarti mencabut sudo dari akun yang barusan memakainya.
+	if _, err := run("usermod", "-aG", "docker", username); err != nil {
+		log.Printf("docker: gagal menambahkan %q ke grup docker: %v", username, err)
+	}
 }
 
 const (
