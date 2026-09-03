@@ -188,6 +188,8 @@ daftarkanTerjemahan({
   "berjalan": "running",
   "Nama / ID": "Name / ID",
   "Tidak ada container yang ditemukan.": "No containers found.",
+  "Buka {0} di tab baru": "Open {0} in a new tab",
+  "Buka http://{0}:{1} di tab baru": "Open http://{0}:{1} in a new tab",
   "Browser tidak bisa memutar berkas ini": "Your browser cannot play this file",
   "Wadah atau codec di dalamnya tidak didukung browser ini — MKV dengan HEVC/AV1 dan AVI lama adalah kasus yang paling sering. Berkasnya sendiri tidak rusak: unduh lalu putar dengan VLC atau mpv.":
     "The container or the codec inside it is not supported by this browser — MKV holding HEVC/AV1 and older AVI files are the usual cases. The file itself is fine: download it and play it in VLC or mpv.",

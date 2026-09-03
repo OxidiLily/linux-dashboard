@@ -20,6 +20,7 @@ import {
   FileCode,
   Pencil,
   ScrollText,
+  ExternalLink,
 } from "lucide-react"
 
 type DockerContainer = {
@@ -29,6 +30,39 @@ type DockerContainer = {
   state: string
   status: string
   ports: string
+}
+
+// Port yang hampir selalu berarti antarmuka web kalau sebuah container
+// menerbitkan lebih dari satu. Tanpa urutan ini container seperti AgentDVR —
+// yang menerbitkan 3478/tcp (STUN) di samping 8090/tcp (UI-nya) — akan
+// ditawari pada port STUN, dan tombolnya membuka halaman kosong.
+const PORT_WEB_UMUM = [80, 8080, 8000, 8090, 3000, 5000, 8081, 9000, 443, 8443]
+
+/**
+ * portWebContainer memilih satu port terbit yang paling masuk akal dibuka di
+ * browser dari kolom "PORTS" milik `docker ps`, mis.
+ * `0.0.0.0:3478->3478/tcp, [::]:3478->3478/udp, 0.0.0.0:8090->8090/tcp`.
+ *
+ * Hanya entri yang benar-benar diterbitkan ke host (ada tanda `->`) dan
+ * ber-protokol tcp yang dihitung: port yang cuma terbuka di dalam jaringan
+ * container tidak bisa dijangkau browser, dan udp tidak pernah bicara HTTP.
+ * Mengembalikan null kalau tidak ada kandidat — tombolnya lalu tidak muncul,
+ * bukan muncul lalu gagal.
+ */
+function portWebContainer(ports: string): number | null {
+  const kandidat = new Set<number>()
+  for (const bagian of ports.split(",")) {
+    const m = bagian.trim().match(/:(\d+)->\d+\/(tcp|udp)$/)
+    if (!m || m[2] !== "tcp") continue
+    kandidat.add(Number(m[1]))
+  }
+  if (kandidat.size === 0) return null
+  for (const p of PORT_WEB_UMUM) {
+    if (kandidat.has(p)) return p
+  }
+  // Tidak ada yang dikenal — ambil yang terkecil supaya pilihannya tetap
+  // sama tiap kali daftar dimuat ulang (urutan `docker ps` tidak dijamin).
+  return Math.min(...kandidat)
 }
 
 type DockerStack = {
@@ -411,6 +445,35 @@ export function DockerView() {
                   <div className="flex items-center justify-end gap-1">
                     {c.state === "running" ? (
                       <>
+                        {(() => {
+                          // Host diambil dari address bar, bukan dari hostname
+                          // server: itu persis alamat yang sudah terbukti bisa
+                          // dijangkau device ini. os.Hostname() di sisi server
+                          // sering nama internal yang tidak resolve dari HP di
+                          // Wi-Fi yang sama, dan "localhost" akan menunjuk ke
+                          // device pengunjung, bukan ke servernya.
+                          //
+                          // Scheme selalu http: panel bisa dilayani lewat
+                          // https (cert self-signed), tapi container di
+                          // belakang port terbit hampir selalu plain HTTP —
+                          // memakai scheme panel membuat browser menjawab
+                          // ERR_SSL_PROTOCOL_ERROR. Pola yang sama dipakai
+                          // tombol "Buka" di halaman Components.
+                          const port = portWebContainer(c.ports)
+                          if (port === null) return null
+                          return (
+                            <a
+                              href={`http://${window.location.hostname}:${port}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-7 items-center rounded-md px-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                              aria-label={trf("Buka {0} di tab baru", c.name)}
+                              title={trf("Buka http://{0}:{1} di tab baru", window.location.hostname, String(port))}
+                            >
+                              <ExternalLink className="size-3.5" />
+                            </a>
+                          )
+                        })()}
                         <Button
                           variant="ghost"
                           size="sm"
