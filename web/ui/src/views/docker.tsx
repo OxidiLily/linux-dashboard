@@ -65,6 +65,20 @@ function portWebContainer(ports: string): number | null {
   return Math.min(...kandidat)
 }
 
+// Label aksi stack yang menyebut stack-nya. Toast lama berbunyi
+// `Menjalankan "docker compose up"…` — benar secara teknis, tapi tidak
+// menjawab pertanyaan pertama yang muncul di layar berisi banyak stack:
+// yang mana? Nama aksi juga dipakai untuk pesan berhasil dan gagal, supaya
+// ketiganya menyebut hal yang sama.
+const AKSI_STACK: Record<string, string> = {
+  up: "Deploy {0}",
+  down: "Menghentikan {0}",
+  restart: "Restart {0}",
+  stop: "Stop {0}",
+  start: "Start {0}",
+  pull: "Tarik image {0}",
+}
+
 type DockerStack = {
   id: number
   name: string
@@ -134,13 +148,18 @@ export function DockerView() {
     // notify.tugas, bukan await-lalu-notify: `docker compose pull` dan `up`
     // bisa makan puluhan detik menarik image, dan selama itu pola lama tidak
     // menampilkan apa pun — tombolnya terlihat tidak menanggapi.
+    // Aksi yang tidak ada di tabel tetap dapat kalimat yang menyebut stack —
+    // kuncinya tidak akan ketemu di kamus dan dipakai apa adanya, itu memang
+    // perilaku trf yang diinginkan di sini.
+    const nama = stack?.name ?? `#${id}`
+    const label = trf(AKSI_STACK[action] ?? `${action} {0}`, nama)
     try {
       await notify.tugas(
         apiSend<{ status: string; output?: string }>(`/api/docker/stacks/${id}/${action}`, "POST"),
         {
-          jalan: trf("Menjalankan \"docker compose {0}\"…", action),
-          sukses: trf("Stack: \"{0}\" selesai.", action),
-          gagal: (e) => trf("Gagal aksi stack: {0}", pesanError(e)),
+          jalan: `${label}…`,
+          sukses: trf("{0} selesai.", label),
+          gagal: (e) => trf("{0} gagal: {1}", label, pesanError(e)),
           detail: (res) => res.output?.trim() || undefined,
         },
       )
