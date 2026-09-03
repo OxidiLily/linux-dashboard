@@ -61,36 +61,69 @@ export function useTerminalSession({ cmd, aktif = true, labelTutup, onSesi }: Op
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
     term.open(containerRef.current)
-    // Fit awal supaya cols/rows di URL WebSocket sudah mendekati benar; fit
-    // yang menentukan dilakukan pasangAutoFit di bawah setelah tinggi kotak
-    // dihitung dan font mono siap.
-    try {
-      fitAddon.fit()
-    } catch {
-      /* elemen belum punya ukuran — pasangAutoFit akan mengulanginya */
+
+    let ws: WebSocket | null = null
+    // Ukuran terakhir hasil fit, dipegang di luar `ws` karena fit pertama
+    // terjadi sebelum socket ada.
+    let ukuran = { cols: term.cols, rows: term.rows }
+
+    const kirim = (msg: object) => {
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
     }
+    const kirimUkuran = () => kirim({ type: "resize", cols: ukuran.cols, rows: ukuran.rows })
+
+    // Auto-fit dipasang SEBELUM WebSocket dibuat. Ia yang memberi kotak
+    // terminal tingginya (dihitung dari posisi elemen ke tepi bawah viewport);
+    // sebelum itu kotaknya setinggi nol, jadi fit menghitung rows ≈ 1. Karena
+    // cols/rows di query URL adalah SATU-SATUNYA ukuran yang dipakai saat PTY
+    // dibuat, urutan lama membuat PTY lahir dengan ukuran itu.
+    //
+    // Auto-fit juga mengurus lebar: sidebar dibuka/ditutup, banner ganti
+    // password muncul, font mono selesai dimuat — semuanya mengubah ruang
+    // yang tersedia tanpa satu pun event `window.resize`.
+    const lepasAutoFit = pasangAutoFit({
+      container: containerRef.current,
+      term,
+      fit: fitAddon,
+      onResize: (cols, rows) => {
+        ukuran = { cols, rows }
+        kirimUkuran()
+      },
+    })
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const ws = new WebSocket(
-      `${proto}//${window.location.host}/ws/terminal?cols=${term.cols}&rows=${term.rows}` +
+    // `sock` dipakai untuk memasang handler dan menutup koneksi; `ws` adalah
+    // pegangan yang boleh null supaya `kirim` aman dipanggil dari auto-fit
+    // yang sudah berjalan sebelum socket ini dibuat.
+    const sock = new WebSocket(
+      `${proto}//${window.location.host}/ws/terminal?cols=${ukuran.cols}&rows=${ukuran.rows}` +
         (cmd ? `&cmd=${cmd}` : ""),
     )
-    ws.binaryType = "arraybuffer"
+    ws = sock
+    sock.binaryType = "arraybuffer"
 
-    ws.onopen = () => {
+    sock.onopen = () => {
       term.focus()
+      // Kirim ulang ukuran terakhir. `document.fonts.ready` menyusul dengan
+      // lebar sel yang sebenarnya — Geist Mono baru selesai dimuat setelah
+      // cat pertama, dan fit sebelum itu memakai metrik font fallback. Fit
+      // susulan itu hampir selalu lebih cepat daripada handshake WebSocket,
+      // jadi frame resize-nya jatuh ke socket yang masih CONNECTING dan
+      // hilang tanpa jejak. Sisanya ditanggung PTY yang sudah lahir dengan
+      // ukuran benar dari query URL.
+      kirimUkuran()
       onSesiRef.current?.()
     }
 
-    ws.onmessage = (ev) => {
+    sock.onmessage = (ev) => {
       term.write(typeof ev.data === "string" ? ev.data : new Uint8Array(ev.data))
     }
 
     // Browser WS tidak memaparkan kode HTTP close pada `error`; semuanya
     // ditangani lewat `close` di bawah supaya pesannya akurat.
-    ws.onerror = () => {}
+    sock.onerror = () => {}
 
-    ws.onclose = (ev) => {
+    sock.onclose = (ev) => {
       onSesiRef.current?.()
       switch (ev.code) {
         case 1000:
@@ -129,25 +162,7 @@ export function useTerminalSession({ cmd, aktif = true, labelTutup, onSesi }: Op
       }
     }
 
-    const onData = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "input", data }))
-      }
-    })
-
-    // Auto-fit mengurus lebar DAN tinggi: sidebar dibuka/ditutup, banner
-    // ganti password muncul, font mono selesai dimuat — semuanya mengubah
-    // ruang yang tersedia tanpa satu pun event `window.resize`.
-    const lepasAutoFit = pasangAutoFit({
-      container: containerRef.current,
-      term,
-      fit: fitAddon,
-      onResize: (cols, rows) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "resize", cols, rows }))
-        }
-      },
-    })
+    const onData = term.onData((data) => kirim({ type: "input", data }))
 
     return () => {
       lepasAutoFit()
@@ -159,10 +174,10 @@ export function useTerminalSession({ cmd, aktif = true, labelTutup, onSesi }: Op
       // di-dispose dan memunculkan "Koneksi terminal terputus (kode 1005)"
       // di sesi baru yang sebenarnya sehat — persis yang terlihat user saat
       // menekan tombol refresh.
-      ws.onclose = null
-      ws.onmessage = null
-      ws.onerror = null
-      ws.close()
+      sock.onclose = null
+      sock.onmessage = null
+      sock.onerror = null
+      sock.close()
       term.dispose()
     }
     // labelTutup & tr sengaja di luar daftar: keduanya hanya berubah saat
