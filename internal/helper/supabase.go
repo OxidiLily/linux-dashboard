@@ -46,6 +46,27 @@ const (
 	tungguSupabase = "600"
 )
 
+// catatanSupabase ditampilkan di kartu komponen selama Supabase terpasang.
+//
+// Ada karena tanpa itu pemasangan lewat panel berakhir di jalan buntu: yang
+// pertama menyambut user saat membuka Studio adalah kotak basic auth milik
+// gateway, dan password yang diminta dibangkitkan setup.sh — tidak pernah
+// diketik user, tidak pernah ditampilkan di mana pun. Panel yang memasangnya
+// adalah satu-satunya pihak yang bisa memberi tahu di mana nilainya.
+//
+// Nilainya sendiri TIDAK dicetak di sini. Kartu komponen terbaca sekali
+// pandang oleh siapa pun yang melihat layar — dan halaman ini yang paling
+// sering ikut terpotret saat user melaporkan masalah. Yang disebut hanya nama
+// kuncinya dan di mana berkasnya, satu klik dari penyunting .env stack yang
+// memang sudah ada di halaman System → Docker.
+//
+// Sengaja kalimat tetap, bukan disusun dari isi .env: catatan yang memuat
+// nilai berubah-ubah tidak punya kunci terjemahan, dan halaman ini dipakai
+// dalam dua bahasa.
+const catatanSupabase = "Login Studio memakai basic auth. Username dan passwordnya ada di " +
+	"DASHBOARD_USERNAME dan DASHBOARD_PASSWORD pada berkas .env stack — buka lewat " +
+	"System → Docker → supabase → tombol .env (di disk: /opt/supabase/supabase-project/.env)."
+
 // supabaseTerpasang: berkas compose ada = stack-nya sudah dibuat di mesin ini.
 // Bukan lewat PATH — Supabase bukan binary.
 func supabaseTerpasang() bool {
@@ -166,9 +187,16 @@ func uninstallSupabase() error {
 func purgeSupabase() error {
 	// db-config dan deno-cache adalah satu-satunya volume BERNAMA di compose
 	// Supabase (data sebenarnya semua bind mount di dalam folder proyek).
-	// Dihapus best-effort supaya halaman Docker tidak menyisakan dua volume
-	// yatim; kegagalannya tidak berarti apa-apa.
-	_, _ = run("docker", "volume", "rm", "supabase-project_db-config", "supabase-project_deno-cache")
+	// Dihapus best-effort supaya halaman Docker tidak menyisakan volume yatim;
+	// kegagalannya tidak berarti apa-apa.
+	//
+	// Awalannya "supabase_", bukan nama folder: docker-compose.yml Supabase
+	// menyetel `name: supabase` di tingkat atas, jadi nama project-nya tidak
+	// diturunkan dari `supabase-project/`. Itu juga yang membuat stack ini
+	// aman dikelola halaman System → Docker — slug nama stack ("supabase")
+	// kebetulan sama persis dengan nama project yang sudah berjalan, jadi
+	// tidak ada container yang berpindah nama sesudah sekali `down`.
+	_, _ = run("docker", "volume", "rm", "supabase_db-config", "supabase_deno-cache")
 	return os.RemoveAll(dirSupabase)
 }
 

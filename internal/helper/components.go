@@ -411,6 +411,9 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	if st.Installed && komponenAgenAI(name) {
 		st.Note = catatanAgenLama(c.Binary)
 	}
+	if st.Installed && name == "supabase" {
+		st.Note = catatanSupabase
+	}
 	return st
 }
 
