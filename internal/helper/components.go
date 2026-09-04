@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -175,9 +176,13 @@ var components = map[string]*component{
 	"9router": {
 		Name: "9router", Binary: "9router", Service: "9router",
 		Category: katAI, Description: "Gateway API AI lokal (butuh Node.js).",
-		install:   install9Router,
-		uninstall: uninstall9Router,
-		purge:     purge9Router,
+		// installUser, bukan install: 9router memindai CLI tool yang terpasang
+		// (Claude Code, Hermes, Codex, …) di dalam $HOME proses-nya sendiri,
+		// jadi ia harus berjalan dengan identitas user panel — lihat
+		// pastikanUser9Router.
+		installUser: install9Router,
+		uninstall:   uninstall9Router,
+		purge:       purge9Router,
 		// Versi dibaca dari package.json, bukan `9router --version`: CLI Node itu
 		// butuh belasan detik untuk hidup, sementara file ini dibaca dalam
 		// hitungan milidetik dan isinya sama.
@@ -530,6 +535,13 @@ func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, er
 		if name == "docker" {
 			tambahkanKeGrupDocker(username)
 		}
+		// Alasan yang sama sekali lagi: 9router yang dipasang rilis panel
+		// sebelumnya berjalan sebagai root, sehingga daftar CLI Tools-nya
+		// selalu kosong. Menekan "Pasang" lagi adalah satu-satunya jalan dari
+		// dalam panel untuk memindahkannya ke identitas user.
+		if name == "9router" {
+			pastikanUser9Router(u)
+		}
 		return componentStatus(name), nil
 	}
 	if err := jalankanInstall(c, u); err != nil {
@@ -649,7 +661,7 @@ func CopotSemuaKomponen() int {
 	return 0
 }
 
-func componentService(name, action string) error {
+func componentService(name, action string, u *userInfo) error {
 	defer lupakanCacheKomponen()
 	c, ok := components[name]
 	if !ok {
@@ -707,6 +719,7 @@ func componentService(name, action string) error {
 			// Password awal dipastikan sebelum start pertama — 9router
 			// membaca INITIAL_PASSWORD hanya saat proses hidup.
 			pastikanPassword9Router()
+			pastikanUser9Router(u)
 		}
 		// wg-quick@<iface> butuh /etc/wireguard/<iface>.conf. Tanpa config,
 		// systemctl start selalu gagal dengan pesan systemd yang menyesatkan
@@ -1376,7 +1389,7 @@ func purgeCloudflared() error {
 // tempat. Saat deploy/ tidak tersedia (build lokal dari `go build` tanpa
 // menyertakan folder deploy) daemon mencari unit dengan path relatif ke
 // binary — terakhir, fallback ke string internal sebagai jaring pengaman.
-func install9Router() error {
+func install9Router(u *userInfo) error {
 	// Lewat npmInstallGlobal, bukan `npm install -g` telanjang: postinstall
 	// 9router-lah yang memasang runtime-nya (sql.js, better-sqlite3, systray2)
 	// ke $HOME/.9router/runtime, dan npm 12 memblokir script itu secara bawaan.
@@ -1393,6 +1406,7 @@ func install9Router() error {
 		// kustomisasi admin" berarti membiarkan komponen yang pasti rusak.
 		if !unit9RouterRusak(string(lama)) {
 			pastikanPassword9Router()
+			pastikanUser9Router(u)
 			return nil
 		}
 		log.Printf("9router: unit lama yang tidak bisa start diganti dengan versi yang benar")
@@ -1407,6 +1421,10 @@ func install9Router() error {
 	if _, err := run("systemctl", "daemon-reload"); err != nil {
 		return nil
 	}
+	// Identitas user dipasang SEBELUM start pertama: kalau 9router sempat
+	// hidup sebagai root, ia membuat ~/.9router milik root di HOME lama dan
+	// pemindahannya jadi pekerjaan tambahan yang bisa gagal.
+	pastikanUser9Router(u)
 	if _, err := run("systemctl", "enable", "--now", "9router.service"); err != nil {
 		// WSL tidak punya systemd init yang utuh — systemctl start selalu
 		// gagal di sana, tapi unit file-nya sudah terpasang dan bisa dijalankan
@@ -1458,9 +1476,16 @@ func uninstall9Router() error {
 // pemasangan berikutnya benar-benar berlaku; selama settings masih menyimpan
 // password, 9router mengabaikan INITIAL_PASSWORD sepenuhnya.
 //
-// Dua lokasi dicoba karena HOME service-nya berbeda antar generasi unit.
+// Beberapa lokasi dicoba karena HOME service-nya berbeda antar generasi unit:
+// /var/lib/9router (StateDirectory, generasi pertama), /root (generasi kedua),
+// dan sejak rilis ini home user panel — yang hanya diketahui dari drop-in,
+// karena purge tidak menerima identitas user.
 func purge9Router() error {
-	for _, home := range []string{"/root", "/var/lib/9router"} {
+	lokasi := []string{homeRoot9Router, "/var/lib/9router"}
+	if h := homeUser9Router(dropUser9Router); h != "" {
+		lokasi = append(lokasi, h)
+	}
+	for _, home := range lokasi {
 		if err := os.RemoveAll(filepath.Join(home, ".9router")); err != nil {
 			return err
 		}
@@ -1470,6 +1495,10 @@ func purge9Router() error {
 }
 
 const unitDst9Router = "/etc/systemd/system/9router.service"
+
+// homeRoot9Router = HOME yang dipakai unit 9router generasi kedua, sebelum
+// service-nya dipindahkan ke identitas user panel (lihat pastikanUser9Router).
+const homeRoot9Router = "/root"
 
 // unit9RouterRusak mengenali unit tulisan panel versi lama yang tidak akan
 // pernah bisa start. Bentuk pertama: ia mengunci seluruh filesystem
@@ -1515,6 +1544,11 @@ func unit9RouterRusak(isi string) bool {
 const (
 	dropDir9Router  = "/etc/systemd/system/9router.service.d"
 	dropFile9Router = dropDir9Router + "/10-initial-password.conf"
+	// dropUser9Router menyimpan identitas user panel untuk service 9router.
+	// Drop-in terpisah dari 10-initial-password.conf supaya keduanya bisa
+	// ditulis ulang sendiri-sendiri: password hanya dibuat sekali, identitas
+	// user berubah kalau panel dipakai admin yang berbeda.
+	dropUser9Router = dropDir9Router + "/20-user.conf"
 	// passFile9Router menyimpan password yang dibuat panel supaya bisa
 	// ditampilkan lagi di halaman Components — tanpa ini password acak
 	// hanya ada di drop-in systemd yang tidak pernah dilihat user.
@@ -1572,6 +1606,111 @@ func pastikanPassword9Router() {
 	if _, err := run("systemctl", "is-active", "--quiet", "9router.service"); err == nil {
 		_, _ = run("systemctl", "restart", "9router.service")
 	}
+}
+
+// konfigUser9Router menyusun isi drop-in yang membuat 9router berjalan sebagai
+// user panel. Dipisah dari pastikanUser9Router supaya bisa diuji tanpa systemd.
+//
+// Kenapa ini perlu: halaman CLI Tools di 9router memeriksa keberadaan tiap
+// agent dengan `which <biner>` lalu — kalau itu gagal — dengan membaca berkas
+// konfigurasinya di `os.homedir()/.<tool>`. Keduanya membaca lingkungan
+// PROSES 9ROUTER, bukan mesin. Selama unit-nya berjalan sebagai root dengan
+// HOME=/root dan PATH sistem, seluruh CLI agent yang dipasang panel (yang
+// memang dipasang per-user ke dalam $HOME, lihat aiagent.go) tidak akan pernah
+// terlihat: setiap kartu berbunyi "Not installed" di mesin yang jelas-jelas
+// memilikinya. Bukan cuma labelnya yang salah — tombol Quick Setup di halaman
+// itu menulis konfigurasi ke `os.homedir()`, jadi sebagai root ia menaruh
+// setelan model di /root/.<tool> yang tidak pernah dibaca siapa pun.
+//
+// Nilai HOME dan PATH sengaja diambil dari sumber yang sama dengan pemasangan
+// agent (pathAgen di aiagent.go): kalau keduanya berbeda, panel dan 9router
+// akan berbeda pendapat soal agent mana yang terpasang.
+func konfigUser9Router(u *userInfo) string {
+	return "[Service]\n" +
+		"User=" + u.Name + "\n" +
+		"Group=" + strconv.Itoa(u.GID) + "\n" +
+		"Environment=HOME=" + u.Home + "\n" +
+		"Environment=PATH=" + pathAgen(u) + "\n"
+}
+
+// pastikanUser9Router memindahkan service 9router dari root ke user panel.
+//
+// Data 9router (~/.9router: provider, API key, riwayat, password tersimpan)
+// ikut dipindahkan — tanpa itu, service yang baru berganti identitas mulai
+// dari nol dan seluruh provider yang sudah disetel hilang dari pandangan user.
+// Pemindahan memakai `mv` karena /root dan /home kerap berada di filesystem
+// berbeda, dan os.Rename gagal melintasi batas itu.
+//
+// Tidak melakukan apa-apa untuk user root (tidak ada yang perlu dipindahkan)
+// atau saat identitasnya tidak diketahui — jalur CLI tanpa sesi panel.
+func pastikanUser9Router(u *userInfo) {
+	if u == nil || u.UID == 0 || u.Home == "" || u.Name == "" {
+		return
+	}
+	inginkan := konfigUser9Router(u)
+	if b, err := os.ReadFile(dropUser9Router); err == nil && string(b) == inginkan {
+		return
+	}
+	// Service dihentikan dulu: memindahkan direktori data di bawah proses yang
+	// sedang memegang database SQLite-nya adalah cara yang rapi untuk merusak
+	// database itu.
+	_, aktif := run("systemctl", "is-active", "--quiet", "9router.service")
+	if aktif == nil {
+		_, _ = run("systemctl", "stop", "9router.service")
+		// Dinyalakan lagi apa pun yang terjadi di bawah. Tanpa defer, satu
+		// kegagalan menulis drop-in meninggalkan 9router MATI — gejalanya
+		// jauh lebih buruk daripada bug yang sedang diperbaiki.
+		defer func() { _, _ = run("systemctl", "start", "9router.service") }()
+	}
+	pindahkanData9Router(u)
+	if err := os.MkdirAll(dropDir9Router, 0o755); err != nil {
+		log.Printf("9router: %s gagal dibuat: %v", dropDir9Router, err)
+		return
+	}
+	if err := os.WriteFile(dropUser9Router, []byte(inginkan), 0o644); err != nil {
+		log.Printf("9router: drop-in identitas user gagal ditulis: %v", err)
+		return
+	}
+	_, _ = run("systemctl", "daemon-reload")
+}
+
+// pindahkanData9Router memindahkan ~/.9router milik root ke home user panel.
+// Direktori tujuan yang SUDAH ada tidak disentuh: user mungkin pernah
+// menjalankan 9router sendiri, dan datanya lebih berhak daripada salinan root.
+func pindahkanData9Router(u *userInfo) {
+	tujuan := filepath.Join(u.Home, ".9router")
+	if _, err := os.Stat(tujuan); err == nil {
+		return
+	}
+	asal := filepath.Join(homeRoot9Router, ".9router")
+	if _, err := os.Stat(asal); err != nil {
+		return
+	}
+	if _, err := run("mv", asal, tujuan); err != nil {
+		log.Printf("9router: data di %s gagal dipindahkan ke %s: %v", asal, tujuan, err)
+		return
+	}
+	if _, err := run("chown", "-R", strconv.Itoa(u.UID)+":"+strconv.Itoa(u.GID), tujuan); err != nil {
+		log.Printf("9router: kepemilikan %s gagal diubah: %v", tujuan, err)
+	}
+}
+
+// homeUser9Router membaca HOME yang sedang dipakai service 9router dari
+// drop-in-nya. Dipakai purge, yang harus menghapus data di tempat ia benar-
+// benar berada, bukan di tempat generasi unit sebelumnya menaruhnya. Path
+// drop-in-nya parameter, bukan konstanta yang dibaca langsung, supaya bisa
+// diuji tanpa menyentuh /etc/systemd mesin yang menjalankan test.
+func homeUser9Router(dropIn string) string {
+	b, err := os.ReadFile(dropIn)
+	if err != nil {
+		return ""
+	}
+	for _, baris := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(baris), "Environment=HOME="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // sandiAcak membangun password dari alfabet tanpa karakter yang mudah

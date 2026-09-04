@@ -546,7 +546,7 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		return nil, componentService(args.Name, args.Action)
+		return nil, componentService(args.Name, args.Action, u)
 
 	case helperproto.CmdVPNStatus:
 		return jsonOf(vpnStatusAll(), nil)
