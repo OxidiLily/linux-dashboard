@@ -846,7 +846,16 @@ export function DockerView() {
               {volumes.length === 0 && !loadingDaya && (
                 <tr>
                   <td data-label="" colSpan={4} className="py-6 text-center text-muted-foreground">
-                    {tr("Belum ada volume di host ini.")}
+                    {/* Kalimat kedua ada karena pertanyaan yang sama muncul terus:
+                        stack yang compose-nya penuh baris `volumes:` tetap
+                        menghasilkan daftar kosong di sini. Bind mount memang bukan
+                        volume Docker — ia tidak pernah terdaftar di `docker volume
+                        ls`, tidak punya nama, dan tidak dikelola daemon. Tanpa
+                        kalimat ini, tabel kosong terbaca sebagai panel yang rusak. */}
+                    {tr("Belum ada named volume di host ini.")}
+                    <div className="mx-auto mt-1 max-w-md text-[11px] leading-relaxed">
+                      {tr("Bind mount (mis. /home/user/data:/data di compose) tidak muncul di sini — itu folder host biasa, bukan volume yang dikelola Docker.")}
+                    </div>
                   </td>
                 </tr>
               )}
