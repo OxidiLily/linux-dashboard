@@ -21,6 +21,10 @@ import {
   Pencil,
   ScrollText,
   ExternalLink,
+  Layers,
+  HardDrive,
+  Network,
+  Eraser,
 } from "lucide-react"
 
 type DockerContainer = {
@@ -91,6 +95,38 @@ type DockerStack = {
   external?: boolean
 }
 
+// Bentuk balasan /api/docker/{images,volumes,networks} — lihat dockerImage,
+// dockerVolume, dan dockerNetwork di internal/api/docker.go.
+type DockerImage = {
+  id: string
+  repository: string
+  tag: string
+  size: string
+  created: string
+  /** Image tanpa tag: sisa build/pull yang tergantikan. Ini yang dibuang prune. */
+  dangling: boolean
+}
+
+type DockerVolume = { name: string; driver: string; mountpoint: string }
+
+type DockerNetwork = {
+  id: string
+  name: string
+  driver: string
+  scope: string
+  internal: boolean
+  /** bridge/host/none — dibuat docker sendiri dan tidak bisa dihapus. */
+  builtin: boolean
+}
+
+type JenisDaya = "images" | "volumes" | "networks"
+
+const labelDaya = {
+  images: "Images",
+  volumes: "Volumes",
+  networks: "Networks",
+}
+
 export function DockerView() {
   const tr = useTr()
   const home = useAuth((s) => s.user?.home) || "/home/user"
@@ -112,6 +148,14 @@ export function DockerView() {
   // ia menggulir ke atas untuk membaca baris lama, tarikan berikutnya tidak
   // boleh menyentaknya kembali ke bawah.
   const logIkutBawah = useRef(true)
+  // Image/volume/network ditaruh di satu panel dengan pemilih, bukan tiga
+  // panel bertumpuk: halaman ini sudah memuat stack dan container, dan tiga
+  // tabel lagi membuat yang paling sering dipakai terdorong jauh ke bawah.
+  const [daya, setDaya] = useState<JenisDaya>("images")
+  const [images, setImages] = useState<DockerImage[]>([])
+  const [volumes, setVolumes] = useState<DockerVolume[]>([])
+  const [networks, setNetworks] = useState<DockerNetwork[]>([])
+  const [loadingDaya, setLoadingDaya] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -294,6 +338,77 @@ export function DockerView() {
     const el = logRef.current
     if (el && logIkutBawah.current) el.scrollTop = el.scrollHeight
   }, [logModal?.content])
+
+  // Hanya jenis yang sedang dilihat yang ditarik. Menarik ketiganya di setiap
+  // pembukaan halaman berarti tiga panggilan docker tambahan untuk dua tabel
+  // yang belum tentu dibuka sama sekali.
+  const loadDaya = async (jenis: JenisDaya) => {
+    setLoadingDaya(true)
+    try {
+      if (jenis === "images") setImages(await apiGet<DockerImage[]>("/api/docker/images"))
+      else if (jenis === "volumes") setVolumes(await apiGet<DockerVolume[]>("/api/docker/volumes"))
+      else setNetworks(await apiGet<DockerNetwork[]>("/api/docker/networks"))
+    } catch (e: any) {
+      notify.err(trf("Gagal memuat daftar: {0}", pesanError(e)))
+    } finally {
+      setLoadingDaya(false)
+    }
+  }
+
+  useEffect(() => {
+    loadDaya(daya)
+  }, [daya])
+
+  // Kalimat konfirmasi ditulis per jenis karena akibatnya memang berbeda
+  // jauh: image bisa diunduh ulang, isi volume tidak bisa dikembalikan sama
+  // sekali. Satu kalimat umum untuk ketiganya akan menyesatkan di kasus yang
+  // paling mahal.
+  const hapusDaya = async (jenis: JenisDaya, id: string, label: string) => {
+    const pesan = {
+      images: tr("Container yang memakai image ini harus mengunduhnya lagi sebelum bisa jalan."),
+      volumes: tr("SELURUH isi volume ikut terhapus dan tidak bisa dikembalikan. Docker menolak kalau volume ini masih dipakai container mana pun, termasuk yang berhenti."),
+      networks: tr("Container yang tersambung ke network ini harus dibuat ulang."),
+    }
+    const ok = await confirmDialog({
+      title: trf("Hapus {0}?", label),
+      message: pesan[jenis],
+      confirmLabel: tr("Hapus"),
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await apiSend(`/api/docker/${jenis}/${encodeURIComponent(id)}`, "DELETE")
+      notify.ok(trf("{0} dihapus.", label))
+      loadDaya(jenis)
+    } catch (e: any) {
+      notify.err(trf("Gagal menghapus {0}: {1}", label, pesanError(e)))
+    }
+  }
+
+  const prunePesan = {
+    images: tr("Hanya image dangling — yang tidak punya tag sama sekali — yang dibuang. Image bertag tetap ada meski tidak sedang dipakai."),
+    volumes: tr("Setiap volume yang tidak dipakai container mana pun dihapus BESERTA seluruh isinya. Volume stack yang sedang berhenti ikut terkena."),
+    networks: tr("Network yang tidak dipakai container mana pun dihapus. Network bawaan docker tidak ikut."),
+  }
+
+  const pruneDaya = async () => {
+    const ok = await confirmDialog({
+      title: trf("Bersihkan {0} yang tidak terpakai?", labelDaya[daya]),
+      message: prunePesan[daya],
+      confirmLabel: tr("Bersihkan"),
+      danger: daya === "volumes",
+    })
+    if (!ok) return
+    try {
+      const res = await apiSend<{ output?: string }>(`/api/docker/${daya}/prune`, "POST")
+      // Baris "Total reclaimed space" dari docker adalah satu-satunya jawaban
+      // yang dicari user sesudah menekan tombol ini.
+      notify.ok(trf("{0} dibersihkan.", labelDaya[daya]), res?.output || undefined)
+      loadDaya(daya)
+    } catch (e: any) {
+      notify.err(trf("Gagal membersihkan: {0}", pesanError(e)))
+    }
+  }
 
   const bukaCompose = async (id: number) => {
     try {
@@ -598,6 +713,199 @@ export function DockerView() {
             )}
           </tbody>
         </table>
+      </div>
+    </Panel>
+
+    {/* Image / Volume / Network — satu panel, satu pemilih. */}
+    <Panel
+      title={tr("Image, Volume & Network")}
+      hint={tr("Sumber daya Docker selain container")}
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded border border-border">
+            {(["images", "volumes", "networks"] as JenisDaya[]).map((j) => (
+              <Button
+                key={j}
+                variant={daya === j ? "default" : "ghost"}
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => setDaya(j)}
+              >
+                {j === "images" ? (
+                  <Layers className="size-3.5 sm:mr-1" />
+                ) : j === "volumes" ? (
+                  <HardDrive className="size-3.5 sm:mr-1" />
+                ) : (
+                  <Network className="size-3.5 sm:mr-1" />
+                )}
+                <span className="sr-only sm:not-sr-only">{labelDaya[j]}</span>
+              </Button>
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={pruneDaya}
+            title={prunePesan[daya]}
+            disabled={loadingDaya}
+          >
+            <Eraser className="size-3.5 sm:mr-1" />
+            <span className="sr-only sm:not-sr-only">{tr("Bersihkan")}</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => loadDaya(daya)} disabled={loadingDaya}>
+            <RefreshCw className={`size-3.5 ${loadingDaya ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+      }
+    >
+      <div className="overflow-x-auto">
+        {daya === "images" && (
+          <table className="tabel-kartu w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="pb-2 font-medium">{tr("Repository")}</th>
+                <th className="pb-2 font-medium">Tag</th>
+                <th className="pb-2 font-medium">ID</th>
+                <th className="pb-2 font-medium">{tr("Ukuran")}</th>
+                <th className="pb-2 font-medium">{tr("Dibuat")}</th>
+                <th className="pb-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {images.map((im) => (
+                <tr key={im.id} className="hover:bg-secondary/40">
+                  <td data-label={tr("Repository")} className="py-2 font-medium">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate">{im.repository}</span>
+                      {im.dangling && <Badge tone="warn">dangling</Badge>}
+                    </div>
+                  </td>
+                  <td data-label="Tag" className="num py-2 text-muted-foreground">{im.tag}</td>
+                  <td data-label="ID" className="num py-2 text-muted-foreground">{im.id}</td>
+                  <td data-label={tr("Ukuran")} className="num py-2 text-muted-foreground">{im.size}</td>
+                  <td data-label={tr("Dibuat")} className="py-2 text-muted-foreground">{im.created}</td>
+                  <td data-label="" className="py-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-1.5 text-muted-foreground hover:text-crit"
+                      aria-label={trf("Hapus image {0}", im.repository + ":" + im.tag)}
+                      title={tr("Hapus")}
+                      onClick={() => hapusDaya("images", im.id, `image ${im.repository}:${im.tag}`)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {images.length === 0 && !loadingDaya && (
+                <tr>
+                  <td data-label="" colSpan={6} className="py-6 text-center text-muted-foreground">
+                    {tr("Belum ada image di host ini.")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+
+        {daya === "volumes" && (
+          <table className="tabel-kartu w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="pb-2 font-medium">{tr("Nama")}</th>
+                <th className="pb-2 font-medium">Driver</th>
+                <th className="pb-2 font-medium">Mountpoint</th>
+                <th className="pb-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {volumes.map((v) => (
+                <tr key={v.name} className="hover:bg-secondary/40">
+                  <td data-label={tr("Nama")} className="py-2 font-medium">
+                    <span className="break-all">{v.name}</span>
+                  </td>
+                  <td data-label="Driver" className="num py-2 text-muted-foreground">{v.driver}</td>
+                  <td data-label="Mountpoint" className="num py-2 text-muted-foreground">
+                    <span className="break-all">{v.mountpoint}</span>
+                  </td>
+                  <td data-label="" className="py-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-1.5 text-muted-foreground hover:text-crit"
+                      aria-label={trf("Hapus volume {0}", v.name)}
+                      title={tr("Hapus")}
+                      onClick={() => hapusDaya("volumes", v.name, `volume ${v.name}`)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {volumes.length === 0 && !loadingDaya && (
+                <tr>
+                  <td data-label="" colSpan={4} className="py-6 text-center text-muted-foreground">
+                    {tr("Belum ada volume di host ini.")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+
+        {daya === "networks" && (
+          <table className="tabel-kartu w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="pb-2 font-medium">{tr("Nama")}</th>
+                <th className="pb-2 font-medium">Driver</th>
+                <th className="pb-2 font-medium">Scope</th>
+                <th className="pb-2 font-medium">ID</th>
+                <th className="pb-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {networks.map((n) => (
+                <tr key={n.id} className="hover:bg-secondary/40">
+                  <td data-label={tr("Nama")} className="py-2 font-medium">
+                    <div className="flex items-center gap-2">
+                      <span className="break-all">{n.name}</span>
+                      {n.builtin && <Badge tone="muted">{tr("bawaan")}</Badge>}
+                      {n.internal && <Badge tone="warn">internal</Badge>}
+                    </div>
+                  </td>
+                  <td data-label="Driver" className="num py-2 text-muted-foreground">{n.driver}</td>
+                  <td data-label="Scope" className="num py-2 text-muted-foreground">{n.scope}</td>
+                  <td data-label="ID" className="num py-2 text-muted-foreground">{n.id}</td>
+                  <td data-label="" className="py-2">
+                    {/* Network bawaan tidak punya tombol hapus: daemon selalu
+                        menolaknya, jadi tombolnya hanya menawarkan kegagalan. */}
+                    {!n.builtin && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-1.5 text-muted-foreground hover:text-crit"
+                        aria-label={trf("Hapus network {0}", n.name)}
+                        title={tr("Hapus")}
+                        onClick={() => hapusDaya("networks", n.id, `network ${n.name}`)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {networks.length === 0 && !loadingDaya && (
+                <tr>
+                  <td data-label="" colSpan={5} className="py-6 text-center text-muted-foreground">
+                    {tr("Belum ada network di host ini.")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
     </Panel>
 

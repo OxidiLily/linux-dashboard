@@ -228,6 +228,36 @@ daftarkanTerjemahan({
   "Ukuran": "Size",
   "Diubah": "Modified",
   "Izin": "Permissions",
+  "Image, Volume & Network": "Images, Volumes & Networks",
+  "Hapus image {0}": "Delete image {0}",
+  "Hapus volume {0}": "Delete volume {0}",
+  "Hapus network {0}": "Delete network {0}",
+  "Sumber daya Docker selain container": "Docker resources other than containers",
+  "Bersihkan": "Clean up",
+  "Repository": "Repository",
+  "Dibuat": "Created",
+  "bawaan": "built-in",
+  "Belum ada image di host ini.": "No images on this host yet.",
+  "Belum ada volume di host ini.": "No volumes on this host yet.",
+  "Belum ada network di host ini.": "No networks on this host yet.",
+  "Gagal memuat daftar: {0}": "Failed to load the list: {0}",
+  "Hapus {0}?": "Delete {0}?",
+  "{0} dihapus.": "{0} deleted.",
+  "Bersihkan {0} yang tidak terpakai?": "Clean up unused {0}?",
+  "{0} dibersihkan.": "{0} cleaned up.",
+  "Gagal membersihkan: {0}": "Clean-up failed: {0}",
+  "Container yang memakai image ini harus mengunduhnya lagi sebelum bisa jalan.":
+    "Containers that use this image will have to download it again before they can start.",
+  "SELURUH isi volume ikut terhapus dan tidak bisa dikembalikan. Docker menolak kalau volume ini masih dipakai container mana pun, termasuk yang berhenti.":
+    "The volume's ENTIRE contents go with it and cannot be recovered. Docker refuses if any container still uses this volume, including stopped ones.",
+  "Container yang tersambung ke network ini harus dibuat ulang.":
+    "Containers attached to this network will have to be recreated.",
+  "Hanya image dangling — yang tidak punya tag sama sekali — yang dibuang. Image bertag tetap ada meski tidak sedang dipakai.":
+    "Only dangling images — the ones with no tag at all — are removed. Tagged images stay even when nothing uses them.",
+  "Setiap volume yang tidak dipakai container mana pun dihapus BESERTA seluruh isinya. Volume stack yang sedang berhenti ikut terkena.":
+    "Every volume no container uses is deleted ALONG WITH its entire contents. Volumes of a stopped stack are included.",
+  "Network yang tidak dipakai container mana pun dihapus. Network bawaan docker tidak ikut.":
+    "Networks no container uses are removed. Docker's built-in networks are not touched.",
   "Salin path": "Copy path",
   "Salin path {0}": "Copy path of {0}",
   "Salin path folder ini": "Copy the path of this folder",
