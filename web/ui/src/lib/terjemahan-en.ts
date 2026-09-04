@@ -237,6 +237,17 @@ daftarkanTerjemahan({
   "Hapus volume {0}": "Delete volume {0}",
   "Hapus network {0}": "Delete network {0}",
   "Sumber daya Docker selain container": "Docker resources other than containers",
+  "Pemakaian disk": "Disk usage",
+  "Jumlah": "Count",
+  "Bisa dibebaskan": "Reclaimable",
+  "Ruang dibebaskan.": "Space reclaimed.",
+  "Buang semua image yang tidak dipakai container?": "Remove every image no container is using?",
+  "Bukan hanya image dangling: SETIAP image yang tidak dipakai container mana pun ikut dibuang, termasuk image stack yang sedang Down — container-nya sudah tidak ada, jadi image-nya dihitung tidak terpakai. Semuanya harus diunduh ulang sebelum stack itu bisa dinyalakan lagi.":
+    "Not just dangling images: EVERY image that no container uses is removed, including images of stacks that are currently Down — their containers are gone, so their images count as unused. All of them must be pulled again before those stacks can start.",
+  "Bersihkan volume yang tidak terpakai?": "Clean up unused volumes?",
+  "Bersihkan cache build?": "Clear the build cache?",
+  "Cache build seluruhnya hasil turunan — tidak ada data yang hilang. Yang dibayar cuma build image berikutnya yang mulai dari nol.":
+    "The build cache is entirely derived data — nothing is lost. The only cost is that the next image build starts from scratch.",
   "Bersihkan": "Clean up",
   "Repository": "Repository",
   "Dibuat": "Created",

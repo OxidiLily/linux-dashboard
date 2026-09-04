@@ -43,7 +43,7 @@ untuk menu Docker, Firewall, Fail2ban, Samba, Disk Pool, NFS, dan Components).
 | AI | AI Agent (sesi CLI agent di dalam panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (semua alert panel) · File Operations · Activity Logs |
 | Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
-| System | Processes · Docker (aksi per container, log, editor compose & `.env`) · Terminal |
+| System | Processes · Docker (aksi per container, log, editor compose & `.env`, image/volume/network, pemakaian disk) · Terminal |
 
 **Akun** tidak ada di sidebar: pintu masuknya adalah blok profil di kaki
 sidebar, yang membuka menu berisi identitas akun, Akun, Uninstall panel (khusus
@@ -322,6 +322,51 @@ atas hidup berdampingan dengan hook rtk.
   }
 }
 ```
+
+## Docker — sumber daya & pemakaian disk
+
+Selain container dan stack, halaman System → Docker mengelola **image, volume,
+dan network** dalam satu panel bertab, dengan **ringkasan pemakaian disk** di
+atasnya. Ringkasan itu berasal dari `docker system df` (tanpa `-v`, yang mahal
+di host dengan banyak volume) dan menjawab pertanyaan yang tidak bisa dijawab
+ketiga tabel di bawahnya: dari sekian puluh GB yang dipakai Docker, berapa yang
+masih terpakai dan berapa yang bisa dibebaskan.
+
+| Baris | Tombol Bersihkan | Perintah |
+|---|---|---|
+| Images | ada | `docker image prune -f -a` |
+| Containers | — | (tidak ada; container berhenti dihapus satu per satu di panel Containers) |
+| Local Volumes | ada | `docker volume prune -f` |
+| Build Cache | ada | `docker builder prune -f` |
+
+**Ada DUA tingkat pembersihan image, dan itu disengaja.** Tombol Bersihkan di
+tab Images menjalankan `image prune` polos — hanya image *dangling*, yang tidak
+punya tag sama sekali. Tombol di baris Images pada ringkasan menjalankan
+`image prune -a`: setiap image yang tidak dipakai container mana pun, termasuk
+image stack yang sedang `Down` (container-nya sudah dihapus, jadi image-nya
+dihitung tidak terpakai) yang lalu harus diunduh ulang. Selisihnya terlalu
+besar untuk satu tombol yang diam-diam memilih, jadi keduanya punya kalimat
+konfirmasi sendiri. Justru selisih itu yang membuat baris ringkasan ada: di
+host yang penuh image bertag tapi tak terpakai, prune polos mengembalikan 0 B
+dan terbaca sebagai tombol yang rusak.
+
+Cache build adalah satu-satunya sumber daya di sini yang isinya murni hasil
+turunan — menghapusnya tidak pernah menghilangkan data, paling mahal membuat
+build berikutnya mulai dari nol. Ia tidak punya daftar dan tidak punya entri
+yang dihapus satu per satu; hanya tombol Bersihkan pada barisnya.
+
+Penghapusan satu per satu (ikon tong sampah) **tidak pernah memakai `-f`**:
+daemon menolak menghapus image, volume, atau network yang masih dipakai, dan
+penolakan itu justru pengaman yang paling berguna di sini — memaksanya berarti
+container yang sedang jalan kehilangan datanya. Network bawaan docker
+(`bridge`, `host`, `none`) tidak punya tombol hapus sama sekali.
+
+Di sisi helper, whitelist perintah docker disusun **per sumber daya**, bukan
+satu daftar bersama: `system` hanya boleh `df` dan `builder` hanya boleh
+`prune`. `docker system prune` sengaja tidak pernah tersedia — ia menyapu
+container berhenti, network, cache build, dan (dengan `--volumes`) seluruh
+volume tak terpakai dalam satu perintah, cakupan yang tidak bisa dijelaskan
+dengan jujur di satu dialog konfirmasi.
 
 ## Print server (CUPS)
 

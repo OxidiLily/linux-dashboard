@@ -14,21 +14,41 @@ var allowedDockerSub = map[string]bool{
 	"start": true, "stop": true, "restart": true, "version": true, "info": true,
 	// `rm` dipakai tombol Hapus container di UI; `-f` ditambahkan API, bukan user.
 	"rm": true,
-	// volume/network/image dipakai halaman Docker untuk mengelola sumber daya
-	// selain container. Ketiganya punya sub-subcommand sendiri yang dicek
-	// terpisah di checkDayaArgs — `docker volume` saja tidak berarti apa-apa.
+	// volume/network/image/system/builder dipakai halaman Docker untuk
+	// mengelola sumber daya selain container. Semuanya punya sub-subcommand
+	// sendiri yang dicek terpisah di checkDayaArgs — `docker volume` saja
+	// tidak berarti apa-apa.
 	"volume":  true,
 	"network": true,
 	"image":   true,
+	"system":  true,
+	"builder": true,
 	"compose": true,
 }
 
-// Sub-subcommand yang boleh untuk `docker volume|network|image`. Whitelist
-// dengan alasan yang sama seperti daftar di atas: `docker image save` dan
-// `docker image load` misalnya bisa membaca dan menulis berkas sembarang di
-// host lewat argumennya.
-var allowedDayaSub = map[string]bool{
-	"ls": true, "inspect": true, "rm": true, "prune": true,
+// Sub-subcommand yang boleh per sumber daya. Whitelist dengan alasan yang sama
+// seperti daftar di atas: `docker image save` dan `docker image load` misalnya
+// bisa membaca dan menulis berkas sembarang di host lewat argumennya.
+//
+// Dipisah per sumber daya, bukan satu daftar bersama, karena dua penghuni
+// terakhir memang tidak boleh menerima apa pun selain satu perintah:
+//
+//   - `system` HANYA df, yaitu laporan pemakaian disk. `system prune` sengaja
+//     tidak ada: ia membuang container berhenti, network, cache build, dan
+//     — dengan --volumes — seluruh volume yang tidak terpakai dalam SATU
+//     perintah. Cakupan sebesar itu tidak bisa dijelaskan dengan jujur di satu
+//     dialog konfirmasi, dan tombol per sumber daya sudah menutupi semuanya
+//     dengan kalimat yang benar untuk masing-masing.
+//
+//   - `builder` HANYA prune. Cache build adalah satu-satunya sumber daya
+//     docker yang isinya murni hasil turunan: menghapusnya tidak pernah
+//     menghilangkan data, paling mahal membuat build berikutnya mulai dari nol.
+var allowedDayaSub = map[string]map[string]bool{
+	"volume":  {"ls": true, "inspect": true, "rm": true, "prune": true},
+	"network": {"ls": true, "inspect": true, "rm": true, "prune": true},
+	"image":   {"ls": true, "inspect": true, "rm": true, "prune": true},
+	"system":  {"df": true},
+	"builder": {"prune": true},
 }
 
 // Flag yang boleh menyertai sub-subcommand di atas. Semuanya disusun API
@@ -60,7 +80,7 @@ func dockerExec(args helperproto.DockerExecArgs) (helperproto.ExecResult, error)
 		if err := checkComposeArgs(args.Args[1:]); err != nil {
 			return helperproto.ExecResult{}, err
 		}
-	case "volume", "network", "image":
+	case "volume", "network", "image", "system", "builder":
 		if err := checkDayaArgs(sub, args.Args[1:]); err != nil {
 			return helperproto.ExecResult{}, err
 		}
@@ -79,7 +99,7 @@ func dockerExec(args helperproto.DockerExecArgs) (helperproto.ExecResult, error)
 	return runIn(args.Dir, nil, "docker", args.Args...)
 }
 
-// checkDayaArgs memvalidasi `docker <volume|network|image> <sub> ...`.
+// checkDayaArgs memvalidasi `docker <volume|network|image|system|builder> <sub> ...`.
 //
 // Pemeriksaan kedua — nama/ID tidak boleh diawali "-" — bukan formalitas:
 // nama volume bernama `--help` akan dibaca docker sebagai flag, sehingga
@@ -91,7 +111,7 @@ func checkDayaArgs(daya string, rest []string) error {
 	if len(rest) == 0 {
 		return errInvalid("subcommand %s tidak ditemukan", daya)
 	}
-	if !allowedDayaSub[rest[0]] {
+	if !allowedDayaSub[daya][rest[0]] {
 		return errInvalid("subcommand %s %q tidak diizinkan", daya, rest[0])
 	}
 	for _, a := range rest[1:] {
