@@ -100,19 +100,65 @@ func tailscaleStatus() helperproto.VPNStatus {
 	// mau memakainya lagi atau menimpanya dengan kunci lain.
 	st.Token = bacaMaskTailscale()
 	res, err := run("tailscale", "status", "--peers=false")
-	out := strings.TrimSpace(res.Stdout)
+	bacaStatusTS(&st, res.Stdout, res.Stderr, err)
+	return st
+}
+
+// bacaStatusTS menerjemahkan keluaran `tailscale status` jadi keadaan yang
+// dipahami panel. Dipisah dari tailscaleStatus supaya bisa diuji tanpa
+// tailscaled — tepat di sini letak satu-satunya bagian yang rapuh, yaitu
+// pencocokan kalimat CLI.
+func bacaStatusTS(st *helperproto.VPNStatus, stdout, stderr string, err error) {
+	out := strings.TrimSpace(stdout)
+	pesan := out + "\n" + stderr
 	switch {
-	case err != nil && strings.Contains(res.Stderr, "Logged out"):
+	// Tailnet dengan Device approval aktif: node sudah terdaftar, kunci sudah
+	// ditukar, dan tidak ada satu pun langkah tersisa di mesin ini — yang
+	// kurang hanya klik admin di konsol Tailscale. Tanpa keadaan tersendiri
+	// ini tampil sebagai "tidak aktif" berbadge merah dan terbaca seperti bug
+	// panel.
+	//
+	// ponytail: dicocokkan dari teks `tailscale status`; kalau kalimatnya
+	// berubah di versi Tailscale mendatang, pindah ke
+	// `tailscale status --json` lalu baca BackendState == "NeedsMachineAuth".
+	case err != nil && strings.Contains(pesan, "not yet approved"):
+		st.NeedsApproval = true
+		st.State = "menunggu persetujuan admin tailnet"
+		st.Detail = tsPesanApproval
+	case err != nil && strings.Contains(pesan, "Logged out"):
 		st.State = "logged out"
+		// `tailscale status` menaruh URL login di baris KEDUA; firstLine akan
+		// membuangnya dan menyisakan kalimat tanpa langkah lanjutan.
+		st.Detail = ringkasDuaBaris(firstNonEmpty(out, stderr))
 	case err != nil:
 		st.State = "tidak aktif"
-		st.Detail = firstLine(firstNonEmpty(res.Stderr, err.Error()))
+		st.Detail = firstLine(firstNonEmpty(stderr, err.Error()))
 	default:
 		st.Connected = true
 		st.State = "terhubung"
 		st.Detail = ringkasStatusTS(out)
 	}
-	return st
+}
+
+// tsPesanApproval adalah satu-satunya langkah yang tersisa untuk node yang
+// menunggu persetujuan; alamatnya ditulis lengkap karena user membuka konsol
+// Tailscale dari mesin lain, bukan dari server ini.
+const tsPesanApproval = "Node ini sudah terdaftar di tailnet tapi belum disetujui admin. " +
+	"Buka https://login.tailscale.com/admin/machines lalu setujui mesin ini — " +
+	"tidak ada yang perlu diubah di server."
+
+// ringkasDuaBaris menyatukan dua baris pertama jadi satu kalimat. `tailscale
+// status` memisahkan pesan dan URL tindak lanjutnya ke baris berbeda, dan
+// kartu VPN hanya menampilkan satu baris.
+func ringkasDuaBaris(s string) string {
+	baris := strings.SplitN(strings.TrimSpace(s), "\n", 3)
+	if len(baris) > 2 {
+		baris = baris[:2]
+	}
+	for i := range baris {
+		baris[i] = strings.TrimSpace(baris[i])
+	}
+	return strings.Join(baris, " ")
 }
 
 // ringkasStatusTS memangkas baris pertama `tailscale status` jadi empat kolom
@@ -299,6 +345,11 @@ func extractTailscaleKey(input string) string {
 // menunjukkan kunci mana yang dipakai, dan tidak bisa dipakai siapa pun.
 const tailscaleMaskPath = "/var/lib/linux-dashboard/tailscale-authkey.mask"
 
+// tsTimeoutUp membatasi tunggu `tailscale up`. Cukup panjang untuk pertukaran
+// kunci dan pembentukan rute di jaringan lambat, cukup pendek supaya tombol
+// Sambung selalu menjawab sebelum user menyerah dan memuat ulang halaman.
+const tsTimeoutUp = 30 * time.Second
+
 func simpanMaskTailscale(key string) {
 	if key == "" {
 		return
@@ -452,7 +503,13 @@ func tailscaleConfigure(args helperproto.VPNArgs) (helperproto.VPNStatus, error)
 				tungguSocket("/var/run/tailscale/tailscaled.sock", 5*time.Second)
 			}
 		}
-		cmd := []string{"up"}
+		// --timeout WAJIB ada. Tanpa itu `tailscale up` menunggu tanpa batas
+		// pada dua keadaan yang sama-sama lazim — tailnet yang mewajibkan
+		// Device approval, dan login interaktif tanpa auth key — dan karena
+		// helper maupun klien HTTP panel tidak memasang batas waktu baca,
+		// permintaan Sambung menggantung selamanya: tidak ada toast berhasil,
+		// tidak ada toast gagal, dan user menyimpulkan panelnya rusak.
+		cmd := []string{"up", "--timeout=" + tsTimeoutUp.String()}
 		key := ""
 		if strings.TrimSpace(args.AuthKey) != "" {
 			key = extractTailscaleKey(args.AuthKey)
@@ -476,6 +533,15 @@ func tailscaleConfigure(args helperproto.VPNArgs) (helperproto.VPNStatus, error)
 			cmd = append(cmd, "--hostname="+args.Host)
 		}
 		if _, err := run("tailscale", cmd...); err != nil {
+			// Auth key sudah ditukar dan node sudah masuk daftar tailnet —
+			// yang menghabiskan --timeout hanyalah menunggu admin menyetujui.
+			// Itu keadaan sah, bukan kegagalan: kunci disimpan dan status
+			// dikembalikan normal supaya panel bisa memberi tahu user langkah
+			// berikutnya alih-alih menampilkan error tanpa jalan keluar.
+			if st := tailscaleStatus(); st.NeedsApproval {
+				simpanMaskTailscale(key)
+				return st, nil
+			}
 			// "failed to connect to local tailscaled" tidak menyebut apa yang
 			// harus dilakukan user, dan yang dilihat di panel cuma potongan
 			// itu. Sambungkan dengan langkah nyatanya.

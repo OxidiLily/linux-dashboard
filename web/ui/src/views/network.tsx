@@ -30,6 +30,11 @@ type VPNStatus = {
   detail?: string
   /** Token tunnel yang sudah terpasang di unit systemd cloudflared. */
   token?: string
+  /**
+   * Tailscale: node sudah terdaftar di tailnet tapi admin belum menyetujuinya
+   * (Device approval). Tidak ada langkah tersisa di server ini.
+   */
+  needs_approval?: boolean
 }
 
 // Field per-VPN yang dikirim ke backend VPNArgs:
@@ -176,7 +181,25 @@ export function NetworkView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/settings/network/vpn/${name}`, "PUT", buildVPNBody(name, action))
+      const st = await apiSend<VPNStatus>(
+        `/api/settings/network/vpn/${name}`,
+        "PUT",
+        buildVPNBody(name, action),
+      )
+      // Sampai sini aksi VPN berhasil tanpa satu pun pesan ke user: kartu
+      // memang berubah sendiri, tapi perubahan itu terjadi di luar pandangan
+      // dan Tailscale yang menunggu persetujuan admin tidak berubah sama
+      // sekali — persis bentuk yang terbaca sebagai panel rusak.
+      if (st?.needs_approval) {
+        notify.warn(
+          trf("{0}: menunggu persetujuan admin tailnet.", vpnLabel(name)),
+          tr("Node sudah terdaftar. Buka https://login.tailscale.com/admin/machines lalu setujui mesin ini — tidak ada yang perlu diubah di server."),
+        )
+      } else if (action === "up") {
+        notify.ok(trf("{0} tersambung.", vpnLabel(name)))
+      } else {
+        notify.ok(trf("{0} diputus.", vpnLabel(name)))
+      }
       setVpnModal(null)
       setVpnForm({ authKey: "", hostname: "", token: "", config: "" })
       // Token yang barusan diketik sudah tersimpan di sistem; tampilkan lagi
@@ -265,13 +288,31 @@ export function NetworkView() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold">{vpnLabel(v.name)}</p>
-                        <Badge tone={!v.installed ? "muted" : v.connected ? "ok" : "crit"}>
-                          {!v.installed ? tr("Belum terpasang") : v.connected ? tr("Terkoneksi") : tr("Terputus")}
+                        <Badge
+                          tone={
+                            !v.installed ? "muted" : v.connected ? "ok" : v.needs_approval ? "warn" : "crit"
+                          }
+                        >
+                          {!v.installed
+                            ? tr("Belum terpasang")
+                            : v.connected
+                              ? tr("Terkoneksi")
+                              : v.needs_approval
+                                ? tr("Menunggu persetujuan")
+                                : tr("Terputus")}
                         </Badge>
                       </div>
                       {v.state && <p className="num mt-0.5 text-xs text-muted-foreground">{v.state}</p>}
                       {v.detail && (
-                        <p className="max-w-xs truncate text-xs text-muted-foreground">{tr(v.detail)}</p>
+                        <p
+                          className={
+                            v.needs_approval
+                              ? "max-w-md text-xs text-warn"
+                              : "max-w-xs truncate text-xs text-muted-foreground"
+                          }
+                        >
+                          {tr(v.detail)}
+                        </p>
                       )}
                     </div>
                     <div className="flex gap-1.5">

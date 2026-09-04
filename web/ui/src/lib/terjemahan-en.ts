@@ -188,6 +188,14 @@ daftarkanTerjemahan({
   "Hostname di tailnet (opsional)": "Hostname on the tailnet (optional)",
   "Status VPN tidak terbaca. Pastikan helper daemon aktif.":
     "VPN status unavailable. Make sure the helper daemon is running.",
+  "Menunggu persetujuan": "Awaiting approval",
+  "{0}: menunggu persetujuan admin tailnet.": "{0}: waiting for tailnet admin approval.",
+  "Node sudah terdaftar. Buka https://login.tailscale.com/admin/machines lalu setujui mesin ini — tidak ada yang perlu diubah di server.":
+    "The node is already registered. Open https://login.tailscale.com/admin/machines and approve this machine — nothing needs changing on the server.",
+  "Node ini sudah terdaftar di tailnet tapi belum disetujui admin. Buka https://login.tailscale.com/admin/machines lalu setujui mesin ini — tidak ada yang perlu diubah di server.":
+    "This node is registered on the tailnet but not yet approved by an admin. Open https://login.tailscale.com/admin/machines and approve this machine — nothing needs changing on the server.",
+  "{0} tersambung.": "{0} connected.",
+  "{0} diputus.": "{0} disconnected.",
 
   // ---- docker & files ----
   "Tambah Stack": "Add Stack",
