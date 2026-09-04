@@ -300,12 +300,23 @@ export function DockerView() {
       })
       if (!ok) return
     }
+    // notify.tugas, bukan await-lalu-notify: `docker stop` menunggu container
+    // menutup dirinya sampai batas SIGKILL (10 detik bawaan), dan `rm -f`
+    // ikut menunggu. Selama itu pola lama tidak menampilkan apa pun — layar
+    // tidak berubah sama sekali dan tombolnya terbaca tidak menanggapi.
+    const namaAksi = action === "remove" ? tr("Hapus") : action
     try {
-      await apiSend(`/api/docker/containers/${encodeURIComponent(c.id)}/${action}`, "POST")
-      notify.ok(trf("Container {0}: {1} berhasil.", c.name, action))
+      await notify.tugas(
+        apiSend(`/api/docker/containers/${encodeURIComponent(c.id)}/${action}`, "POST"),
+        {
+          jalan: trf("Container {0}: {1}…", c.name, namaAksi),
+          sukses: trf("Container {0}: {1} berhasil.", c.name, action),
+          gagal: (e) => trf("Gagal {0} container: {1}", action, pesanError(e)),
+        },
+      )
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal {0} container: {1}", action, pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -403,13 +414,24 @@ export function DockerView() {
       danger: row.type !== "Build Cache",
     })
     if (!ok) return
+    // Aksi paling lama di halaman ini: `image prune -a` pada host yang penuh
+    // menghapus puluhan GB dan berjalan beberapa menit. Tanpa toast yang
+    // berputar selama itu, satu-satunya tanda bahwa sesuatu terjadi baru
+    // muncul saat pekerjaannya selesai — dan kalau user sudah berpindah
+    // halaman, toast berhasilnya datang tiba-tiba tanpa konteks.
     try {
-      const res = await apiSend<{ output?: string }>(aksi.path, "POST")
-      notify.ok(tr("Ruang dibebaskan."), res?.output || undefined)
+      await notify.tugas(apiSend<{ output?: string }>(aksi.path, "POST"), {
+        jalan: trf("Membersihkan {0}…", tr(row.type)),
+        sukses: trf("{0} dibersihkan.", tr(row.type)),
+        gagal: (e) => trf("Gagal membersihkan: {0}", pesanError(e)),
+        // Baris "Total reclaimed space" dari docker adalah satu-satunya
+        // jawaban yang dicari user sesudah menekan tombol ini.
+        detail: (res) => res?.output?.trim() || undefined,
+      })
       loadDf()
       loadDaya(daya)
-    } catch (e: any) {
-      notify.err(trf("Gagal membersihkan: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -430,13 +452,19 @@ export function DockerView() {
       danger: true,
     })
     if (!ok) return
+    // Menghapus satu image berukuran GB tetap butuh beberapa detik: daemon
+    // membongkar tiap layer. Toast yang berputar selama itu yang membedakan
+    // "sedang jalan" dari "tombolnya tidak berfungsi".
     try {
-      await apiSend(`/api/docker/${jenis}/${encodeURIComponent(id)}`, "DELETE")
-      notify.ok(trf("{0} dihapus.", label))
+      await notify.tugas(apiSend(`/api/docker/${jenis}/${encodeURIComponent(id)}`, "DELETE"), {
+        jalan: trf("Menghapus {0}…", label),
+        sukses: trf("{0} dihapus.", label),
+        gagal: (e) => trf("Gagal menghapus {0}: {1}", label, pesanError(e)),
+      })
       loadDaya(jenis)
       loadDf()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus {0}: {1}", label, pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -490,14 +518,16 @@ export function DockerView() {
     })
     if (!ok) return
     try {
-      const res = await apiSend<{ output?: string }>(`/api/docker/${daya}/prune`, "POST")
-      // Baris "Total reclaimed space" dari docker adalah satu-satunya jawaban
-      // yang dicari user sesudah menekan tombol ini.
-      notify.ok(trf("{0} dibersihkan.", labelDaya[daya]), res?.output || undefined)
+      await notify.tugas(apiSend<{ output?: string }>(`/api/docker/${daya}/prune`, "POST"), {
+        jalan: trf("Membersihkan {0}…", labelDaya[daya]),
+        sukses: trf("{0} dibersihkan.", labelDaya[daya]),
+        gagal: (e) => trf("Gagal membersihkan: {0}", pesanError(e)),
+        detail: (res) => res?.output?.trim() || undefined,
+      })
       loadDaya(daya)
       loadDf()
-    } catch (e: any) {
-      notify.err(trf("Gagal membersihkan: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

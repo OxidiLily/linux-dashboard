@@ -240,7 +240,7 @@ daftarkanTerjemahan({
   "Pemakaian disk": "Disk usage",
   "Jumlah": "Count",
   "Bisa dibebaskan": "Reclaimable",
-  "Ruang dibebaskan.": "Space reclaimed.",
+  "Membersihkan {0}…": "Cleaning up {0}…",
   "Buang semua image yang tidak dipakai container?": "Remove every image no container is using?",
   "Bukan hanya image dangling: SETIAP image yang tidak dipakai container mana pun ikut dibuang, termasuk image stack yang sedang Down — container-nya sudah tidak ada, jadi image-nya dihitung tidak terpakai. Semuanya harus diunduh ulang sebelum stack itu bisa dinyalakan lagi.":
     "Not just dangling images: EVERY image that no container uses is removed, including images of stacks that are currently Down — their containers are gone, so their images count as unused. All of them must be pulled again before those stacks can start.",
