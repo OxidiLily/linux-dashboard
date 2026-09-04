@@ -112,7 +112,7 @@ func (s *Server) handleTerminal(conn net.Conn, br *bufio.Reader, u *userInfo, re
 		if perluPerbaikanAgent(args.Command) {
 			_, _ = ptmx.Write([]byte("echo '[panel] " + args.Command +
 				" terpasang tapi tidak bisa dijalankan — memperbaiki instalasinya, mohon tunggu…'\n"))
-			perbaikiAgent(args.Command)
+			perbaikiAgent(args.Command, u)
 		}
 		if jalur, err := pastikanAgentLoop(); err == nil {
 			_, _ = ptmx.Write([]byte(jalur + " " + args.Command + "\n"))

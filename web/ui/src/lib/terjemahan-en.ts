@@ -258,6 +258,8 @@ daftarkanTerjemahan({
     "Every volume no container uses is deleted ALONG WITH its entire contents. Volumes of a stopped stack are included.",
   "Network yang tidak dipakai container mana pun dihapus. Network bawaan docker tidak ikut.":
     "Networks no container uses are removed. Docker's built-in networks are not touched.",
+  "Terpasang system-wide sebagai root — jalur npm yang dipakai panel versi lama. Kalau Anda memakai panel sebagai user biasa, pembaruan otomatis agent ini akan gagal setiap kali dijalankan. Tekan Pasang untuk memasang ulang dengan installer resmi vendor ke home Anda.":
+    "Installed system-wide as root — the npm path used by an older panel release. If you use the panel as a regular user, this agent's auto-update will fail every time it runs. Press Install to reinstall it with the vendor's official installer into your own home directory.",
   "Salin path": "Copy path",
   "Salin path {0}": "Copy path of {0}",
   "Salin path folder ini": "Copy the path of this folder",

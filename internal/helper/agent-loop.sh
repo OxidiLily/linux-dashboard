@@ -28,25 +28,38 @@ AGENT="$1"
 # Installer resmi para agent tidak sepakat soal ke mana binernya diletakkan,
 # dan sebagian tujuannya belum tentu ada di PATH sesi panel:
 #
-#   claude.ai/install.sh                  $HOME/.local/bin
-#   hermes-agent…/install.sh              /usr/local/bin (root)
-#                                         $HOME/.local/bin (non-root)
-#   opencode.ai/install                   $HOME/.opencode/bin
-#   npm i -g @openai/codex                bin global npm
-#   openclaw.ai/install.sh                bin global npm
-#   npm i -g @anthropic-ai/claude-code    bin global npm
+#   claude.ai/install.sh              $HOME/.local/bin
+#   chatgpt.com/codex/install.sh      $HOME/.local/bin
+#   hermes-agent…/install.sh          $HOME/.local/bin (non-root)
+#                                     /usr/local/bin   (root)
+#   opencode.ai/install               $HOME/.opencode/bin
+#   openclaw.ai/install.sh            bin global npm, atau prefix npm milik
+#                                     user, atau $HOME/.openclaw/tools/node/bin
+#                                     kalau ia memasang Node.js user-space
+#
+# Daftar direktori di bawah HARUS tetap sinkron dengan dirBinAgen di
+# internal/helper/aiagent.go: yang satu memutuskan apakah kartu Components
+# menyalakan tanda "terpasang", yang satu memutuskan apakah sesi ini benar-
+# benar menemukan binernya. Kalau keduanya berbeda, panel akan mengaku
+# terpasang lalu gagal menjalankannya — atau sebaliknya.
 #
 # Tanpa penyesuaian ini, agent yang sebenarnya SUDAH terpasang dilaporkan
 # "belum terpasang" hanya karena direktorinya tidak diwarisi PTY panel — dan
 # saran yang menyertainya (pasang ulang) tidak akan pernah memperbaikinya.
 #
-# Ditambahkan di belakang, bukan di depan: penemuan agent yang tadinya tidak
-# terlihat itu murni tambahan, dan tidak boleh mengubah biner mana yang
-# dipakai instalasi yang selama ini sudah jalan.
-for d in "$HOME/.local/bin" "$HOME/.opencode/bin" /usr/local/bin; do
+# Direktori milik user diletakkan DI DEPAN /usr/bin, bukan di belakang. Mesin
+# yang pernah memasang agent lewat panel versi lama masih menyimpan biner npm
+# global milik root di /usr/bin — biner yang bisa dijalankan tapi tidak pernah
+# bisa memperbarui dirinya sendiri. Kalau jalur sistem tetap menang, memasang
+# ulang lewat installer resmi tidak akan mengubah apa pun yang dirasakan user:
+# yang jalan tetap salinan lama yang rusak itu. Instalasi milik user memang
+# yang lebih baru dan satu-satunya yang utuh, jadi ia yang harus menang —
+# sama seperti urutan yang dipasang installer resmi ke berkas rc login.
+for d in /usr/local/bin "$HOME/.bun/bin" "$HOME/.npm-global/bin" \
+	"$HOME/.openclaw/tools/node/bin" "$HOME/.opencode/bin" "$HOME/.local/bin"; do
 	case ":$PATH:" in
 		*":$d:"*) ;;
-		*) [ -d "$d" ] && PATH="$PATH:$d" ;;
+		*) [ -d "$d" ] && PATH="$d:$PATH" ;;
 	esac
 done
 export PATH

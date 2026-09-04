@@ -275,21 +275,27 @@ func perluPerbaikanAgent(perintah string) bool {
 	return !binaryBisaJalan(perintah)
 }
 
-// perbaikiAgent memasang ulang komponen agent lewat jalur install yang sama
-// dengan halaman Components. Dijalankan sebagai root oleh daemon helper — satu-
-// satunya titik di jalur sesi yang punya hak menulis /usr/lib/node_modules.
+// perbaikiAgent memasang ulang komponen agent lewat jalur install yang SAMA
+// dengan halaman Components — termasuk identitas user-nya.
+//
+// Identitas itu yang membuat perbaikan ini benar-benar memperbaiki. Instalasi
+// yang cacat di mesin lama adalah paket npm global milik root; memasang ulang
+// sebagai root hanya menghasilkan kerusakan yang sama sekali lagi. Dijalankan
+// atas nama user sesi, jalur installnya berpindah ke installer resmi vendor di
+// dalam home user itu, dan itulah instalasi yang sesudahnya benar-benar bisa
+// dijalankan — dan bisa memperbarui dirinya sendiri.
 //
 // Kegagalan tidak membatalkan sesi: pesan error asli dari agent jauh lebih
 // berguna bagi user daripada terminal yang menolak muncul tanpa penjelasan.
-func perbaikiAgent(perintah string) {
+func perbaikiAgent(perintah string, u *userInfo) {
 	perbaikanAgentDicoba.Store(perintah, true)
 	nama := komponenAgenPerBinary[perintah]
 	c, ok := components[nama]
-	if !ok || c.install == nil {
+	if !ok {
 		return
 	}
 	log.Printf("agent %s: binary ada tapi gagal dijalankan — memasang ulang komponen %s", perintah, nama)
-	if err := c.install(); err != nil {
+	if err := jalankanInstall(c, u); err != nil {
 		log.Printf("agent %s: pemasangan ulang gagal: %v", perintah, err)
 		return
 	}
