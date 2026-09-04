@@ -82,6 +82,8 @@ daftarkanTerjemahan({
   "VPN peer-to-peer, dikonfigurasi di Settings → Network.":
     "Peer-to-peer VPN, configured in Settings → Network.",
   "Gateway API AI lokal (butuh Node.js).": "Local AI API gateway (requires Node.js).",
+  "Backend self-hosted lengkap (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) di atas Docker Compose, dipasang lewat setup.sh resmi Supabase ke /opt/supabase.":
+    "A complete self-hosted backend (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) on Docker Compose, installed into /opt/supabase by Supabase's official setup.sh.",
   "Server DNS lengkap (blocklist, DoH/DoT, cache) — web console di port 5380, login awal admin/admin. Pemasangannya mematikan systemd-resolved.":
     "Full DNS server (blocklists, DoH/DoT, caching) — web console on port 5380, first login admin/admin. Installing it disables systemd-resolved.",
   "Server file sharing SMB/CIFS. Halaman File manager → Samba butuh ini.":
@@ -769,6 +771,8 @@ daftarkanTerjemahan({
     "Code knowledge graph via local AST parsing — used by AI Agents to map a repo without reading files one by one.",
   "Harness \"lazy senior dev\" level ultra + bundle skill ponytail-audit/review/debt.":
     "\"Lazy senior dev\" harness at ultra level + the ponytail-audit/review/debt skill bundle.",
+  "Browser Use — kendali browser lewat CDP untuk AI Agent (buka halaman, klik, isi form, ambil data dari halaman ber-JavaScript). Skill-nya didaftarkan ke tiap agent saat sesinya dibuka; butuh Chrome/Chromium di mesin yang dipakai.":
+    "Browser Use — CDP browser control for AI Agents (open pages, click, fill forms, read JavaScript-rendered pages). Its skill is registered with each agent when a session opens; needs Chrome/Chromium on the machine it runs on.",
   "Password akun ini wajib diganti. Banner SSH \"Default password must be changed\" muncul karena akun masih memakai password bawaan installer.": "This account's password must be changed. The SSH banner \"Default password must be changed\" appears because the account still uses the installer default.",
   "Ganti sekarang": "Change now",
   "Guest OK akan dinonaktifkan": "Guest OK will be turned off",

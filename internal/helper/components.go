@@ -139,6 +139,7 @@ const (
 	katAman    = "Keamanan"
 	katPantau  = "Monitoring & disk"
 	katUtil    = "Utilitas"
+	katData    = "Database & backend"
 )
 
 var components = map[string]*component{
@@ -150,6 +151,29 @@ var components = map[string]*component{
 		uninstall:   uninstallDocker,
 		version:     func() string { return firstLine(tryRun("docker", "--version")) },
 	},
+	// Supabase bukan paket dan bukan service systemd — ia stack docker compose
+	// yang dipasang setup.sh resmi ke /opt/supabase. Karena itu Service kosong
+	// dan KelolaDi menunjuk halaman yang benar-benar memegang kendalinya;
+	// tombol Jalankan/Hentikan untuk sepuluh container ada di sana, bukan di
+	// kartu komponen. Detail lengkapnya di supabase.go.
+	//
+	// installUser, bukan install: pemasangannya bisa menyeret Docker ikut
+	// terpasang, dan user yang menekan Pasang harus masuk grup docker supaya
+	// halaman System → Docker bisa mengelola stack-nya.
+	//
+	// Hanya port gateway yang didaftarkan ke firewall. Postgres (5432) dan
+	// pooler (6543) juga terbuka di compose bawaan, tapi mengizinkannya ke
+	// seluruh LAN adalah keputusan admin — bukan efek samping menekan Pasang.
+	"supabase": denganPort(&component{
+		Name: "supabase", Category: katData,
+		Description: "Backend self-hosted lengkap (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) di atas Docker Compose, dipasang lewat setup.sh resmi Supabase ke /opt/supabase.",
+		KelolaDi:    "System → Docker",
+		installUser: installSupabase,
+		uninstall:   uninstallSupabase,
+		purge:       purgeSupabase,
+		terpasang:   supabaseTerpasang,
+		version:     versiSupabase,
+	}, portKomponen{portGatewaySupabase, "tcp", "API gateway & Studio"}),
 	"wireguard": {
 		Name: "wireguard", Binary: "wg", Service: "wg-quick@wg0",
 		Category: katRuntime, Description: "VPN peer-to-peer, dikonfigurasi di Settings → Network.",
@@ -231,6 +255,14 @@ var components = map[string]*component{
 		install:     installPonytail,
 		uninstall:   uninstallPonytail,
 		terpasang:   ponytailTerpasang,
+	},
+	"browser-use": {
+		Name: "browser-use", Binary: "browser-use",
+		Category: katAI, RequiredFor: "AI → AI Agent",
+		Description: "Browser Use — kendali browser lewat CDP untuk AI Agent (buka halaman, klik, isi form, ambil data dari halaman ber-JavaScript). Skill-nya didaftarkan ke tiap agent saat sesinya dibuka; butuh Chrome/Chromium di mesin yang dipakai.",
+		install:     installBrowserUse,
+		uninstall:   uninstallBrowserUse,
+		version:     versiPipx("browser-use"),
 	},
 
 	// ---- paket repo Debian/Ubuntu yang TIDAK ikut di instalasi dasar ----
@@ -332,7 +364,8 @@ func ComponentNames() []string {
 	return []string{
 		"docker", "nodejs", "tailscale", "cloudflared", "wireguard", "9router",
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
-		"rtk", "graphify", "ponytail",
+		"rtk", "graphify", "ponytail", "browser-use",
+		"supabase",
 		"samba", "nfs-server", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs",
 		"ufw", "fail2ban",
 		"lm-sensors", "smartmontools", "nvme-cli", "qemu-guest-agent",

@@ -44,6 +44,25 @@ func denganPort(c *component, ps ...portKomponen) *component {
 // ramai, dan komponen di panel ini semuanya layanan LAN. Kembalian "" berarti
 // subnet tidak bisa ditentukan.
 func subnetLokal() string {
+	// net.ParseCIDR sekalian memberi alamat jaringannya:
+	// "192.168.2.11/24" → 192.168.2.0/24. Tidak perlu menghitung mask sendiri.
+	_, jaringan, err := net.ParseCIDR(alamatLokalCIDR())
+	if err != nil {
+		return ""
+	}
+	return jaringan.String()
+}
+
+// alamatLokalCIDR mengembalikan alamat IPv4 interface yang memegang default
+// route berikut prefiksnya, mis. "192.168.2.11/24". Kembalian "" berarti tidak
+// bisa ditentukan.
+//
+// Alamatnya dibaca dari `ip addr`, BUKAN dari field `src` keluaran `ip route`:
+// route statis yang ditulis tanpa `src` (bentuk yang dipakai cloud-init dan
+// netplan di banyak image server) tidak punya field itu sama sekali, dan
+// pembacaan yang bergantung padanya diam-diam mengembalikan kosong di mesin
+// yang jaringannya justru normal.
+func alamatLokalCIDR() string {
 	dev := ""
 	if res, err := run("ip", "-o", "-4", "route", "show", "to", "default"); err == nil {
 		f := strings.Fields(res.Stdout)
@@ -64,14 +83,8 @@ func subnetLokal() string {
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		f := strings.Fields(line)
 		for i, t := range f {
-			if t != "inet" || i+1 >= len(f) {
-				continue
-			}
-			// net.ParseCIDR sekalian memberi alamat jaringannya:
-			// "192.168.2.11/24" → 192.168.2.0/24. Tidak perlu menghitung
-			// mask sendiri.
-			if _, jaringan, err := net.ParseCIDR(f[i+1]); err == nil {
-				return jaringan.String()
+			if t == "inet" && i+1 < len(f) {
+				return f[i+1]
 			}
 		}
 	}

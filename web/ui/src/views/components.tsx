@@ -236,7 +236,7 @@ export function ComponentsView() {
   // Komponen yang punya antarmuka web sendiri — tombol "Buka" muncul di
   // kartunya. Portnya ada di backend (handleOpenURL), bukan di sini: yang
   // perlu diketahui halaman ini cuma komponen mana yang punya halaman.
-  const punyaUIWeb = ["9router", "technitium-dns"]
+  const punyaUIWeb = ["9router", "technitium-dns", "supabase"]
 
   // bukaUIWeb membuka tab baru ke URL yang dikembalikan server. Pakai
   // endpoint (bukan hard-code "http://localhost:20128") supaya WSL/lxc

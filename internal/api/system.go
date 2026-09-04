@@ -37,10 +37,10 @@ func (s *Server) handleHostname(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleOpenURL adalah endpoint diagnostik yang mengembalikan URL absolut
-// untuk komponen yang punya antarmuka web sendiri — 9router (:20128) dan
-// Technitium DNS (:5380). Dipakai tombol "Buka" di halaman Components — tanpa
-// ini user harus mengingat port dan mengetik manual, yang sering salah di
-// WSL/lxc yang tidak punya hostname tetap.
+// untuk komponen yang punya antarmuka web sendiri — 9router (:20128),
+// Technitium DNS (:5380), dan Supabase Studio (:8000). Dipakai tombol "Buka"
+// di halaman Components — tanpa ini user harus mengingat port dan mengetik
+// manual, yang sering salah di WSL/lxc yang tidak punya hostname tetap.
 func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	component := chi.URLParam(r, "name")
 	var port int
@@ -49,6 +49,13 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 		port = 20128
 	case "technitium-dns":
 		port = 5380
+	case "supabase":
+		// Gateway Supabase: Studio, REST, Auth, Realtime, dan Storage
+		// semuanya di balik satu port ini (API_GW_HTTP_PORT di .env).
+		// Login Studio memakai DASHBOARD_USERNAME/DASHBOARD_PASSWORD yang
+		// dibangkitkan setup.sh dan bisa dibaca di penyunting .env stack pada
+		// halaman System → Docker.
+		port = 8000
 	default:
 		writeErr(w, http.StatusNotFound, "tidak ada URL langsung untuk komponen "+component)
 		return

@@ -80,13 +80,14 @@ topbar and are stored per account on the server, not in the browser.
 
 ## Components
 
-30 optional pieces of software that are not part of a base Ubuntu/Debian
+32 optional pieces of software that are not part of a base Ubuntu/Debian
 install, installable and removable from the panel:
 
 | Category | Contents |
 |---|---|
 | Runtime & tunnel | docker · nodejs · tailscale · cloudflared · wireguard |
-| AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail |
+| AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail · browser-use |
+| Database & backend | supabase |
 | File sharing & network | samba · nfs-server · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
 | Security | ufw · fail2ban |
 | Monitoring & disk | lm-sensors · smartmontools · nvme-cli · qemu-guest-agent |
@@ -128,10 +129,59 @@ included — along with their data, using the same uninstallers as the Component
 page. Docker images and volumes in `/var/lib/docker` are still left alone: they
 belong to your containers, not to the panel.
 
+### Self-hosted Supabase
+
+The `supabase` component installs a full Supabase backend — Postgres, Auth
+(GoTrue), PostgREST, Realtime, Storage, Edge Functions, and Studio — as a
+Docker Compose stack in `/opt/supabase/supabase-project`. What the panel runs
+is the **official setup.sh** (`curl -fsSL https://supabase.link/setup.sh | sh`;
+here the script is downloaded to a file first, then executed as
+`sh setup.sh -y`), following
+<https://supabase.com/docs/guides/self-hosting/docker>. That script sparse-
+clones the `docker/` folder from the latest self-hosted release tag and
+generates every secret through `utils/generate-keys.sh` and
+`utils/add-new-auth-keys.sh` — JWT_SECRET, ANON_KEY, SERVICE_ROLE_KEY,
+POSTGRES_PASSWORD, and DASHBOARD_PASSWORD. The panel never writes the compose
+file or the keys itself: key generation is the part most easily left behind
+when Supabase ships a new release, and getting it wrong leaves the deployment
+open to anyone.
+
+Three things the panel does around it:
+
+1. **Docker is installed through the panel's own path**, not left to setup.sh —
+   so the account that pressed Install is added to the `docker` group and
+   System → Docker can actually manage the new stack.
+2. **Public URLs are pointed at this machine's LAN IP.** The `.env.example`
+   default is `http://localhost:8000`, and that value is what the BROWSER uses
+   to call the API — left alone, Studio only works from the server itself.
+   Only `SUPABASE_PUBLIC_URL` and `API_EXTERNAL_URL` are rewritten; `SITE_URL`
+   points at your own application, not at Supabase.
+3. **The stack is started once** with `sh run.sh start --wait-timeout 600`
+   (Supabase's official wrapper around `docker compose up -d --wait`), so once
+   Install finishes the stack is already visible and manageable in
+   System → Docker.
+
+Only port **8000** (the Kong/Envoy gateway — Studio, REST, Auth, Realtime, and
+Storage all sit behind it) is registered with ufw. Postgres 5432 and the pooler
+on 6543 are published by the default compose too, but opening them to the whole
+LAN is an admin decision in Settings → Firewall, not a side effect of pressing
+Install. The **Open** button on the component card points at
+`http://<panel host>:8000`; Studio credentials live in
+`DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` and can be read through the stack
+`.env` editor in System → Docker.
+
+**Removing it does not delete the database.** All Supabase data lives inside
+the project folder (`volumes/db/data`, `volumes/storage`, and the `.env` that
+holds JWT_SECRET), so a plain uninstall stops the stack and *moves* the folder
+to `/opt/supabase/bekas-<date>-<time>` — the card goes back to "not installed",
+the next install is not rejected by setup.sh, and the data is still there if it
+turns out to be needed. Tick "delete data too" to remove `/opt/supabase`
+entirely, including any `bekas-*` folders.
+
 ### Required AI Agent tools & skills
 
-The last three components in the AI category — `rtk`, `graphify`, `ponytail` —
-are not agents but tooling used by **every** agent. They are installed
+The last four components in the AI category — `rtk`, `graphify`, `ponytail`,
+`browser-use` — are not agents but tooling used by **every** agent. They are installed
 automatically as soon as any agent is installed, and their usage directives are
 written into each agent's global instruction file (`~/.claude/CLAUDE.md`,
 `~/.codex/AGENTS.md`, and so on) whenever an AI Agent session is opened — so
@@ -142,23 +192,32 @@ panel accounts created after installation get them too.
 | rtk | Trims shell command output before it reaches the agent context | <https://github.com/rtk-ai/rtk#quick-start> |
 | graphify | Code knowledge graph via local AST parsing | <https://github.com/Graphify-Labs/graphify#install> |
 | ponytail | "Lazy senior dev" harness at ultra level + audit/review/debt skills | <https://github.com/DietrichGebert/ponytail#install> |
+| browser-use | CDP browser control — JavaScript-rendered pages, logins, clicks, forms | <https://browser-use.com> · <https://docs.browser-use.com> |
 
 Registration happens **per user and per agent**, right before an AI Agent
 session opens — not once at install time. The helper daemon runs as root, so a
 `rtk init -g` called by the installer would only patch `/root`; other panel
 accounts open agents with their own HOME. Targets used per agent:
 
-| Panel agent | rtk | graphify |
-|---|---|---|
-| claude-code | `rtk init -g --auto-patch --no-trust-filters` | `graphify install --platform claude` |
-| codex | `rtk init -g --codex` | `graphify install --platform codex` |
-| opencode | `rtk init -g --opencode --auto-patch --no-trust-filters` | `graphify install --platform opencode` |
-| hermes | `rtk init -g --agent hermes` | `graphify install --platform hermes` |
-| openclaw | — (rtk has no OpenClaw target yet) | `graphify install --platform claw` |
+| Panel agent | rtk | graphify | browser-use |
+|---|---|---|---|
+| claude-code | `rtk init -g --auto-patch --no-trust-filters` | `graphify install --platform claude` | `--target claude` |
+| codex | `rtk init -g --codex` | `graphify install --platform codex` | `--target codex` |
+| opencode | `rtk init -g --opencode --auto-patch --no-trust-filters` | `graphify install --platform opencode` | `--target opencode` |
+| hermes | `rtk init -g --agent hermes` | `graphify install --platform hermes` | — (no skill directory yet) |
+| openclaw | — (rtk has no OpenClaw target yet) | `graphify install --platform claw` | `--target openclaw` |
 
 `--auto-patch` and `--no-trust-filters` are required for targets that patch
 `settings.json`: without them rtk prompts on the terminal, and the daemon has
 nobody to answer.
+
+The browser-use column is the argument to `browser-use skill install
+--no-install --target <value>`, which writes the official `SKILL.md` into that
+agent's skill directory. `--no-install` is required: without it the command
+installs a second copy of browser-use through `uv` into `~/.local/bin`, racing
+the system-wide one the panel already installed. hermes has no skill directory
+in browser-use's list, so for it only the directives in `~/.hermes/AGENTS.md`
+apply.
 
 ## Print server (CUPS)
 
