@@ -280,46 +280,16 @@ fi
 
 install -d -o root -g "$SERVICE_USER" -m 0750 /var/lib/linux-dashboard
 
-# ---- Sertifikat TLS bawaan ----------------------------------------------
-# Panel bicara HTTPS sejak instalasi pertama, sama seperti Proxmox: sertifikat
-# self-signed dibuat sendiri kalau belum ada. Browser tetap menampilkan
-# peringatan sekali karena penandatangannya bukan CA publik — itu memang harga
-# sertifikat yang tidak dibeli, dan tetap jauh lebih baik daripada password
-# akun Linux berjalan telanjang di jaringan.
+# ---- TLS: tidak dinyalakan installer -------------------------------------
+# Panel berbicara HTTP polos secara bawaan. Rilis sebelumnya membuat
+# sertifikat self-signed di sini dan menunjuknya dari unit systemd; hasilnya
+# peringatan browser permanen di setiap perangkat, untuk sertifikat yang tidak
+# pernah bisa dipercaya siapa pun. Sertifikat yang SUDAH ada dibiarkan di
+# tempatnya — pemilik mesin mungkin memakainya lewat /etc/default.
 #
-# Sertifikat yang SUDAH ada tidak pernah ditimpa: bisa saja diganti pemilik
-# mesin dengan sertifikat asli dari CA internal atau Let's Encrypt, dan skrip
-# ini juga dijalankan ulang tiap kali tombol Update ditekan.
-TLS_DIR=/etc/linux-dashboard
-if [[ -f "${TLS_DIR}/tls.crt" && -f "${TLS_DIR}/tls.key" ]]; then
-  ok "Sertifikat TLS di ${TLS_DIR} dipertahankan"
-elif ! command -v openssl >/dev/null 2>&1; then
-  echo "[⚠] openssl tidak ada — sertifikat tidak dibuat, panel jalan sebagai HTTP polos"
-else
-  install -d -o root -g "$SERVICE_USER" -m 0750 "$TLS_DIR"
-  # SAN wajib diisi: sejak Chrome 58 sertifikat tanpa subjectAltName ditolak
-  # mentah-mentah, CN saja tidak lagi dilihat. Semua IPv4 mesin ikut masuk
-  # supaya panel bisa dibuka lewat alamat mana pun yang dipakai pemiliknya.
-  san="DNS:$(hostname),DNS:$(hostname).local,DNS:localhost,IP:127.0.0.1"
-  while read -r ip; do
-    [[ -n "$ip" ]] && san="${san},IP:${ip}"
-  done < <(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9.]+$')
-  # 3650 hari: sertifikat homelab yang kedaluwarsa diam-diam berarti panel
-  # tidak bisa dibuka justru saat dibutuhkan, dan tidak ada yang memperbarui.
-  if openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
-      -subj "/CN=$(hostname)" -addext "subjectAltName=${san}" \
-      -keyout "${TLS_DIR}/tls.key" -out "${TLS_DIR}/tls.crt" >/dev/null 2>&1; then
-    # Proses web berjalan sebagai user tanpa privilege dan harus bisa membaca
-    # kunci privatnya — grup, bukan world-readable.
-    chown root:"$SERVICE_USER" "${TLS_DIR}/tls.key" "${TLS_DIR}/tls.crt"
-    chmod 0640 "${TLS_DIR}/tls.key"
-    chmod 0644 "${TLS_DIR}/tls.crt"
-    ok "Sertifikat TLS self-signed dibuat di ${TLS_DIR} (berlaku 10 tahun)"
-  else
-    rm -f "${TLS_DIR}/tls.key" "${TLS_DIR}/tls.crt"
-    echo "[⚠] Pembuatan sertifikat gagal — panel jalan sebagai HTTP polos"
-  fi
-fi
+# Menyalakan TLS: isi DASHBOARD_TLS_CERT dan DASHBOARD_TLS_KEY di
+# /etc/default/linux-dashboard (berkas itu dibaca setelah unit, jadi nilainya
+# menang, dan installer tidak pernah menimpanya kalau sudah ada).
 
 # Folder data per akun: ~/DATA/{AppData,Documents,Downloads,Gallery,Media}.
 # Panel juga memastikannya ada tiap File Manager dibuka — yang di sini supaya
@@ -541,13 +511,17 @@ cek_komponen tailscale   tailscale       "Settings → Network (Tailscale)"
 cek_komponen cloudflared cloudflared     "Settings → Network (Cloudflare Tunnel)"
 
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-if [[ -f "${TLS_DIR}/tls.crt" && -f "${TLS_DIR}/tls.key" ]]; then
+# Sumber kebenaran satu-satunya untuk skema URL adalah env yang benar-benar
+# dibaca service — bukan keberadaan berkas sertifikat, yang bisa tertinggal
+# dari instalasi lama tanpa dipakai sama sekali.
+if grep -qsE '^[[:space:]]*DASHBOARD_TLS_(CERT|KEY)=[^[:space:]]' /etc/default/linux-dashboard; then
   ok "Terpasang. Buka https://${ip:-<ip-server>}:1122"
-  echo "[i] Sertifikatnya self-signed, jadi browser menampilkan peringatan sekali —"
-  echo "[i] pilih advance lalu pilih lanjutkan."
+  echo "[i] TLS dinyalakan lewat /etc/default/linux-dashboard."
 else
   ok "Terpasang. Buka http://${ip:-<ip-server>}:1122"
-  echo "[⚠] Tanpa sertifikat — password login berjalan telanjang di jaringan."
+  echo "[⚠] Tanpa TLS — password login berjalan telanjang di jaringan."
+  echo "[i] Menyalakan TLS: isi DASHBOARD_TLS_CERT dan DASHBOARD_TLS_KEY di"
+  echo "[i] /etc/default/linux-dashboard, lalu systemctl restart linux-dashboard-web."
 fi
 echo "[i] Login pakai akun Linux yang sudah ada di mesin ini."
 echo "[⚠] Untuk sertifikat tepercaya tanpa peringatan, taruh panel di belakang"

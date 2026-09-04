@@ -13,13 +13,22 @@ Restart=on-failure
 RestartSec=2
 
 Environment=DASHBOARD_LISTEN=0.0.0.0:1122
-# Sertifikat bawaan yang dibuat installer kalau belum ada — panel bicara HTTPS
-# sejak instalasi pertama, seperti Proxmox, tanpa langkah manual. Self-signed,
-# jadi browser tetap menampilkan peringatan sekali. Berkas yang tidak ada
-# diperlakukan seperti tidak diset (lihat internal/config/config.go), jadi
-# menghapusnya membuat panel kembali ke HTTP polos, bukan mati.
-Environment=DASHBOARD_TLS_CERT=/etc/linux-dashboard/tls.crt
-Environment=DASHBOARD_TLS_KEY=/etc/linux-dashboard/tls.key
+# TLS TIDAK dinyalakan di sini. Rilis sebelumnya menunjuk sertifikat
+# self-signed bawaan dari unit ini, dan hasilnya satu peringatan browser
+# permanen di setiap perangkat ("Not secure", tanpa gembok) untuk sertifikat
+# yang tidak pernah bisa dipercaya siapa pun — sambil mematikan jalur HTTP
+# yang dipakai klien lama. Panel kembali berbicara HTTP polos secara bawaan.
+#
+# Menyalakan TLS tetap satu langkah, dan tempatnya di /etc/default/linux-dashboard
+# (dibaca SETELAH blok ini, jadi nilainya menang) — bukan di unit ini, yang
+# ditimpa utuh tiap kali tombol Update ditekan:
+#
+#   DASHBOARD_TLS_CERT=/etc/linux-dashboard/tls.crt
+#   DASHBOARD_TLS_KEY=/etc/linux-dashboard/tls.key
+#
+# Untuk sertifikat yang benar-benar tepercaya, taruh panel di belakang reverse
+# proxy (Caddy/Nginx Proxy Manager) dengan domain sendiri dan biarkan panel
+# tetap HTTP di belakangnya.
 # Setelan per-device (port, secure cookie, TLS) ditaruh di sini, BUKAN di unit
 # ini: unit ditimpa utuh tiap kali tombol Update ditekan, sedangkan berkas di
 # /etc/default tidak pernah disentuh installer kalau sudah ada. Dibaca setelah
