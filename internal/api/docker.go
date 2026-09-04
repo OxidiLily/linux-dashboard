@@ -863,12 +863,68 @@ func (s *Server) handleDockerNetworks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// ---- Pemakaian disk ------------------------------------------------------
+//
+// Menjawab pertanyaan yang tidak bisa dijawab tabel image/volume/network:
+// dari sekian puluh GB yang dipakai Docker, berapa yang sebenarnya masih
+// dipakai dan berapa yang bisa dibebaskan. Tanpa angka itu, tombol Bersihkan
+// adalah tebakan — dan `image prune` polos yang cuma membuang image dangling
+// sering mengembalikan 0 B di host yang jelas penuh, yang terbaca sebagai
+// tombol rusak.
+//
+// Sumbernya `docker system df` (tanpa -v). Versi -v yang merinci per-image
+// dan per-volume sengaja tidak dipakai: itu yang mahal di host dengan banyak
+// volume, dan yang dibutuhkan halaman ini hanya empat baris ringkasan.
+type dockerDiskUsage struct {
+	// Type: "Images" | "Containers" | "Local Volumes" | "Build Cache" —
+	// ditulis docker sendiri, dipakai UI untuk memilih label dan tombolnya.
+	Type string `json:"type"`
+	// Semua nilai di bawah adalah string apa adanya dari docker ("12",
+	// "3.38GB", "1.2GB (35%)"). Sengaja tidak diurai jadi angka: yang
+	// ditampilkan panel persis yang ditampilkan `docker system df` di
+	// terminal, jadi tidak ada dua sumber kebenaran soal satuan dan
+	// pembulatan.
+	Total       string `json:"total"`
+	Active      string `json:"active"`
+	Size        string `json:"size"`
+	Reclaimable string `json:"reclaimable"`
+}
+
+func (s *Server) handleDockerDiskUsage(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	// `system df` menjalankan template SEKALI PER JENIS, jadi keluarannya
+	// empat objek JSON berbaris — bentuk yang sama dengan `ls --format`.
+	res, err := s.dockerRun(sessionFrom(r).Username, "", "system", "df", "--format", "{{json .}}")
+	if err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	out := []dockerDiskUsage{}
+	barisJSON(res.Stdout, func(line []byte) {
+		var row struct{ Type, TotalCount, Active, Size, Reclaimable string }
+		if json.Unmarshal(line, &row) != nil || row.Type == "" {
+			return
+		}
+		out = append(out, dockerDiskUsage{
+			Type: row.Type, Total: row.TotalCount, Active: row.Active,
+			Size: row.Size, Reclaimable: row.Reclaimable,
+		})
+	})
+	writeJSON(w, http.StatusOK, out)
+}
+
 // dayaDocker memetakan segmen URL ke subcommand docker. Nilai dari URL tidak
 // pernah diteruskan langsung, sama seperti aksiContainer.
+//
+// buildcache hanya bisa di-prune, tidak punya daftar dan tidak punya entri
+// yang dihapus satu per satu — lihat handleDockerDayaDelete.
 var dayaDocker = map[string]string{
-	"images":   "image",
-	"volumes":  "volume",
-	"networks": "network",
+	"images":     "image",
+	"volumes":    "volume",
+	"networks":   "network",
+	"buildcache": "builder",
 }
 
 func (s *Server) handleDockerDayaDelete(w http.ResponseWriter, r *http.Request) {
@@ -879,6 +935,15 @@ func (s *Server) handleDockerDayaDelete(w http.ResponseWriter, r *http.Request) 
 	daya, ok := dayaDocker[chi.URLParam(r, "daya")]
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "sumber daya docker tidak dikenal")
+		return
+	}
+	// Cache build tidak punya entri yang bisa dihapus satu per satu dari
+	// panel. Ditolak dengan kalimat yang menyebut apa yang harus dipakai
+	// sebagai gantinya, bukan dibiarkan jatuh ke whitelist helper yang akan
+	// menjawab "subcommand builder \"rm\" tidak diizinkan".
+	if daya == "builder" {
+		writeErr(w, http.StatusBadRequest,
+			"cache build tidak dihapus satu per satu — pakai tombol Bersihkan pada baris Build Cache")
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -918,16 +983,25 @@ func (s *Server) handleDockerDayaPrune(w http.ResponseWriter, r *http.Request) {
 	// -f melewati pertanyaan konfirmasi CLI (tidak ada yang bisa menjawabnya
 	// di sini); konfirmasi sebenarnya sudah diminta di UI.
 	//
-	// TANPA -a untuk image: `image prune` polos hanya membuang image dangling,
-	// sedangkan `-a` membuang setiap image yang tidak sedang dipakai container
-	// — termasuk image stack yang kebetulan sedang berhenti, yang lalu harus
-	// diunduh ulang. Selisih itu terlalu besar untuk satu tombol yang sama.
-	res, err := s.dockerRun(sess.Username, "", daya, "prune", "-f")
+	// `image prune` polos hanya membuang image dangling — yang tidak punya tag
+	// sama sekali — sedangkan `-a` membuang setiap image yang tidak dipakai
+	// container mana pun, termasuk image stack yang sedang `down` (down
+	// menghapus container-nya, jadi image-nya tidak lagi terpakai) yang lalu
+	// harus diunduh ulang. Selisih itu terlalu besar untuk satu tombol yang
+	// sama, jadi keduanya jadi dua aksi terpisah dengan dua kalimat
+	// konfirmasi sendiri — bukan satu tombol yang diam-diam memilih.
+	args := []string{daya, "prune", "-f"}
+	semua := daya == "image" && r.URL.Query().Get("semua") == "1"
+	if semua {
+		args = append(args, "-a")
+	}
+	res, err := s.dockerRun(sess.Username, "", args...)
 	if err != nil {
 		writeHelperErr(w, err)
 		return
 	}
-	s.store.LogActivity(sess.Username, "docker_"+daya+"_prune", "prune "+daya, nil, clientIP(r))
+	s.store.LogActivity(sess.Username, "docker_"+daya+"_prune", "prune "+daya,
+		map[string]any{"semua": semua}, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
 		// Baris "Total reclaimed space: ..." dari docker dikirim apa adanya —

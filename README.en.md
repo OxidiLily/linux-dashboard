@@ -45,7 +45,7 @@ Components menus).
 | AI | AI Agent (agent CLI sessions inside the panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (every panel alert) · File Operations · Activity Logs |
 | Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
-| System | Processes · Docker (per-container actions, logs, compose & `.env` editors) · Terminal |
+| System | Processes · Docker (per-container actions, logs, compose & `.env` editors, images/volumes/networks, disk usage) · Terminal |
 
 **Account** is not in the sidebar: its entry point is the profile block at the
 foot of the sidebar, which opens a menu holding the account identity, Account,
@@ -237,6 +237,50 @@ installs a second copy of browser-use through `uv` into `~/.local/bin`, racing
 the system-wide one the panel already installed. hermes has no skill directory
 in browser-use's list, so for it only the directives in `~/.hermes/AGENTS.md`
 apply.
+
+## Docker — resources & disk usage
+
+Besides containers and stacks, System → Docker manages **images, volumes and
+networks** in one tabbed panel, with a **disk usage summary** above it. The
+summary comes from `docker system df` (without `-v`, which is the expensive
+variant on hosts with many volumes) and answers the question the three tables
+below it cannot: of the tens of GB Docker is using, how much is still in use
+and how much can be reclaimed.
+
+| Row | Clean-up button | Command |
+|---|---|---|
+| Images | yes | `docker image prune -f -a` |
+| Containers | — | (none; stopped containers are removed one by one in the Containers panel) |
+| Local Volumes | yes | `docker volume prune -f` |
+| Build Cache | yes | `docker builder prune -f` |
+
+**There are TWO levels of image clean-up, deliberately.** The Clean up button
+on the Images tab runs a plain `image prune` — dangling images only, the ones
+with no tag at all. The button on the summary's Images row runs
+`image prune -a`: every image no container uses, including images of stacks
+that are currently `Down` (their containers are gone, so their images count as
+unused) which then have to be pulled again. That gap is too large for a single
+button to pick silently, so each has its own confirmation wording. The gap is
+also exactly why the summary row exists: on a host full of tagged-but-unused
+images, a plain prune reclaims 0 B and reads like a broken button.
+
+The build cache is the only resource here whose contents are purely derived —
+removing it never loses data, the most it costs is the next image build
+starting from scratch. It has no listing and no individually removable
+entries; only the Clean up button on its row.
+
+Individual removal (the trash icon) **never uses `-f`**: the daemon refuses to
+remove an image, volume or network that is still in use, and that refusal is
+the most useful safeguard here — forcing it means a running container loses its
+data. Docker's built-in networks (`bridge`, `host`, `none`) have no delete
+button at all.
+
+On the helper side, the docker command whitelist is organized **per resource**
+rather than as one shared list: `system` may only run `df`, and `builder` may
+only run `prune`. `docker system prune` is deliberately never available — it
+sweeps stopped containers, networks, the build cache and (with `--volumes`)
+every unused volume in a single command, a scope that cannot be described
+honestly in one confirmation dialog.
 
 ## Print server (CUPS)
 

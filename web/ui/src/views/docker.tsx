@@ -127,6 +127,16 @@ const labelDaya = {
   networks: "Networks",
 }
 
+/** Satu baris `docker system df`. Semua nilai string apa adanya dari docker. */
+type DockerDf = {
+  /** "Images" | "Containers" | "Local Volumes" | "Build Cache" */
+  type: string
+  total: string
+  active: string
+  size: string
+  reclaimable: string
+}
+
 export function DockerView() {
   const tr = useTr()
   const home = useAuth((s) => s.user?.home) || "/home/user"
@@ -156,6 +166,11 @@ export function DockerView() {
   const [volumes, setVolumes] = useState<DockerVolume[]>([])
   const [networks, setNetworks] = useState<DockerNetwork[]>([])
   const [loadingDaya, setLoadingDaya] = useState(false)
+  // Ringkasan pemakaian disk. Dimuat sekali saat halaman dibuka dan saat
+  // tombol muat ulang ditekan — BUKAN tiap kali tab dipindah: `docker system
+  // df` menghitung ulang pemakaian disk tiap panggilan, dan menempelkannya ke
+  // pergantian tab berarti membayarnya tiga kali untuk angka yang sama.
+  const [df, setDf] = useState<DockerDf[]>([])
 
   const load = async () => {
     setLoading(true)
@@ -355,9 +370,48 @@ export function DockerView() {
     }
   }
 
+  // Kegagalan df TIDAK memunculkan toast: di mesin tanpa Docker halaman ini
+  // sudah menampilkan satu pesan dari daftar container, dan pesan kedua yang
+  // mengatakan hal yang sama hanya menambah kebisingan. Barisnya cukup tidak
+  // muncul.
+  const loadDf = async () => {
+    try {
+      setDf((await apiGet<DockerDf[]>("/api/docker/df")) || [])
+    } catch {
+      setDf([])
+    }
+  }
+
   useEffect(() => {
     loadDaya(daya)
   }, [daya])
+
+  useEffect(() => {
+    loadDf()
+  }, [])
+
+  // pruneDf membebaskan ruang untuk satu baris ringkasan. Sesudahnya df DAN
+  // tabel yang sedang dibuka dimuat ulang: menghapus image mengubah keduanya,
+  // dan angka lama yang bertahan di layar terbaca sebagai aksi yang gagal.
+  const pruneDf = async (row: DockerDf) => {
+    const aksi = aksiDf[row.type]
+    if (!aksi) return
+    const ok = await confirmDialog({
+      title: aksi.judul,
+      message: aksi.pesan,
+      confirmLabel: tr("Bersihkan"),
+      danger: row.type !== "Build Cache",
+    })
+    if (!ok) return
+    try {
+      const res = await apiSend<{ output?: string }>(aksi.path, "POST")
+      notify.ok(tr("Ruang dibebaskan."), res?.output || undefined)
+      loadDf()
+      loadDaya(daya)
+    } catch (e: any) {
+      notify.err(trf("Gagal membersihkan: {0}", pesanError(e)))
+    }
+  }
 
   // Kalimat konfirmasi ditulis per jenis karena akibatnya memang berbeda
   // jauh: image bisa diunduh ulang, isi volume tidak bisa dikembalikan sama
@@ -380,6 +434,7 @@ export function DockerView() {
       await apiSend(`/api/docker/${jenis}/${encodeURIComponent(id)}`, "DELETE")
       notify.ok(trf("{0} dihapus.", label))
       loadDaya(jenis)
+      loadDf()
     } catch (e: any) {
       notify.err(trf("Gagal menghapus {0}: {1}", label, pesanError(e)))
     }
@@ -389,6 +444,41 @@ export function DockerView() {
     images: tr("Hanya image dangling — yang tidak punya tag sama sekali — yang dibuang. Image bertag tetap ada meski tidak sedang dipakai."),
     volumes: tr("Setiap volume yang tidak dipakai container mana pun dihapus BESERTA seluruh isinya. Volume stack yang sedang berhenti ikut terkena."),
     networks: tr("Network yang tidak dipakai container mana pun dihapus. Network bawaan docker tidak ikut."),
+  }
+
+  // Aksi pembebasan ruang per baris ringkasan pemakaian disk. Kuncinya nilai
+  // .Type milik docker sendiri ("Images", "Local Volumes", "Build Cache"),
+  // bukan terjemahannya — itu yang stabil antar versi docker.
+  //
+  // Containers tidak punya entri: `container prune` tidak ada di whitelist
+  // helper, dan container yang berhenti sudah terlihat satu per satu di panel
+  // Containers di atas — menghapusnya dari sana lebih jelas daripada satu
+  // tombol yang menyapu tanpa menyebut yang mana.
+  //
+  // Images memakai varian `?semua=1` (`image prune -a`), BUKAN prune polos
+  // yang sudah ada di tombol Bersihkan tab Images. Justru selisih itu yang
+  // membuat baris ini ada: di host yang penuh image bertag tapi tak terpakai,
+  // prune polos mengembalikan 0 B dan terbaca sebagai tombol rusak.
+  const aksiDf: Record<string, { path: string; judul: string; pesan: string }> = {
+    Images: {
+      path: "/api/docker/images/prune?semua=1",
+      judul: tr("Buang semua image yang tidak dipakai container?"),
+      pesan: tr(
+        "Bukan hanya image dangling: SETIAP image yang tidak dipakai container mana pun ikut dibuang, termasuk image stack yang sedang Down — container-nya sudah tidak ada, jadi image-nya dihitung tidak terpakai. Semuanya harus diunduh ulang sebelum stack itu bisa dinyalakan lagi.",
+      ),
+    },
+    "Local Volumes": {
+      path: "/api/docker/volumes/prune",
+      judul: tr("Bersihkan volume yang tidak terpakai?"),
+      pesan: prunePesan.volumes,
+    },
+    "Build Cache": {
+      path: "/api/docker/buildcache/prune",
+      judul: tr("Bersihkan cache build?"),
+      pesan: tr(
+        "Cache build seluruhnya hasil turunan — tidak ada data yang hilang. Yang dibayar cuma build image berikutnya yang mulai dari nol.",
+      ),
+    },
   }
 
   const pruneDaya = async () => {
@@ -405,6 +495,7 @@ export function DockerView() {
       // yang dicari user sesudah menekan tombol ini.
       notify.ok(trf("{0} dibersihkan.", labelDaya[daya]), res?.output || undefined)
       loadDaya(daya)
+      loadDf()
     } catch (e: any) {
       notify.err(trf("Gagal membersihkan: {0}", pesanError(e)))
     }
@@ -752,12 +843,65 @@ export function DockerView() {
             <Eraser className="size-3.5 sm:mr-1" />
             <span className="sr-only sm:not-sr-only">{tr("Bersihkan")}</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={() => loadDaya(daya)} disabled={loadingDaya}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              loadDaya(daya)
+              loadDf()
+            }}
+            disabled={loadingDaya}
+          >
             <RefreshCw className={`size-3.5 ${loadingDaya ? "animate-spin" : ""}`} />
           </Button>
         </div>
       }
     >
+      {/* Ringkasan pemakaian disk. Ditaruh DI ATAS ketiga tabel, bukan di tab
+          tersendiri: pertanyaan "berapa yang bisa saya bebaskan" adalah yang
+          membuat orang membuka panel ini, dan jawabannya tidak boleh ikut
+          tersembunyi di balik pemilih tab. */}
+      {df.length > 0 && (
+        <div className="mb-3 overflow-x-auto rounded border border-border">
+          <table className="tabel-kartu w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="pb-2 pl-2 font-medium">{tr("Pemakaian disk")}</th>
+                <th className="pb-2 font-medium">{tr("Jumlah")}</th>
+                <th className="pb-2 font-medium">{tr("Aktif")}</th>
+                <th className="pb-2 font-medium">{tr("Ukuran")}</th>
+                <th className="pb-2 font-medium">{tr("Bisa dibebaskan")}</th>
+                <th className="pb-2 pr-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {df.map((row) => (
+                <tr key={row.type} className="border-b border-border/50 last:border-0">
+                  <td className="py-1.5 pl-2 font-medium">{tr(row.type)}</td>
+                  <td className="num py-1.5">{row.total}</td>
+                  <td className="num py-1.5">{row.active}</td>
+                  <td className="num py-1.5">{row.size}</td>
+                  <td className="num py-1.5">{row.reclaimable}</td>
+                  <td className="py-1.5 pr-2 text-right">
+                    {aksiDf[row.type] && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => pruneDf(row)}
+                        title={aksiDf[row.type].pesan}
+                      >
+                        <Eraser className="size-3.5 sm:mr-1" />
+                        <span className="sr-only sm:not-sr-only">{tr("Bersihkan")}</span>
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="overflow-x-auto">
         {daya === "images" && (
           <table className="tabel-kartu w-full text-left text-xs">

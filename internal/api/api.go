@@ -204,6 +204,7 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/docker/stacks/{id}/compose", s.handleStackComposeSet)
 			r.Get("/docker/stacks/{id}/env", s.handleStackEnvGet)
 			r.Put("/docker/stacks/{id}/env", s.handleStackEnvSet)
+			r.Get("/docker/df", s.handleDockerDiskUsage)
 			r.Get("/docker/images", s.handleDockerImages)
 			r.Get("/docker/volumes", s.handleDockerVolumes)
 			r.Get("/docker/networks", s.handleDockerNetworks)
