@@ -495,15 +495,18 @@ func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, er
 		username = u.Name
 	}
 	defer lupakanCacheKomponen()
-	// Kemajuan dilaporkan selama pemasangan berjalan supaya UI bisa menampilkan
-	// bar yang benar-benar bergerak, bukan penghitung detik yang tidak tahu
-	// apa-apa soal isi pekerjaannya.
-	mulaiProgres(name)
-	defer selesaiProgres()
 	c, ok := components[name]
 	if !ok {
 		return helperproto.ComponentStatus{}, errKode(helperproto.ErrKomponenTidakAda, "component %q tidak dikenal", name)
 	}
+	// Kemajuan dilaporkan selama pemasangan berjalan supaya UI bisa menampilkan
+	// bar yang benar-benar bergerak, bukan penghitung detik yang tidak tahu
+	// apa-apa soal isi pekerjaannya. Laporan ini juga satu-satunya jejak yang
+	// ditinggalkan pemasangan untuk halaman yang dimuat ulang di tengah jalan.
+	if err := mulaiProgres(name, "install"); err != nil {
+		return helperproto.ComponentStatus{}, err
+	}
+	defer selesaiProgres()
 	// Software yang sudah ada di sistem — dipasang manual, lewat repo lain, atau
 	// oleh panel sebelumnya — tidak dipasang ulang. Menjalankan installer di
 	// atas instalasi yang ada bukan cuma buang waktu: installer vendor
@@ -604,6 +607,13 @@ func uninstallComponent(name string, purge bool) (helperproto.ComponentStatus, e
 	if !ok {
 		return helperproto.ComponentStatus{}, errKode(helperproto.ErrKomponenTidakAda, "component %q tidak dikenal", name)
 	}
+	// Penghapusan ikut dilaporkan: ia memakai apt/dpkg yang sama, dan halaman
+	// yang dimuat ulang di tengahnya harus bisa menemukannya lagi persis
+	// seperti pemasangan.
+	if err := mulaiProgres(name, "uninstall"); err != nil {
+		return helperproto.ComponentStatus{}, err
+	}
+	defer selesaiProgres()
 	if err := c.uninstall(); err != nil {
 		return helperproto.ComponentStatus{}, err
 	}

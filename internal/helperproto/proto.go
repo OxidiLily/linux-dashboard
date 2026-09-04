@@ -146,6 +146,7 @@ const (
 	ErrNilaiTidakValid   = "value_invalid"
 	ErrPasswordPendek    = "password_too_short"
 	ErrGuestOKKonflik    = "guest_ok_conflict"
+	ErrAksiBerjalan      = "action_in_progress"
 	ErrDiskAdaFS         = "disk_has_filesystem"
 	ErrDiskDipakai       = "disk_in_use"
 	// ErrMirrorGagal: apt bisa membaca metadata repo tapi gagal mengunduh
@@ -581,6 +582,11 @@ type ComponentArgs struct {
 // paket besar, justru dua keadaan yang paling butuh keterangan jujur.
 type ComponentProgress struct {
 	Name string `json:"name"`
+	// Jenis: "install" | "uninstall". Halaman yang baru dimuat di tengah
+	// pekerjaan hanya punya laporan ini untuk tahu aksi apa yang berjalan —
+	// tanpa itu ia harus menebak, dan tebakan yang salah membuat kartu
+	// mengaku sedang memasang komponen yang justru sedang dicopot.
+	Jenis string `json:"jenis,omitempty"`
 	// Persen 0..100 untuk keseluruhan proses, sudah menggabungkan tahap
 	// pembaruan indeks, pengunduhan, dan pemasangan.
 	Persen int `json:"persen"`

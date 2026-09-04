@@ -29,16 +29,32 @@ var progres struct {
 	helperproto.ComponentProgress
 }
 
-func mulaiProgres(nama string) {
+// mulaiProgres menandai satu aksi komponen sedang berjalan, dan menolak kalau
+// sudah ada aksi lain yang berjalan.
+//
+// Penolakannya bukan kehati-hatian teoretis: apt/dpkg memegang lock tunggal
+// untuk seluruh mesin, jadi aksi kedua yang lolos ke sana gagal dengan kalimat
+// soal lock yang tidak menyerupai penyebabnya sama sekali. Jalan masuknya
+// nyata — dua tab, dua admin, atau satu halaman yang di-refresh di tengah
+// pemasangan lalu menawarkan tombol Pasang lagi.
+func mulaiProgres(nama, jenis string) error {
 	progres.Lock()
 	defer progres.Unlock()
+	if progres.Aktif {
+		return errKode(helperproto.ErrAksiBerjalan, "%s", progres.Name)
+	}
+	pesan := "menyiapkan pemasangan"
+	if jenis == "uninstall" {
+		pesan = "menyiapkan penghapusan"
+	}
 	// Fase sengaja kosong: sebelum ada laporan pertama, panel belum tahu
 	// pemasangan ini lewat apt atau bukan. Menebak "indeks" membuat kartu
 	// 9router — yang dipasang lewat npm dan tidak pernah menyentuh daftar
 	// paket — mengaku sedang memperbarui indeks selama satu menit penuh.
 	progres.ComponentProgress = helperproto.ComponentProgress{
-		Name: nama, Aktif: true, Persen: 0, Pesan: "menyiapkan pemasangan",
+		Name: nama, Jenis: jenis, Aktif: true, Persen: 0, Pesan: pesan,
 	}
+	return nil
 }
 
 func selesaiProgres() {

@@ -38,15 +38,32 @@ const ketFase: Record<string, string> = {
   pasang: "memasang paket",
 }
 
+/** Bentuk jawaban /api/components/progress (helperproto.ComponentProgress). */
+type Progres = {
+  name: string
+  jenis?: string
+  persen: number
+  fase?: string
+  pesan?: string
+  aktif: boolean
+}
+
 export function ComponentsView() {
   const tr = useTr()
   const [list, setList] = useState<ComponentStatus[]>([])
   const [loading, setLoading] = useState(false)
   // Aksi yang sedang berjalan: apt bisa makan 1–2 menit, jadi UI harus
   // menunjukkan komponen mana yang sedang dikerjakan dan sudah berapa lama.
-  const [aksi, setAksi] = useState<{ name: string; jenis: "install" | "uninstall"; mulai: number } | null>(
-    null,
-  )
+  // diadopsi = aksi ini ditemukan sudah berjalan waktu halaman dimuat, bukan
+  // dimulai oleh tab ini. Bedanya penting: aksi sendiri punya fetch yang
+  // ditunggu dan tahu hasilnya, aksi adopsi tidak punya apa-apa selain
+  // laporan kemajuan, jadi selesainya harus dibaca dari sana.
+  const [aksi, setAksi] = useState<{
+    name: string
+    jenis: "install" | "uninstall"
+    mulai: number
+    diadopsi?: boolean
+  } | null>(null)
   // Kemajuan nyata dari apt, bukan hitungan detik. Angka dari stopwatch tidak
   // tahu apa-apa soal isi pekerjaannya: pada mesin lambat atau paket besar ia
   // menjanjikan sesuatu yang tidak ia ketahui.
@@ -61,15 +78,23 @@ export function ComponentsView() {
     setProgres(null)
     let batal = false
     const tanya = () => {
-      apiGet<{ name: string; persen: number; fase?: string; pesan?: string; aktif: boolean }>(
-        "/api/components/progress",
-      )
+      apiGet<Progres>("/api/components/progress")
         .then((p) => {
           if (batal) return
           // Laporan untuk komponen lain diabaikan: instalasi yang baru saja
           // selesai bisa sempat terbaca sebelum state helper dibersihkan.
-          if (p?.aktif && p.name === aksi.name)
+          if (p?.aktif && p.name === aksi.name) {
             setProgres({ persen: p.persen, fase: p.fase, pesan: p.pesan })
+            return
+          }
+          // Aksi adopsi tidak punya pemanggil yang menunggu, jadi di sinilah
+          // satu-satunya tempat selesainya bisa diketahui — tanpa cabang ini
+          // kartunya akan menyala selamanya.
+          if (!p?.aktif && aksi.diadopsi) {
+            setAksi(null)
+            load(true)
+            notify.pesan(trf("Aksi pada {0} selesai.", aksi.name))
+          }
         })
         .catch(() => undefined)
     }
@@ -100,6 +125,31 @@ export function ComponentsView() {
 
   useEffect(() => {
     load()
+    // Aksi komponen berjalan di helper daemon, bukan di tab ini: pindah
+    // halaman atau menekan refresh tidak pernah menghentikan apt. Yang dulu
+    // hilang cuma ingatan React-nya — kartu kembali ke "Belum Terpasang"
+    // lengkap dengan tombol Pasang, sehingga pemasangan yang masih berjalan
+    // terlihat mati dan tombolnya justru mengundang pemasangan kedua di atas
+    // dpkg yang sedang terkunci. Karena itu halaman menanyakan lebih dulu apa
+    // yang sedang berjalan, lalu mengangkatnya kembali jadi aksinya sendiri.
+    let batal = false
+    apiGet<Progres>("/api/components/progress")
+      .then((p) => {
+        if (batal || !p?.aktif) return
+        setAksi(
+          (a) =>
+            a ?? {
+              name: p.name,
+              jenis: p.jenis === "uninstall" ? "uninstall" : "install",
+              mulai: Date.now(),
+              diadopsi: true,
+            },
+        )
+      })
+      .catch(() => undefined)
+    return () => {
+      batal = true
+    }
   }, [])
 
   const handleInstall = async (name: string) => {
@@ -217,8 +267,8 @@ export function ComponentsView() {
       hint={
         aksi
           ? aksi.jenis === "install"
-            ? trf("Memasang {0} — jangan tutup halaman ini", aksi.name)
-            : trf("Memproses {0} — jangan tutup halaman ini", aksi.name)
+            ? trf("Memasang {0} — prosesnya berlanjut walau halaman ditinggal", aksi.name)
+            : trf("Memproses {0} — prosesnya berlanjut walau halaman ditinggal", aksi.name)
           : trf(
               "Software opsional yang tidak ikut di instalasi dasar Ubuntu/Debian — {0} dari {1} terpasang",
               terpasang,
