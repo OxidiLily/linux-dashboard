@@ -57,6 +57,8 @@ daftarkanTerjemahan({
   // ---- components ----
   "Akun sudoer yang memasang Docker dimasukkan ke grup `docker` agar bisa memakai perintah docker dari shell sendiri. Keanggotaan grup baru berlaku pada sesi login BERIKUTNYA — logout lalu login lagi (atau jalankan `newgrp docker`) sebelum mencoba `docker ps`.":
     "The sudoer who installed Docker is added to the `docker` group so they can run docker from their own shell. Group membership only takes effect in the NEXT login session — log out and back in (or run `newgrp docker`) before trying `docker ps`.",
+  "Login Studio memakai basic auth. Username dan passwordnya ada di DASHBOARD_USERNAME dan DASHBOARD_PASSWORD pada berkas .env stack — buka lewat System → Docker → supabase → tombol .env (di disk: /opt/supabase/supabase-project/.env).":
+    "Studio sign-in uses basic auth. The username and password live in DASHBOARD_USERNAME and DASHBOARD_PASSWORD in the stack's .env file — open it from System → Docker → supabase → the .env button (on disk: /opt/supabase/supabase-project/.env).",
   "Hanya yang belum terpasang": "Only not installed",
   "Memasang": "Installing",
   "Memproses": "Working",

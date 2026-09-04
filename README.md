@@ -157,14 +157,35 @@ Tiga hal yang dikerjakan panel di sekitarnya:
    (pembungkus resmi Supabase untuk `docker compose up -d --wait`), sehingga
    sesudah Pasang selesai stack-nya sudah muncul dan bisa dikelola di
    System → Docker.
+4. **Stack-nya didaftarkan sendiri** di System → Docker. Stack yang dibuat
+   komponen panel tidak berdiri di daftar "belum terdaftar" menunggu tombol
+   Daftarkan — panel sendiri yang membuat berkas compose-nya, jadi panel juga
+   yang tahu di mana ia berada. Pendaftarannya idempoten dan dikunci pada
+   path berkas compose (bukan nama, jadi stack yang Anda ganti namanya tetap
+   dikenali), dan barisnya ikut hilang begitu komponennya dicopot. Mesin yang
+   sudah memasang Supabase sebelum rilis ini ikut terbereskan sendiri saat
+   halaman Docker dibuka.
+
+Nama stack-nya **wajib** `supabase`: `docker-compose.yml` Supabase menyetel
+`name: supabase` di tingkat atas, dan panel menurunkan nama project compose
+dari nama stack. Kalau keduanya berbeda, sekali `Down` dari panel akan
+meninggalkan container lama sebagai yatim dan `Up` menyalakan set kedua yang
+bentrok port.
 
 Hanya port **8000** (gateway Kong/Envoy — Studio, REST, Auth, Realtime, dan
 Storage semuanya lewat sana) yang didaftarkan ke ufw. Postgres 5432 dan pooler
 6543 juga terbuka di compose bawaan, tapi mengizinkannya ke seluruh LAN adalah
 keputusan admin di Settings → Firewall, bukan efek samping menekan Pasang.
-Tombol **Buka** di kartu komponen mengarah ke `http://<host panel>:8000`;
-kredensial Studio ada di `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` dan bisa
-dibaca lewat penyunting `.env` stack di halaman System → Docker.
+Tombol **Buka** di kartu komponen mengarah ke `http://<host panel>:8000`.
+Yang menyambut di sana adalah kotak basic auth milik gateway, dan passwordnya
+dibangkitkan setup.sh — tidak pernah diketik siapa pun. Karena itu kartu
+komponen membawa catatan yang menyebut di mana nilainya:
+`DASHBOARD_USERNAME` dan `DASHBOARD_PASSWORD` di `.env` stack, satu klik lewat
+System → Docker → supabase → tombol **.env** (di disk:
+`/opt/supabase/supabase-project/.env`). Nilainya sendiri sengaja TIDAK dicetak
+di kartu: halaman Components terbaca sekali pandang oleh siapa pun yang
+melihat layar, dan halaman itu pula yang paling sering ikut terpotret saat
+melaporkan masalah.
 
 **Mencopotnya tidak menghapus database.** Seluruh data Supabase ada di dalam
 folder proyek (`volumes/db/data`, `volumes/storage`, dan `.env` yang memuat

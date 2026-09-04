@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -253,6 +255,79 @@ type stackView struct {
 	External bool `json:"external,omitempty"`
 }
 
+// stackKomponen adalah stack compose yang dibuat KOMPONEN panel, bukan oleh
+// user. Stack seperti ini tidak boleh muncul sebagai "belum terdaftar" dan
+// menunggu user menekan Daftarkan: panel sendiri yang membuat berkas
+// compose-nya, jadi panel juga yang tahu di mana ia berada.
+var stackKomponen = []struct{ nama, compose, ket string }{
+	{
+		"supabase",
+		"/opt/supabase/supabase-project/docker-compose.yml",
+		"Dipasang dari Settings → Components.",
+	},
+}
+
+// sinkronStackKomponen mendaftarkan stack milik komponen panel yang belum
+// terdaftar, dan membuang pendaftarannya lagi begitu komponennya dicopot.
+//
+// Dijalankan dari handleStackList — sebuah GET yang karena itu menulis, dan
+// itu disengaja. Mendaftarkan hanya pada saat instalasi tidak cukup: mesin
+// yang sudah memasang komponennya lebih dulu (termasuk lewat rilis panel
+// sebelum ada pendaftaran ini) tidak akan pernah melewati jalur instalasi
+// lagi, jadi stack-nya akan selamanya berdiri di daftar "belum terdaftar"
+// tanpa satu pun tombol di panel yang bisa membereskannya. Operasinya
+// idempoten dan dikunci pada path berkas compose, bukan nama — stack yang
+// sudah diganti namanya user tetap dikenali sebagai stack yang sama.
+func (s *Server) sinkronStackKomponen(stacks []store.Stack) []store.Stack {
+	berubah := false
+	for _, k := range stackKomponen {
+		compose := filepath.Clean(k.compose)
+		var terdaftar *store.Stack
+		for i := range stacks {
+			if filepath.Clean(stacks[i].ComposePath) == compose {
+				terdaftar = &stacks[i]
+				break
+			}
+		}
+		ada := berkasAda(compose)
+		switch {
+		case ada && terdaftar == nil:
+			if _, err := s.store.AddStack(k.nama, compose, k.ket); err != nil {
+				// Daftar stack lebih penting daripada pendaftaran otomatisnya:
+				// kegagalan di sini hanya mengembalikan keadaan lama (muncul
+				// sebagai stack "belum terdaftar"), bukan halaman yang kosong.
+				log.Printf("stack %s: gagal didaftarkan otomatis: %v", k.nama, err)
+				continue
+			}
+		case !ada && terdaftar != nil:
+			// Komponennya dicopot: barisnya menunjuk berkas yang tidak ada
+			// lagi, dan membiarkannya berarti satu kartu permanen yang setiap
+			// kali melapor error dari `docker compose ps`.
+			if err := s.store.DeleteStack(terdaftar.ID); err != nil {
+				log.Printf("stack %s: gagal dihapus dari daftar: %v", k.nama, err)
+				continue
+			}
+		default:
+			continue
+		}
+		berubah = true
+	}
+	if !berubah {
+		return stacks
+	}
+	baru, err := s.store.Stacks()
+	if err != nil {
+		return stacks
+	}
+	return baru
+}
+
+// berkasAda menjawab apakah path menunjuk berkas biasa yang ada.
+func berkasAda(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
+}
+
 func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 	if !requireSudo(w, r) {
 		return
@@ -263,6 +338,7 @@ func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	stacks = s.sinkronStackKomponen(stacks)
 	// Satu kali `compose ls` untuk seluruh daftar: dipakai menentukan project
 	// tiap stack terdaftar DAN menemukan stack yang belum terdaftar.
 	lsRows := s.daftarComposeLs(sess.Username)
