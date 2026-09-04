@@ -49,6 +49,17 @@ type component struct {
 	// install/uninstall dijalankan sebagai langkah-langkah command array.
 	install   func() error
 	uninstall func() error
+	// installUser menggantikan install untuk komponen yang HARUS dipasang
+	// dengan identitas user panel, bukan root — seluruh CLI agent AI, yang
+	// installer resminya memasang ke dalam $HOME dan mensyaratkan pemakainya
+	// bisa menulis ulang binernya sendiri agar pembaruan otomatis bekerja.
+	// Lihat aiagent.go.
+	installUser func(*userInfo) error
+	// terpasangUser menjawab "apakah komponen ini tersedia untuk user INI".
+	// Berbeda dari terpasang, yang menjawab untuk mesin secara keseluruhan:
+	// agent yang dipasang user lain ada di mesin ini tapi tidak terjangkau
+	// dari HOME user yang sekarang menekan Pasang.
+	terpasangUser func(*userInfo) bool
 	// purge menghapus data milik komponen yang tidak ikut terbawa uninstall
 	// paketnya. Hanya diisi komponen yang benar-benar menyimpan sesuatu, dan
 	// hanya dijalankan kalau user memintanya secara eksplisit.
@@ -100,6 +111,23 @@ func aptComponent(name, binary, service, category, desc string, pkgs ...string) 
 		install:   func() error { return aptInstall(pkgs...) },
 		uninstall: func() error { return aptRemove(pkgs...) },
 		version:   func() string { return firstLine(tryRun(binary, "--version")) },
+	}
+}
+
+// komponenAgen membangun entri katalog untuk satu CLI agent AI. Bentuknya seragam
+// untuk kelimanya, dan keseragaman itu yang penting: perbedaan cara pasang
+// antar-agent adalah bagaimana rilis sebelumnya berakhir dengan satu agent
+// yang dipasang lewat skrip resmi dan empat lewat npm.
+func komponenAgen(nama, binary, deskripsi string) *component {
+	return &component{
+		Name: nama, Binary: binary,
+		Category: katAI, RequiredFor: "AI → AI Agent",
+		Description:   deskripsi,
+		installUser:   func(u *userInfo) error { return installAgenResmi(nama, binary, u) },
+		uninstall:     func() error { return uninstallAgen(nama, binary) },
+		terpasang:     func() bool { _, ok := agenTerpasangDiMesin(binary); return ok },
+		terpasangUser: func(u *userInfo) bool { return agenSehatUntuk(binary, u) },
+		version:       versiAgen(binary),
 	}
 }
 
@@ -158,46 +186,16 @@ var components = map[string]*component{
 		// (deploy/9router.service tidak menimpa host/port).
 		ports: []portKomponen{{"20128", "tcp", "gateway API"}},
 	},
-	"hermes": {
-		Name: "hermes", Binary: "hermes",
-		Category: katAI, RequiredFor: "AI → AI Agent",
-		Description: "Hermes Agent CLI oleh Nous Research (Autonomous AI Agent).",
-		install:     installHermes,
-		uninstall:   uninstallHermes,
-		version:     func() string { return firstLine(tryRun("hermes", "--version")) },
-	},
-	"claude-code": {
-		Name: "claude-code", Binary: "claude",
-		Category: katAI, RequiredFor: "AI → AI Agent",
-		Description: "Claude Code CLI oleh Anthropic (Agentic Coding CLI).",
-		install:     installClaudeCode,
-		uninstall:   func() error { return npmUninstallGlobal("@anthropic-ai/claude-code") },
-		version:     versiNpmGlobal("@anthropic-ai/claude-code"),
-	},
-	"codex": {
-		Name: "codex", Binary: "codex",
-		Category: katAI, RequiredFor: "AI → AI Agent",
-		Description: "OpenAI Codex CLI (AI coding assistant).",
-		install:     func() error { return npmInstallGlobal("@openai/codex") },
-		uninstall:   func() error { return npmUninstallGlobal("@openai/codex") },
-		version:     versiNpmGlobal("@openai/codex"),
-	},
-	"opencode": {
-		Name: "opencode", Binary: "opencode",
-		Category: katAI, RequiredFor: "AI → AI Agent",
-		Description: "OpenCode CLI (Open-source autonomous coding agent).",
-		install:     func() error { return npmInstallGlobal("opencode-ai") },
-		uninstall:   func() error { return npmUninstallGlobal("opencode-ai") },
-		version:     versiNpmGlobal("opencode-ai"),
-	},
-	"openclaw": {
-		Name: "openclaw", Binary: "openclaw",
-		Category: katAI, RequiredFor: "AI → AI Agent",
-		Description: "OpenClaw CLI (Multi-channel autonomous AI Agent gateway).",
-		install:     func() error { return npmInstallGlobal("openclaw") },
-		uninstall:   func() error { return npmUninstallGlobal("openclaw") },
-		version:     versiNpmGlobal("openclaw"),
-	},
+	// Kelima CLI agent memakai bentuk yang sama: installer resmi vendor,
+	// dijalankan sebagai user panel. Alasan lengkapnya di aiagent.go —
+	// ringkasnya, keduanya wajib: perintah resmi karena itu satu-satunya
+	// jalur yang diuji vendor, dan sebagai user karena binernya harus bisa
+	// ditulis ulang pemakainya agar pembaruan otomatis agent bekerja.
+	"hermes":      komponenAgen("hermes", "hermes", "Hermes Agent CLI oleh Nous Research (Autonomous AI Agent)."),
+	"claude-code": komponenAgen("claude-code", "claude", "Claude Code CLI oleh Anthropic (Agentic Coding CLI)."),
+	"codex":       komponenAgen("codex", "codex", "OpenAI Codex CLI (AI coding assistant)."),
+	"opencode":    komponenAgen("opencode", "opencode", "OpenCode CLI (Open-source autonomous coding agent)."),
+	"openclaw":    komponenAgen("openclaw", "openclaw", "OpenClaw CLI (Multi-channel autonomous AI Agent gateway)."),
 
 	// ---- alat & skill wajib yang dipakai SEMUA AI Agent ----
 	//
@@ -372,6 +370,9 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	if st.Installed && name == "docker" {
 		st.Note = catatanGrupDocker
 	}
+	if st.Installed && komponenAgenAI(name) {
+		st.Note = catatanAgenLama(c.Binary)
+	}
 	return st
 }
 
@@ -479,7 +480,15 @@ func AllComponentStatus() []helperproto.ComponentStatus {
 	return out
 }
 
-func installComponent(name, username string) (helperproto.ComponentStatus, error) {
+// installComponent memasang satu komponen atas nama user panel yang menekan
+// tombolnya. Identitas itu bukan sekadar untuk log: CLI agent AI dipasang KE
+// DALAM home user tersebut (lihat aiagent.go), dan keanggotaan grup docker
+// juga diberikan ke akun itu, bukan ke root.
+func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, error) {
+	username := ""
+	if u != nil {
+		username = u.Name
+	}
 	defer lupakanCacheKomponen()
 	// Kemajuan dilaporkan selama pemasangan berjalan supaya UI bisa menampilkan
 	// bar yang benar-benar bergerak, bukan penghitung detik yang tidak tahu
@@ -495,7 +504,20 @@ func installComponent(name, username string) (helperproto.ComponentStatus, error
 	// atas instalasi yang ada bukan cuma buang waktu: installer vendor
 	// (cloudflared, tailscale) menolak dan melempar error yang terlihat seperti
 	// kegagalan, padahal software-nya justru sudah siap dipakai.
-	if st := componentStatus(name); st.Installed {
+	//
+	// Untuk komponen per-user, "sudah terpasang" HARUS dijawab untuk user INI,
+	// bukan untuk mesin. Dua keadaan yang sebelumnya tidak punya jalan keluar
+	// sama sekali bergantung pada pembedaan itu:
+	//
+	//   - Agent yang dipasang admin lain ada di mesin ini tapi tidak
+	//     terjangkau dari home user yang sekarang menekan Pasang. Panel
+	//     menjawab "sudah terpasang" sementara halaman AI Agent tetap berkata
+	//     "belum terpasang", dan tidak ada tombol yang bisa menyelesaikannya.
+	//
+	//   - Agent warisan yang dipasang panel lama sebagai paket npm global
+	//     milik root. Ia berjalan, jadi terlihat terpasang, tapi pembaruan
+	//     otomatisnya gagal selamanya untuk user biasa. Lihat agenSehatUntuk.
+	if sudahAda(c, name, u) {
 		// Agent yang sudah ada tetap ditarik ke toolchain wajib: mesin yang
 		// memasang agent sebelum rilis ini punya agent tanpa satu pun alat.
 		if komponenAgenAI(name) {
@@ -508,9 +530,9 @@ func installComponent(name, username string) (helperproto.ComponentStatus, error
 		if name == "docker" {
 			tambahkanKeGrupDocker(username)
 		}
-		return st, nil
+		return componentStatus(name), nil
 	}
-	if err := c.install(); err != nil {
+	if err := jalankanInstall(c, u); err != nil {
 		return helperproto.ComponentStatus{}, err
 	}
 	// Port didaftarkan ke firewall begitu komponennya ada, bukan menunggu
@@ -540,6 +562,28 @@ func installComponent(name, username string) (helperproto.ComponentStatus, error
 		tambahkanKeGrupDocker(username)
 	}
 	return componentStatus(name), nil
+}
+
+// sudahAda menjawab "apakah pemasangan ini bisa dilewati".
+func sudahAda(c *component, name string, u *userInfo) bool {
+	if c.terpasangUser != nil && u != nil {
+		return c.terpasangUser(u)
+	}
+	return componentStatus(name).Installed
+}
+
+// jalankanInstall memilih antara installer sistem dan installer per-user.
+func jalankanInstall(c *component, u *userInfo) error {
+	if c.installUser != nil {
+		if u == nil {
+			return errInvalid("komponen %s harus dipasang atas nama user panel", c.Name)
+		}
+		return c.installUser(u)
+	}
+	if c.install == nil {
+		return errInvalid("komponen %s tidak punya cara pemasangan", c.Name)
+	}
+	return c.install()
 }
 
 func uninstallComponent(name string, purge bool) (helperproto.ComponentStatus, error) {
@@ -1645,53 +1689,9 @@ func npmInstallGlobal(pkg string) error {
 	return err
 }
 
-// installClaudeCode memasang Claude Code lalu memastikan binary-nya benar
-// bisa jalan. Paket @anthropic-ai/claude-code hanya berisi wrapper; binary
-// native-nya disalin oleh postinstall (install.cjs) dari optional dependency
-// per-platform. Kalau postinstall dilewati (npmrc ignore-scripts, --omit=
-// optional, atau unduhan optional dep yang gagal), npm tetap keluar dengan
-// kode 0 dan /usr/bin/claude tetap ada — tapi setiap eksekusinya hanya
-// mencetak "claude native binary not installed". Panel lalu menandai
-// komponennya terpasang, dan halaman AI Agent memutar loop
-// jalan-gagal-muat-ulang yang tidak pernah bisa berhasil. Jalankan
-// postinstall-nya sendiri kalau binary-nya belum hidup.
-func installClaudeCode() error {
-	if err := npmInstallGlobal("@anthropic-ai/claude-code"); err != nil {
-		return err
-	}
-	if _, err := run("claude", "--version"); err == nil {
-		return nil
-	}
-	for _, root := range []string{"/usr/lib/node_modules", "/usr/local/lib/node_modules"} {
-		skrip := root + "/@anthropic-ai/claude-code/install.cjs"
-		if _, err := os.Stat(skrip); err != nil {
-			continue
-		}
-		if _, err := run("node", skrip); err != nil {
-			return err
-		}
-		break
-	}
-	_, err := run("claude", "--version")
-	return err
-}
-
 func npmUninstallGlobal(pkg string) error {
 	_, err := run("npm", "uninstall", "-g", pkg)
 	return err
-}
-
-func installHermes() error {
-	tahapBaru("menjalankan skrip resmi Hermes")
-	cmd := exec.Command("bash", "-c", "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-setup")
-	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-	return cmd.Run()
-}
-
-func uninstallHermes() error {
-	_ = os.Remove("/usr/local/bin/hermes")
-	_ = os.RemoveAll("/usr/local/lib/hermes-agent")
-	return nil
 }
 
 // ---- Technitium DNS Server ----------------------------------------------

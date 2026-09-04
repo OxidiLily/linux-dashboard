@@ -534,7 +534,7 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		return jsonOf(installComponent(args.Name, u.Name))
+		return jsonOf(installComponent(args.Name, u))
 	case helperproto.CmdComponentUninstall:
 		args, err := decodeArgs[helperproto.ComponentArgs](req)
 		if err != nil {
