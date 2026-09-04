@@ -655,6 +655,11 @@ type VPNStatus struct {
 	// systemd. Dikirim balik supaya halaman Network bisa menampilkan tunnel
 	// mana yang aktif, bukan kotak kosong yang menyesatkan.
 	Token string `json:"token,omitempty"`
+	// NeedsApproval: node sudah terdaftar di tailnet tapi admin belum
+	// menyetujuinya (fitur Device approval Tailscale). Bukan kegagalan —
+	// tidak ada yang bisa diperbaiki di mesin ini — jadi dibedakan dari
+	// Connected=false biasa supaya panel tidak menampilkannya sebagai error.
+	NeedsApproval bool `json:"needs_approval,omitempty"`
 }
 
 type TerminalArgs struct {
