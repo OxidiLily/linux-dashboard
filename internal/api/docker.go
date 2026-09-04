@@ -652,3 +652,211 @@ type stackRecord struct {
 	Name        string
 	ComposePath string
 }
+
+// ---- Sumber daya Docker selain container: image, volume, network ----------
+//
+// Ketiganya dibaca dengan `--format {{json .}}` dan diteruskan apa adanya ke
+// UI. Ukuran volume TIDAK ikut dibaca: satu-satunya sumbernya adalah
+// `docker system df -v`, yang menghitung ulang seluruh disk tiap panggilan dan
+// pada host dengan banyak volume butuh belasan detik.
+// ponytail: tanpa ukuran volume; tambahkan lewat `system df -v` di endpoint
+// terpisah kalau memang diminta, jangan di jalur daftar ini.
+
+type dockerImage struct {
+	ID         string `json:"id"`
+	Repository string `json:"repository"`
+	Tag        string `json:"tag"`
+	Size       string `json:"size"`
+	Created    string `json:"created"`
+	// Dangling = image tanpa tag, sisa build atau pull yang tergantikan. Ini
+	// yang dibuang `image prune`, jadi UI perlu bisa menandainya.
+	Dangling bool `json:"dangling"`
+}
+
+type dockerVolume struct {
+	Name       string `json:"name"`
+	Driver     string `json:"driver"`
+	Mountpoint string `json:"mountpoint"`
+}
+
+type dockerNetwork struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Driver   string `json:"driver"`
+	Scope    string `json:"scope"`
+	Internal bool   `json:"internal"`
+	// Bawaan docker (bridge/host/none) tidak bisa dihapus dan percobaannya
+	// hanya menghasilkan error; UI menyembunyikan tombol hapusnya.
+	Builtin bool `json:"builtin"`
+}
+
+// boolCLI menerima "true"/"false" — bentuk yang dipakai `docker network ls
+// --format {{json .}}`, yang mengirim SEMUA field sebagai string — maupun
+// boolean JSON asli. Tanpa ini, satu perubahan format di docker membuat
+// json.Unmarshal seluruh barisnya gagal, dan barisnya hilang dari daftar
+// tanpa satu pun pesan: network yang jelas ada dilaporkan tidak ada.
+type boolCLI bool
+
+func (b *boolCLI) UnmarshalJSON(p []byte) error {
+	*b = boolCLI(strings.Trim(string(p), `"`) == "true")
+	return nil
+}
+
+// barisJSON memecah keluaran `--format {{json .}}` yang satu objek per baris
+// (bukan satu array) lalu men-decode tiap barisnya ke v lewat fn.
+func barisJSON(out string, fn func(line []byte)) {
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		fn([]byte(line))
+	}
+}
+
+func (s *Server) handleDockerImages(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	res, err := s.dockerRun(sessionFrom(r).Username, "", "image", "ls", "--format", "{{json .}}")
+	if err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	out := []dockerImage{}
+	barisJSON(res.Stdout, func(line []byte) {
+		var row struct{ ID, Repository, Tag, Size, CreatedSince string }
+		if json.Unmarshal(line, &row) != nil {
+			return
+		}
+		out = append(out, dockerImage{
+			ID: row.ID, Repository: row.Repository, Tag: row.Tag,
+			Size: row.Size, Created: row.CreatedSince,
+			Dangling: row.Repository == "<none>" || row.Tag == "<none>",
+		})
+	})
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleDockerVolumes(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	res, err := s.dockerRun(sessionFrom(r).Username, "", "volume", "ls", "--format", "{{json .}}")
+	if err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	out := []dockerVolume{}
+	barisJSON(res.Stdout, func(line []byte) {
+		var row struct{ Name, Driver, Mountpoint string }
+		if json.Unmarshal(line, &row) != nil {
+			return
+		}
+		out = append(out, dockerVolume{Name: row.Name, Driver: row.Driver, Mountpoint: row.Mountpoint})
+	})
+	writeJSON(w, http.StatusOK, out)
+}
+
+// networkBawaan: tiga network yang dibuat docker sendiri saat daemon start.
+// Menghapusnya ditolak daemon, jadi tombolnya tidak perlu ada.
+var networkBawaan = map[string]bool{"bridge": true, "host": true, "none": true}
+
+func (s *Server) handleDockerNetworks(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	res, err := s.dockerRun(sessionFrom(r).Username, "", "network", "ls", "--format", "{{json .}}")
+	if err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	out := []dockerNetwork{}
+	barisJSON(res.Stdout, func(line []byte) {
+		var row struct {
+			ID, Name, Driver, Scope string
+			Internal                boolCLI
+		}
+		if json.Unmarshal(line, &row) != nil {
+			return
+		}
+		out = append(out, dockerNetwork{
+			ID: row.ID, Name: row.Name, Driver: row.Driver, Scope: row.Scope,
+			Internal: bool(row.Internal), Builtin: networkBawaan[row.Name],
+		})
+	})
+	writeJSON(w, http.StatusOK, out)
+}
+
+// dayaDocker memetakan segmen URL ke subcommand docker. Nilai dari URL tidak
+// pernah diteruskan langsung, sama seperti aksiContainer.
+var dayaDocker = map[string]string{
+	"images":   "image",
+	"volumes":  "volume",
+	"networks": "network",
+}
+
+func (s *Server) handleDockerDayaDelete(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	daya, ok := dayaDocker[chi.URLParam(r, "daya")]
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "sumber daya docker tidak dikenal")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, "id kosong")
+		return
+	}
+	// Network bawaan ditolak di sini, bukan diserahkan ke daemon: pesan
+	// docker untuk kasus ini menyebut "pre-defined network" tanpa menjelaskan
+	// bahwa itu memang tidak bisa diubah sama sekali.
+	if daya == "network" && networkBawaan[id] {
+		writeErr(w, http.StatusBadRequest, "network bawaan docker tidak bisa dihapus")
+		return
+	}
+	// Tanpa -f: daemon menolak menghapus image/volume/network yang masih
+	// dipakai, dan penolakan itu justru pengaman yang paling berguna di sini.
+	// Memaksanya berarti container yang sedang jalan kehilangan datanya.
+	if _, err := s.dockerRun(sess.Username, "", daya, "rm", id); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	s.store.LogActivity(sess.Username, "docker_"+daya+"_remove", "hapus "+daya,
+		map[string]any{daya: id}, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleDockerDayaPrune(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	daya, ok := dayaDocker[chi.URLParam(r, "daya")]
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "sumber daya docker tidak dikenal")
+		return
+	}
+	// -f melewati pertanyaan konfirmasi CLI (tidak ada yang bisa menjawabnya
+	// di sini); konfirmasi sebenarnya sudah diminta di UI.
+	//
+	// TANPA -a untuk image: `image prune` polos hanya membuang image dangling,
+	// sedangkan `-a` membuang setiap image yang tidak sedang dipakai container
+	// — termasuk image stack yang kebetulan sedang berhenti, yang lalu harus
+	// diunduh ulang. Selisih itu terlalu besar untuk satu tombol yang sama.
+	res, err := s.dockerRun(sess.Username, "", daya, "prune", "-f")
+	if err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	s.store.LogActivity(sess.Username, "docker_"+daya+"_prune", "prune "+daya, nil, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status": "ok",
+		// Baris "Total reclaimed space: ..." dari docker dikirim apa adanya —
+		// angka yang dihasilkan aksi ini adalah satu-satunya jawaban yang
+		// dicari user setelah menekan tombolnya.
+		"output": strings.TrimSpace(res.Stdout),
+	})
+}

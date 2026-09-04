@@ -13,8 +13,30 @@ var allowedDockerSub = map[string]bool{
 	"ps": true, "images": true, "inspect": true, "logs": true, "stats": true,
 	"start": true, "stop": true, "restart": true, "version": true, "info": true,
 	// `rm` dipakai tombol Hapus container di UI; `-f` ditambahkan API, bukan user.
-	"rm":      true,
+	"rm": true,
+	// volume/network/image dipakai halaman Docker untuk mengelola sumber daya
+	// selain container. Ketiganya punya sub-subcommand sendiri yang dicek
+	// terpisah di checkDayaArgs — `docker volume` saja tidak berarti apa-apa.
+	"volume":  true,
+	"network": true,
+	"image":   true,
 	"compose": true,
+}
+
+// Sub-subcommand yang boleh untuk `docker volume|network|image`. Whitelist
+// dengan alasan yang sama seperti daftar di atas: `docker image save` dan
+// `docker image load` misalnya bisa membaca dan menulis berkas sembarang di
+// host lewat argumennya.
+var allowedDayaSub = map[string]bool{
+	"ls": true, "inspect": true, "rm": true, "prune": true,
+}
+
+// Flag yang boleh menyertai sub-subcommand di atas. Semuanya disusun API
+// sendiri, tidak satu pun berasal dari input user — daftar ini adalah jaring
+// pengaman kalau suatu saat ada yang lupa.
+var flagDayaAman = map[string]bool{
+	"-f": true, "--force": true, "--format": true, "--filter": true,
+	"-a": true, "--all": true, "-q": true, "--quiet": true,
 }
 
 var allowedComposeSub = map[string]bool{
@@ -33,8 +55,13 @@ func dockerExec(args helperproto.DockerExecArgs) (helperproto.ExecResult, error)
 	if !allowedDockerSub[sub] {
 		return helperproto.ExecResult{}, errInvalid("subcommand docker %q tidak diizinkan", sub)
 	}
-	if sub == "compose" {
+	switch sub {
+	case "compose":
 		if err := checkComposeArgs(args.Args[1:]); err != nil {
+			return helperproto.ExecResult{}, err
+		}
+	case "volume", "network", "image":
+		if err := checkDayaArgs(sub, args.Args[1:]); err != nil {
 			return helperproto.ExecResult{}, err
 		}
 	}
@@ -50,6 +77,29 @@ func dockerExec(args helperproto.DockerExecArgs) (helperproto.ExecResult, error)
 			"Docker belum terpasang — pasang dulu lewat Settings → Components")
 	}
 	return runIn(args.Dir, nil, "docker", args.Args...)
+}
+
+// checkDayaArgs memvalidasi `docker <volume|network|image> <sub> ...`.
+//
+// Pemeriksaan kedua — nama/ID tidak boleh diawali "-" — bukan formalitas:
+// nama volume bernama `--help` akan dibaca docker sebagai flag, sehingga
+// `docker volume rm --help` keluar dengan status 0 tanpa menghapus apa pun
+// dan panel melaporkan penghapusan yang tidak pernah terjadi. Yang lebih
+// buruk, `--filter` atau `-a` yang menyelinap ke `prune` mengubah cakupan
+// penghapusan jauh melampaui yang dikonfirmasi user.
+func checkDayaArgs(daya string, rest []string) error {
+	if len(rest) == 0 {
+		return errInvalid("subcommand %s tidak ditemukan", daya)
+	}
+	if !allowedDayaSub[rest[0]] {
+		return errInvalid("subcommand %s %q tidak diizinkan", daya, rest[0])
+	}
+	for _, a := range rest[1:] {
+		if strings.HasPrefix(a, "-") && !flagDayaAman[a] {
+			return errInvalid("opsi %q tidak diizinkan untuk docker %s", a, daya)
+		}
+	}
+	return nil
 }
 
 func checkComposeArgs(rest []string) error {

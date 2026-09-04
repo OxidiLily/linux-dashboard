@@ -204,6 +204,13 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/docker/stacks/{id}/compose", s.handleStackComposeSet)
 			r.Get("/docker/stacks/{id}/env", s.handleStackEnvGet)
 			r.Put("/docker/stacks/{id}/env", s.handleStackEnvSet)
+			r.Get("/docker/images", s.handleDockerImages)
+			r.Get("/docker/volumes", s.handleDockerVolumes)
+			r.Get("/docker/networks", s.handleDockerNetworks)
+			// {daya} = images|volumes|networks; dipetakan ke subcommand docker
+			// lewat dayaDocker, tidak pernah diteruskan mentah.
+			r.Delete("/docker/{daya}/{id}", s.handleDockerDayaDelete)
+			r.Post("/docker/{daya}/prune", s.handleDockerDayaPrune)
 
 			r.Get("/terminal/capacity", s.handleTerminalCapacity)
 			r.Post("/terminal/sessions/reset", s.handleTerminalReset)
