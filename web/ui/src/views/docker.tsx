@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/stores/auth"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
@@ -107,6 +107,11 @@ export function DockerView() {
   )
   const [logModal, setLogModal] = useState<{ id: string; name: string; content: string } | null>(null)
   const [menyimpan, setMenyimpan] = useState(false)
+  const logRef = useRef<HTMLPreElement>(null)
+  // Auto-scroll hanya dilakukan kalau user memang sedang di dasar log. Kalau
+  // ia menggulir ke atas untuk membaca baris lama, tarikan berikutnya tidak
+  // boleh menyentaknya kembali ke bawah.
+  const logIkutBawah = useRef(true)
 
   const load = async () => {
     setLoading(true)
@@ -250,11 +255,45 @@ export function DockerView() {
       const res = await apiGet<{ content: string }>(
         `/api/docker/containers/${encodeURIComponent(c.id)}/logs?tail=200`,
       )
+      logIkutBawah.current = true
       setLogModal({ id: c.id, name: c.name, content: res.content || tr("(log kosong)") })
     } catch (e: any) {
       notify.err(trf("Gagal membaca log: {0}", pesanError(e)))
     }
   }
+
+  // Isi log di-tarik ulang selama modal terbuka. Sebelumnya diambil sekali
+  // saat modal dibuka, jadi baris baru hanya muncul kalau modal ditutup lalu
+  // dibuka lagi — terbaca seperti log yang membeku.
+  useEffect(() => {
+    const id = logModal?.id
+    if (!id) return
+    const ctrl = new AbortController()
+    const tarik = async () => {
+      try {
+        const res = await apiGet<{ content: string }>(
+          `/api/docker/containers/${encodeURIComponent(id)}/logs?tail=200`,
+          ctrl.signal,
+        )
+        setLogModal((m) => (m && m.id === id ? { ...m, content: res.content || tr("(log kosong)") } : m))
+      } catch {
+        // Modal tetap menampilkan isi terakhir. Container yang baru dihentikan
+        // membuat endpoint ini gagal tiap 3 detik; toast berulang justru
+        // menutupi log yang sedang dibaca.
+      }
+    }
+    const t = setInterval(tarik, 3000)
+    return () => {
+      ctrl.abort()
+      clearInterval(t)
+    }
+  }, [logModal?.id])
+
+  // Menempel ke baris terbaru sesudah isi berubah.
+  useEffect(() => {
+    const el = logRef.current
+    if (el && logIkutBawah.current) el.scrollTop = el.scrollHeight
+  }, [logModal?.content])
 
   const bukaCompose = async (id: number) => {
     try {
@@ -619,7 +658,8 @@ export function DockerView() {
       </div>
     )}
 
-    {/* Modal Log Container — read-only, mono, auto-scroll ke bawah */}
+    {/* Modal Log Container — read-only, mono, di-tarik ulang tiap 3 detik dan
+        menempel ke baris terbaru selama user tidak menggulir ke atas. */}
     {logModal && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
         <div className="flex max-h-[85dvh] w-full max-w-3xl flex-col rounded-lg border border-border bg-surface p-4 shadow-xl">
@@ -628,13 +668,21 @@ export function DockerView() {
               <p className="text-sm font-semibold">Log {logModal.name}</p>
               <p className="num truncate text-[10px] text-muted-foreground">
                 {trf("200 baris terakhir · {0}", logModal.id.substring(0, 12))}
+                <span className="ml-1 text-ok">{tr("· live tiap 3 detik")}</span>
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={() => setLogModal(null)}>
               {tr("Tutup")}
             </Button>
           </div>
-          <pre className="mt-3 flex-1 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-3 font-mono text-[11px] leading-relaxed">
+          <pre
+            ref={logRef}
+            onScroll={(ev) => {
+              const el = ev.currentTarget
+              logIkutBawah.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+            }}
+            className="mt-3 flex-1 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-3 font-mono text-[11px] leading-relaxed"
+          >
             {logModal.content}
           </pre>
         </div>

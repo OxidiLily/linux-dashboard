@@ -220,6 +220,7 @@ daftarkanTerjemahan({
   "Ukuran": "Size",
   "Diubah": "Modified",
   "Izin": "Permissions",
+  "· live tiap 3 detik": "· live every 3 seconds",
 
   // ---- pesan, konfirmasi, dan judul dari seluruh view ----
   "Gagal memuat daftar komponen: {0}": "Failed to load the component list: {0}",
