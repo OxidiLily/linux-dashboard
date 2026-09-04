@@ -77,13 +77,14 @@ tersimpan per akun di server, bukan di browser.
 
 ## Components
 
-30 software opsional yang tidak ikut di instalasi dasar Ubuntu/Debian, bisa
+32 software opsional yang tidak ikut di instalasi dasar Ubuntu/Debian, bisa
 dipasang/dicopot dari panel:
 
 | Kategori | Isi |
 |---|---|
 | Runtime & tunnel | docker · nodejs · tailscale · cloudflared · wireguard |
-| AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail |
+| AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail · browser-use |
+| Database & backend | supabase |
 | Berbagi file & jaringan | samba · nfs-server · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
 | Keamanan | ufw · fail2ban |
 | Monitoring & disk | lm-sensors · smartmontools · nvme-cli · qemu-guest-agent |
@@ -126,10 +127,58 @@ dipasang panel — termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI
 Image dan volume Docker di `/var/lib/docker` tetap ditinggalkan: isinya milik
 container Anda, bukan milik panel.
 
+### Supabase self-hosted
+
+Komponen `supabase` memasang backend Supabase lengkap — Postgres, Auth
+(GoTrue), PostgREST, Realtime, Storage, Edge Functions, dan Studio — sebagai
+stack Docker Compose di `/opt/supabase/supabase-project`. Yang dijalankan panel
+adalah **setup.sh resmi** (`curl -fsSL https://supabase.link/setup.sh | sh`,
+di sini diunduh ke berkas dulu lalu dieksekusi `sh setup.sh -y`), mengikuti
+<https://supabase.com/docs/guides/self-hosting/docker>. Skrip itu yang
+melakukan sparse-clone folder `docker/` dari tag rilis self-hosted terbaru dan
+membangkitkan seluruh rahasianya lewat `utils/generate-keys.sh` dan
+`utils/add-new-auth-keys.sh` — JWT_SECRET, ANON_KEY, SERVICE_ROLE_KEY,
+POSTGRES_PASSWORD, dan DASHBOARD_PASSWORD. Panel tidak pernah menyusun
+compose atau kuncinya sendiri: bagian yang paling gampang tertinggal saat
+Supabase merilis versi baru justru pembangkitan kunci, dan salah di situ
+berarti deployment terbuka untuk siapa pun.
+
+Tiga hal yang dikerjakan panel di sekitarnya:
+
+1. **Docker dipasang lewat jalur panel**, bukan dibiarkan ke setup.sh — supaya
+   akun yang menekan Pasang ikut masuk grup `docker` dan halaman
+   System → Docker benar-benar bisa mengelola stack yang baru dibuat.
+2. **URL publik diarahkan ke IP LAN mesin ini.** Bawaan `.env.example` adalah
+   `http://localhost:8000`; nilai itu dipakai BROWSER untuk memanggil API,
+   jadi dibiarkan apa adanya Studio hanya bekerja dari server itu sendiri.
+   Yang diganti hanya `SUPABASE_PUBLIC_URL` dan `API_EXTERNAL_URL` —
+   `SITE_URL` menunjuk aplikasi milik Anda, bukan Supabase.
+3. **Stack dinyalakan sekali** dengan `sh run.sh start --wait-timeout 600`
+   (pembungkus resmi Supabase untuk `docker compose up -d --wait`), sehingga
+   sesudah Pasang selesai stack-nya sudah muncul dan bisa dikelola di
+   System → Docker.
+
+Hanya port **8000** (gateway Kong/Envoy — Studio, REST, Auth, Realtime, dan
+Storage semuanya lewat sana) yang didaftarkan ke ufw. Postgres 5432 dan pooler
+6543 juga terbuka di compose bawaan, tapi mengizinkannya ke seluruh LAN adalah
+keputusan admin di Settings → Firewall, bukan efek samping menekan Pasang.
+Tombol **Buka** di kartu komponen mengarah ke `http://<host panel>:8000`;
+kredensial Studio ada di `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` dan bisa
+dibaca lewat penyunting `.env` stack di halaman System → Docker.
+
+**Mencopotnya tidak menghapus database.** Seluruh data Supabase ada di dalam
+folder proyek (`volumes/db/data`, `volumes/storage`, dan `.env` yang memuat
+JWT_SECRET), jadi uninstall biasa menghentikan stack lalu *memindahkan*
+foldernya ke `/opt/supabase/bekas-<tanggal>-<jam>` — kartunya kembali ke
+"belum terpasang", pemasangan berikutnya tidak ditolak setup.sh, dan datanya
+masih ada kalau ternyata masih dibutuhkan. Centang "hapus data juga" yang
+membuang `/opt/supabase` seluruhnya, termasuk folder `bekas-*`.
+
 ### Alat & skill wajib AI Agent
 
-Tiga komponen terakhir di kategori AI — `rtk`, `graphify`, `ponytail` — bukan
-agent, melainkan alat yang dipakai **semua** agent. Ketiganya dipasang otomatis
+Empat komponen terakhir di kategori AI — `rtk`, `graphify`, `ponytail`,
+`browser-use` — bukan agent, melainkan alat yang dipakai **semua** agent.
+Keempatnya dipasang otomatis
 begitu agent mana pun dipasang, dan arahan pemakaiannya ditulis ke berkas
 instruksi global tiap agent (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, dan
 seterusnya) setiap sesi AI Agent dibuka — jadi akun panel yang dibuat setelah
@@ -140,6 +189,7 @@ instalasi pun ikut mendapatkannya.
 | rtk | Memangkas keluaran perintah shell sebelum masuk konteks agent | <https://github.com/rtk-ai/rtk#quick-start> |
 | graphify | Knowledge graph kode lewat parsing AST lokal | <https://github.com/Graphify-Labs/graphify#install> |
 | ponytail | Harness "lazy senior dev" level ultra + skill audit/review/debt | <https://github.com/DietrichGebert/ponytail#install> |
+| browser-use | Kendali browser lewat CDP — halaman ber-JavaScript, login, klik, isi form | <https://browser-use.com> · <https://docs.browser-use.com> |
 
 Pendaftaran ke agent dilakukan **per user dan per agent**, tepat sebelum sesi
 AI Agent dibuka — bukan sekali saat instalasi. Daemon helper berjalan sebagai
@@ -147,17 +197,24 @@ root, jadi `rtk init -g` yang dipanggil installer hanya menambal `/root`;
 akun panel lain membuka agent dengan HOME miliknya sendiri. Target yang
 dipakai per agent:
 
-| Agent panel | rtk | graphify |
-|---|---|---|
-| claude-code | `rtk init -g --auto-patch --no-trust-filters` | `graphify install --platform claude` |
-| codex | `rtk init -g --codex` | `graphify install --platform codex` |
-| opencode | `rtk init -g --opencode --auto-patch --no-trust-filters` | `graphify install --platform opencode` |
-| hermes | `rtk init -g --agent hermes` | `graphify install --platform hermes` |
-| openclaw | — (rtk belum punya target OpenClaw) | `graphify install --platform claw` |
+| Agent panel | rtk | graphify | browser-use |
+|---|---|---|---|
+| claude-code | `rtk init -g --auto-patch --no-trust-filters` | `graphify install --platform claude` | `--target claude` |
+| codex | `rtk init -g --codex` | `graphify install --platform codex` | `--target codex` |
+| opencode | `rtk init -g --opencode --auto-patch --no-trust-filters` | `graphify install --platform opencode` | `--target opencode` |
+| hermes | `rtk init -g --agent hermes` | `graphify install --platform hermes` | — (belum punya direktori skill) |
+| openclaw | — (rtk belum punya target OpenClaw) | `graphify install --platform claw` | `--target openclaw` |
 
 `--auto-patch` dan `--no-trust-filters` wajib untuk target yang menambal
 `settings.json`: tanpa keduanya rtk bertanya ke terminal, dan daemon tidak
 punya siapa pun untuk menjawab.
+
+Kolom browser-use adalah argumen `browser-use skill install --no-install
+--target <nilai>`, yang menulis `SKILL.md` resmi ke direktori skill agent itu.
+`--no-install` wajib: tanpanya perintah tersebut memasang salinan browser-use
+keduanya sendiri lewat `uv` ke `~/.local/bin`, bersaing dengan yang sudah
+dipasang panel system-wide. hermes tidak punya direktori skill di daftar
+browser-use, jadi untuknya hanya arahan di `~/.hermes/AGENTS.md` yang berlaku.
 
 ### Provider inferensi lewat 9router
 

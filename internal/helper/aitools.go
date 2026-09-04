@@ -2,6 +2,7 @@ package helper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -14,11 +15,12 @@ import (
 
 // ---- Alat & Skill wajib untuk semua AI Agent -----------------------------
 //
-// Panel ini memasang tiga alat di setiap sesi AI Agent, bukan menyerahkannya
+// Panel ini memasang empat alat di setiap sesi AI Agent, bukan menyerahkannya
 // ke masing-masing user: rtk dan graphify memangkas pemakaian token secara
-// signifikan, dan ponytail menahan agent dari menulis kode yang sebenarnya
-// tidak perlu ada. Kalau pemasangannya opsional, sesi pertama tiap user
-// berjalan tanpa satu pun dari alat ini.
+// signifikan, ponytail menahan agent dari menulis kode yang sebenarnya tidak
+// perlu ada, dan browser-use memberinya satu-satunya jalan untuk mengerjakan
+// tugas yang menuntut browser sungguhan. Kalau pemasangannya opsional, sesi
+// pertama tiap user berjalan tanpa satu pun dari alat ini.
 //
 // caveman pernah ada di daftar ini dan sengaja dikeluarkan: perannya sebagai
 // skill/harness directive tumpang tindih dengan ponytail, dan pemilik mesin
@@ -28,9 +30,10 @@ import (
 //
 // Sumber dokumentasi resmi (dibaca saat menulis installer ini):
 //
-//	rtk       https://github.com/rtk-ai/rtk#quick-start
-//	graphify  https://github.com/Graphify-Labs/graphify#install
-//	ponytail  https://github.com/DietrichGebert/ponytail#install
+//	rtk          https://github.com/rtk-ai/rtk#quick-start
+//	graphify     https://github.com/Graphify-Labs/graphify#install
+//	ponytail     https://github.com/DietrichGebert/ponytail#install
+//	browser-use  https://browser-use.com — https://docs.browser-use.com
 
 // agenAI adalah komponen yang memicu penyediaan toolchain saat dipasang.
 var agenAI = []string{"hermes", "claude-code", "codex", "opencode", "openclaw"}
@@ -46,7 +49,9 @@ func komponenAgenAI(name string) bool {
 
 // alatWajibAI adalah urutan pemasangan: rtk lebih dulu karena hook-nya yang
 // menulis ulang perintah shell juga menguntungkan pemasangan berikutnya.
-var alatWajibAI = []string{"rtk", "graphify", "ponytail"}
+// browser-use terakhir — venv-nya yang paling besar, dan alat lain tidak
+// menunggu apa pun darinya.
+var alatWajibAI = []string{"rtk", "graphify", "ponytail", "browser-use"}
 
 // pastikanToolchainAI memasang alat yang belum ada. Kegagalan satu alat tidak
 // membatalkan pemasangan agent-nya: agent tetap bisa dipakai, hanya tanpa
@@ -156,6 +161,68 @@ func installGraphify() error {
 func uninstallGraphify() error {
 	_, err := runIn("", envPipx(), "pipx", "uninstall", "graphifyy")
 	return err
+}
+
+// installBrowserUse memasang CLI Browser Use — kendali browser lewat CDP yang
+// dipakai agent untuk tugas yang benar-benar menuntut halaman web: login,
+// klik, isi form, ambil data dari halaman yang butuh JavaScript.
+//
+// Dokumentasi resminya menyebut `uv tool install --python 3.12 --upgrade
+// --force browser-use`, dan itu tidak dipakai di sini karena alasan yang sama
+// persis dengan graphify: uv memasang ke $HOME/.local/bin milik pemanggilnya,
+// dan HOME daemon adalah /root yang ber-mode 0700 — tidak satu pun user panel
+// bisa menjalankan berkas di sana. pipx memberi isolasi venv yang sama dengan
+// direktori binary yang bisa ditentukan (PIPX_BIN_DIR=/usr/local/bin), jadi
+// satu pemasangan terlihat oleh semua sesi AI Agent.
+//
+// Efek samping yang perlu diketahui: paket ini mendaftarkan lima console
+// script (browser-use, browseruse, bu, browser, browser-use-tui) dan pipx
+// memasang semuanya ke /usr/local/bin — dua di antaranya bernama sangat umum.
+// Dibiarkan apa adanya karena `pipx uninstall` membuang kelimanya lagi, dan
+// menyaringnya berarti memasang paket dengan tangan di luar pipx.
+//
+// ponytail: pipx memakai python sistem, jadi mesin dengan Python < 3.11
+// (Debian 11 ke bawah) akan ditolak paketnya. Jalan naiknya kalau itu muncul:
+// pasang uv system-wide lalu `uv tool install --python 3.12` dengan
+// UV_TOOL_BIN_DIR=/usr/local/bin — uv menurunkan interpreter-nya sendiri.
+func installBrowserUse() error {
+	if _, err := exec.LookPath("pipx"); err != nil {
+		if err := aptInstall("pipx"); err != nil {
+			return err
+		}
+	}
+	tahapBaru("memasang browser-use lewat pipx")
+	_, err := runIn("", envPipx(), "pipx", "install", "browser-use")
+	return err
+}
+
+func uninstallBrowserUse() error {
+	_, err := runIn("", envPipx(), "pipx", "uninstall", "browser-use")
+	return err
+}
+
+// versiPipx membaca versi paket dari metadata venv pipx.
+//
+// Bukan lewat `<binary> --version`: CLI browser-use tidak punya flag itu, dan
+// argumen yang tidak dikenalnya diperlakukan sebagai kode yang harus
+// dijalankan di browser — probe versi akan mencoba menghidupkan Chrome.
+func versiPipx(paket string) func() string {
+	return func() string {
+		path := filepath.Join(pipxHome, "venvs", paket, "pipx_metadata.json")
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return ""
+		}
+		var m struct {
+			MainPackage struct {
+				Version string `json:"package_version"`
+			} `json:"main_package"`
+		}
+		if json.Unmarshal(b, &m) != nil {
+			return ""
+		}
+		return m.MainPackage.Version
+	}
 }
 
 // penandaPonytail mencatat bahwa plugin sudah didaftarkan. ponytail bukan

@@ -30,7 +30,7 @@ const (
 // penanda supaya isi berkas milik user di luar blok tidak pernah tersentuh.
 const arahanAlatAI = `## Alat & Skill wajib (dikelola Linux Dashboard)
 
-Sesi AI Agent ini dibekali tiga alat di bawah. Pakai sebagai jalur utama,
+Sesi AI Agent ini dibekali empat alat di bawah. Pakai sebagai jalur utama,
 bukan sebagai opsi tambahan. Baca dokumentasi resminya sebelum memakai
 perintah yang belum pernah kamu pakai di mesin ini.
 
@@ -92,6 +92,27 @@ gabungkan beberapa temuan jadi satu baris ringkasan; temuan yang hilang
 dari daftar tidak bisa dikerjakan, dan pembacanya tidak punya cara tahu
 ada yang hilang. Yang boleh diringkas adalah penjelasan di sekitar daftar,
 bukan daftarnya.
+
+### 4. browser-use — kendali browser lewat CDP
+` + "`https://browser-use.com`" + ` · ` + "`https://docs.browser-use.com`" + `
+
+Skill lengkapnya sudah didaftarkan panel ke agent ini (` + "`browser-use skill install`" + `);
+baca skill itu sebelum memakai perintahnya. Bentuk pemanggilannya heredoc:
+
+    browser-use <<'PY'
+    print(page_info())
+    PY
+
+Dipakai HANYA kalau tugasnya memang menuntut browser: butuh sesi login user,
+halaman yang isinya baru ada setelah JavaScript jalan, alur klik/isi form,
+atau situs yang menolak permintaan non-browser. Mengambil halaman publik,
+dokumentasi, atau API yang bisa dibaca ` + "`curl`" + ` tidak lewat sini —
+menyalakan browser untuk itu memboroskan waktu dan token sekaligus.
+
+Butuh Chrome/Chromium yang bisa dihubungi lewat CDP di mesin ini. Kalau
+` + "`page_info()`" + ` gagal, jangan menebak: jalankan ` + "`browser-harness --doctor`" + `
+kalau tersedia, dan ikuti
+` + "`https://github.com/browser-use/browser-harness/blob/main/install.md`" + `.
 `
 
 // berkasArahanAgent memetakan perintah CLI agent → berkas instruksi global
@@ -115,6 +136,11 @@ type wiringAgent struct {
 	rtkArgs []string
 	// graphifyPlatform kosong = graphify belum punya platform untuk agent ini.
 	graphifyPlatform string
+	// browserUseTarget = nilai --target milik `browser-use skill install`,
+	// yang menentukan direktori skill mana yang ditulis. Kosong = agent ini
+	// belum punya target di daftar TARGET_DIR_BUILDERS milik browser-use, dan
+	// arahan di berkas instruksinya yang jadi satu-satunya jalur.
+	browserUseTarget string
 }
 
 // wiringAlatAgent disusun dari `rtk init --help` dan `graphify install --help`
@@ -127,20 +153,27 @@ type wiringAgent struct {
 // settings.json: tanpa keduanya rtk bertanya ke terminal, dan daemon tidak
 // punya siapa pun untuk menjawab. --no-trust-filters dipilih (bukan
 // --trust-filters) supaya filter pihak ketiga tidak diaktifkan diam-diam.
+// browserUseTarget diambil dari TARGET_DIR_BUILDERS di
+// browser_use/skills/install.py — nama assistant yang punya direktori skill
+// sendiri. hermes tidak ada di daftar itu, jadi untuk hermes skill-nya tidak
+// ditulis dan yang berlaku hanya arahan di .hermes/AGENTS.md.
 var wiringAlatAgent = map[string]wiringAgent{
 	"claude": {
 		rtkArgs:          []string{"init", "-g", "--auto-patch", "--no-trust-filters"},
 		graphifyPlatform: "claude",
+		browserUseTarget: "claude",
 	},
 	"codex": {
 		// --codex memakai AGENTS.md + RTK.md dan tidak menambal hook Claude,
 		// jadi tidak ada prompt yang perlu dimatikan.
 		rtkArgs:          []string{"init", "-g", "--codex"},
 		graphifyPlatform: "codex",
+		browserUseTarget: "codex",
 	},
 	"opencode": {
 		rtkArgs:          []string{"init", "-g", "--opencode", "--auto-patch", "--no-trust-filters"},
 		graphifyPlatform: "opencode",
+		browserUseTarget: "opencode",
 	},
 	"hermes": {
 		rtkArgs:          []string{"init", "-g", "--agent", "hermes"},
@@ -150,6 +183,7 @@ var wiringAlatAgent = map[string]wiringAgent{
 		// rtk belum menyediakan target OpenClaw — daftar --agent miliknya
 		// tidak memuatnya. graphify menyebut platform ini "claw".
 		graphifyPlatform: "claw",
+		browserUseTarget: "openclaw",
 	},
 }
 
@@ -211,19 +245,34 @@ func siapkanToolingAgent(u *userInfo, perintah string) {
 			log.Printf("tooling AI: graphify untuk %s (%s): %v", perintah, u.Name, err)
 		}
 	}
+	if w.browserUseTarget != "" {
+		// --no-install: tanpa flag itu perintah ini menjalankan `uv tool
+		// install browser-use` sendiri, dan salinan kedua di ~/.local/bin
+		// akan bersaing dengan yang sudah dipasang panel system-wide. Yang
+		// diminta dari perintah ini cuma satu: menulis SKILL.md resmi ke
+		// direktori skill milik agent ini.
+		if err := jalankanSebagaiUser(u, "browser-use",
+			"skill", "install", "--no-install", "--target", w.browserUseTarget); err != nil {
+			log.Printf("tooling AI: browser-use untuk %s (%s): %v", perintah, u.Name, err)
+		}
+	}
 
 	if err := tulisBerkasUser(penanda, stempel+"\n", u, 0o644); err != nil {
 		log.Printf("tooling AI: tulis penanda %s: %v", penanda, err)
 	}
 }
 
-// stempelAlatAI mengidentifikasi versi rtk & graphify lewat identitas
-// berkasnya. Alat yang di-upgrade menghasilkan stempel berbeda, sehingga
-// pendaftarannya otomatis diulang tanpa perlu memanggil `--version` (satu
-// proses eksternal lagi) tiap sesi.
+// stempelAlatAI mengidentifikasi versi rtk, graphify, & browser-use lewat
+// identitas berkasnya. Alat yang di-upgrade menghasilkan stempel berbeda,
+// sehingga pendaftarannya otomatis diulang tanpa perlu memanggil `--version`
+// (satu proses eksternal lagi) tiap sesi.
+//
+// browser-use ikut di sini bukan cuma demi keseragaman: isi SKILL.md yang
+// ditulisnya berubah antar rilis, jadi upgrade tanpa pendaftaran ulang
+// meninggalkan agent memakai instruksi versi lama untuk CLI versi baru.
 func stempelAlatAI() string {
 	var b strings.Builder
-	for _, nama := range []string{"rtk", "graphify"} {
+	for _, nama := range []string{"rtk", "graphify", "browser-use"} {
 		p, ok := lookBinarySistem(nama)
 		if !ok {
 			continue
