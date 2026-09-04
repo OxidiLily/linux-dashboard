@@ -230,6 +230,21 @@ func versiAgen(binary string) func() string {
 
 // envAgen menyusun lingkungan pemasangan milik user.
 //
+// pathAgen menyusun PATH yang memuat seluruh dirBinAgen milik user lebih dulu,
+// baru jalur sistem. Dipisah dari envAgen karena bukan hanya installer agent
+// yang membutuhkannya: unit systemd 9router juga dijalankan dengan PATH ini,
+// supaya `which <agent>` di dalam 9router menemukan biner yang sama dengan
+// yang dilihat halaman Components. Dua penyusun PATH yang berbeda berarti
+// panel dan 9router bisa berbeda pendapat soal agent mana yang terpasang.
+func pathAgen(u *userInfo) string {
+	jalur := make([]string, 0, len(dirBinAgen)+1)
+	for _, d := range dirBinAgen {
+		jalur = append(jalur, filepath.Join(u.Home, d))
+	}
+	jalur = append(jalur, "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	return strings.Join(jalur, ":")
+}
+
 // PATH memuat dirBinAgen lebih dulu supaya installer yang memeriksa "apakah
 // versi lama sudah ada" menemukan miliknya sendiri. HOME/USER/LOGNAME wajib:
 // setiap installer di atas menaruh berkasnya relatif terhadap $HOME, dan
@@ -237,17 +252,12 @@ func versiAgen(binary string) func() string {
 // SHELL menentukan berkas rc mana yang disunting saat installer menambahkan
 // direktorinya ke PATH login user.
 func envAgen(u *userInfo) []string {
-	jalur := make([]string, 0, len(dirBinAgen)+1)
-	for _, d := range dirBinAgen {
-		jalur = append(jalur, filepath.Join(u.Home, d))
-	}
-	jalur = append(jalur, "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
 	shell := u.Shell
 	if shell == "" {
 		shell = "/bin/sh"
 	}
 	return []string{
-		"PATH=" + strings.Join(jalur, ":"),
+		"PATH=" + pathAgen(u),
 		"HOME=" + u.Home,
 		"USER=" + u.Name,
 		"LOGNAME=" + u.Name,

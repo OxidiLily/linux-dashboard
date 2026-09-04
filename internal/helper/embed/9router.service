@@ -23,7 +23,16 @@ Restart=on-failure
 RestartSec=3
 # 9router memasang runtime-nya sendiri (sql.js, better-sqlite3, systray2) ke
 # $HOME/.9router/runtime saat postinstall npm — yang berjalan sebagai root,
-# jadi HOME di sini harus /root supaya daemon menemukan modul yang sama.
+# jadi HOME di sini /root supaya daemon menemukan modul yang sama.
+#
+# Panel MENIMPA kedua baris ini lewat drop-in 20-user.conf begitu 9router
+# dipasang atau dijalankan dari halaman Components: service-nya berpindah ke
+# identitas user panel, HOME ke home user itu, dan PATH memuat direktori biner
+# CLI agent miliknya. Tanpa itu halaman CLI Tools 9router memeriksa /root dan
+# melaporkan setiap agent "Not installed" di mesin yang jelas memilikinya —
+# lihat pastikanUser9Router di internal/helper/components.go. Data ~/.9router
+# ikut dipindahkan sekali, jadi provider dan API key yang sudah disetel tidak
+# hilang.
 Environment=HOME=/root
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 # Tanpa TTY, 9router otomatis masuk tray mode dan menjalankan server sebagai
