@@ -9,6 +9,7 @@ import { notify } from "@/components/ui/toast"
 import { confirmDialog } from "@/components/ui/confirm"
 import { promptDialog } from "@/components/ui/prompt"
 import { tr, trf } from "@/stores/i18n"
+import { salinKeClipboard } from "@/lib/utils"
 
 type WGPeer = {
   nama: string
@@ -273,12 +274,10 @@ function ModalConfigKlien({ data, onClose }: { data: PeerBaru; onClose: () => vo
   const [tersalin, setTersalin] = useState(false)
 
   const salin = async () => {
-    try {
-      await navigator.clipboard.writeText(data.config)
-      setTersalin(true)
-    } catch {
-      notify.err(tr("Browser menolak akses clipboard — salin manual dari kotak di atas."))
-    }
+    // navigator.clipboard tidak ada saat panel dibuka lewat http ke IP LAN;
+    // salinKeClipboard menyediakan jalur textarea untuk keadaan itu.
+    if (await salinKeClipboard(data.config)) setTersalin(true)
+    else notify.err(tr("Browser menolak akses clipboard — salin manual dari kotak di atas."))
   }
 
   return (

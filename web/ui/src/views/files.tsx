@@ -34,6 +34,7 @@ import {
   Copy as CopyIcon,
   Scissors,
   Clipboard,
+  ClipboardCopy,
   Edit3,
 } from "lucide-react"
 
@@ -698,6 +699,15 @@ export function FileManagerView() {
             <Button variant="outline" size="sm" onClick={handleAddBookmark} title={tr("Simpan folder saat ini ke Bookmarks")}>
               <BookmarkPlus className="size-3.5" />
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => salinPath(currentPath)}
+              title={tr("Salin path folder ini")}
+              aria-label={tr("Salin path folder ini")}
+            >
+              <ClipboardCopy className="size-3.5" />
+            </Button>
             {clipboard.kind !== "none" && (
               <Button
                 variant="outline"
@@ -845,7 +855,18 @@ export function FileManagerView() {
                             dengan menu bawaannya sendiri — jadi tanpa tombol
                             ini ketiga aksi itu tidak terjangkau dari HP. */}
                         <button
-                          className="ml-auto shrink-0 rounded p-1.5 text-muted-foreground hover:bg-secondary sm:hidden"
+                          className="ml-auto shrink-0 rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          aria-label={trf("Salin path {0}", e.name)}
+                          title={tr("Salin path")}
+                          onClick={(ev) => {
+                            ev.stopPropagation()
+                            salinPath(e.path)
+                          }}
+                        >
+                          <ClipboardCopy className="size-4" />
+                        </button>
+                        <button
+                          className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-secondary sm:hidden"
                           aria-label={trf("Aksi untuk {0}", e.name)}
                           onClick={(ev) => {
                             ev.stopPropagation()
@@ -982,6 +1003,12 @@ export function FileManagerView() {
             onClick={() => { const e = contextMenu.entry; handleCut(e) }}
           >
             <Scissors className="size-3.5" /> Cut
+          </button>
+          <button
+            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
+            onClick={() => { const e = contextMenu.entry; setContextMenu(null); salinPath(e.path) }}
+          >
+            <ClipboardCopy className="size-3.5" /> {tr("Salin path")}
           </button>
           <div className="my-1 border-t border-border" />
           <button

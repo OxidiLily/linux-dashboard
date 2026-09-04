@@ -228,6 +228,9 @@ daftarkanTerjemahan({
   "Ukuran": "Size",
   "Diubah": "Modified",
   "Izin": "Permissions",
+  "Salin path": "Copy path",
+  "Salin path {0}": "Copy path of {0}",
+  "Salin path folder ini": "Copy the path of this folder",
   "· live tiap 3 detik": "· live every 3 seconds",
 
   // ---- pesan, konfirmasi, dan judul dari seluruh view ----
