@@ -104,6 +104,12 @@ func (s *Server) fileOp(u *userInfo, req helperproto.Request) (json.RawMessage, 
 		if err != nil {
 			return nil, err
 		}
+		// pemilikBerkas mengembalikan -1 untuk path yang tidak terbaca; itu
+		// ikut terlewat di sini, dan memang benar — tidak ada yang bisa
+		// diperbaiki pada berkas yang tidak ada.
+		if args.HanyaMilikRoot && pemilikBerkas(path) != 0 {
+			return nil, nil
+		}
 		return nil, chownPath(path, args.Owner, args.Group, args.Recursive)
 	}
 	return nil, errInvalid("command file tidak dikenal: %s", req.Cmd)

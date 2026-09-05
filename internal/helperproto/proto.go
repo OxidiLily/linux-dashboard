@@ -281,6 +281,14 @@ type ChownArgs struct {
 	Owner     string `json:"owner"`
 	Group     string `json:"group"`
 	Recursive bool   `json:"recursive,omitempty"`
+	// HanyaMilikRoot membatasi perubahan pada berkas yang pemiliknya MASIH
+	// root, dan mendiamkan sisanya tanpa error.
+	//
+	// Dipakai jalur perbaikan otomatis panel: berkas yang dibuat helper daemon
+	// (root) boleh diserahkan ke admin yang menyuntingnya lewat panel, tapi
+	// berkas milik admin LAIN tidak boleh diambil alih diam-diam hanya karena
+	// seseorang menekan Simpan.
+	HanyaMilikRoot bool `json:"hanya_milik_root,omitempty"`
 }
 
 type KillArgs struct {

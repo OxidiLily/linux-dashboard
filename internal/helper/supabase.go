@@ -38,6 +38,10 @@ const (
 	// API_GW_HTTP_PORT di .env.example.
 	portGatewaySupabase = "8000"
 
+	// dirVolumeSupabase = satu-satunya folder yang tetap milik root: isinya
+	// bind mount yang ditulis container. Lihat milikiKonfigSupabase.
+	dirVolumeSupabase = "volumes"
+
 	// Batas tunggu `docker compose up -d --wait`. WAJIB ada: tanpa
 	// --wait-timeout, compose menunggu container sehat SELAMANYA, dan satu
 	// service yang tidak pernah sehat menahan permintaan Pasang tanpa pernah
@@ -144,11 +148,80 @@ func installSupabase(u *userInfo) error {
 		}
 	}
 
+	// Konfigurasi diserahkan ke user panel SEBELUM stack dinyalakan, selagi
+	// volumes/db/data belum dibuat Postgres — lihat milikiKonfigSupabase.
+	if err := milikiKonfigSupabase(u); err != nil {
+		log.Printf("supabase: kepemilikan konfigurasi: %v", err)
+	}
+
 	// run.sh adalah pembungkus resmi (`sh run.sh start` = `docker compose up
 	// -d --wait`); dipakai apa adanya supaya override COMPOSE_FILE yang
 	// dipilih user lewat `run.sh config add …` ikut terbaca.
 	tahapBaru("menjalankan stack Supabase")
 	return jalankanKeProgres(proyekSupabase, "/bin/sh", "run.sh", "start", "--wait-timeout", tungguSupabase)
+}
+
+// milikiKonfigSupabase menyerahkan berkas konfigurasi Supabase ke user panel.
+//
+// setup.sh dijalankan helper daemon, yaitu root, jadi SELURUH isi folder
+// proyek lahir milik root. Panel sendiri menulis berkas sebagai USER yang
+// login — worker-nya berjalan dengan kredensial user supaya kernel yang
+// menegakkan izinnya — sehingga menyimpan `.env` dari halaman System → Docker
+// (dan dari File Manager) berakhir "permission denied" untuk berkas yang
+// justru dibuat panel itu sendiri. Itu bentuk kegagalan yang paling
+// membingungkan: panel mengizinkan, lalu kernel menolak.
+//
+// `volumes/` sengaja TIDAK disentuh, dan itu bukan kehati-hatian berlebihan:
+// isinya bind mount yang DITULIS container dengan UID masing-masing —
+// volumes/db/data milik proses postgres di dalam image, volumes/storage milik
+// storage-api. Menyerahkannya ke user panel membuat container gagal menulis,
+// kerusakan yang jauh lebih mahal daripada .env yang tidak bisa disunting.
+// Berkas konfigurasi di dalam volumes/ (envoy, vector, pooler, seed SQL)
+// hanya dibaca container, tapi ikut ditinggalkan supaya aturannya tetap satu
+// kalimat yang bisa diingat: folder volumes/ milik container, sisanya milik
+// user.
+//
+// Direktori proyeknya sendiri ikut diserahkan supaya user bisa MENAMBAH
+// berkas di sana — docker-compose.override.yml, misalnya — bukan cuma
+// menyunting yang sudah ada.
+func milikiKonfigSupabase(u *userInfo) error {
+	if u == nil {
+		return nil
+	}
+	jalur, err := entriKonfigSupabase(proyekSupabase)
+	if err != nil {
+		return err
+	}
+	// Direktori proyeknya sendiri tidak rekursif — kalau tidak, volumes/ ikut
+	// terbawa lewat pintu belakang.
+	if err := os.Lchown(proyekSupabase, u.UID, u.GID); err != nil {
+		return err
+	}
+	for _, p := range jalur {
+		if err := filepathWalkChown(p, u.UID, u.GID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// entriKonfigSupabase mendaftar isi folder proyek yang boleh diserahkan ke
+// user, yaitu semuanya KECUALI volumes/. Dipisah dari pemindahan kepemilikan
+// supaya keputusannya — satu-satunya bagian yang bisa salah dan merusak
+// database — bisa diuji tanpa root dan tanpa Supabase terpasang.
+func entriKonfigSupabase(root string) ([]string, error) {
+	ent, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range ent {
+		if e.Name() == dirVolumeSupabase {
+			continue
+		}
+		out = append(out, filepath.Join(root, e.Name()))
+	}
+	return out, nil
 }
 
 // uninstallSupabase menghentikan stack lalu MEMINDAHKAN folder proyeknya,

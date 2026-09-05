@@ -579,6 +579,57 @@ type envBody struct {
 	Content string `json:"content"`
 }
 
+// dirSistem menandai direktori milik sistem yang kepemilikannya TIDAK boleh
+// diserahkan ke siapa pun, betapa pun sah permintaannya.
+//
+// Bukan kekhawatiran teoretis: penyerahan otomatis di bawah ikut menyerahkan
+// DIREKTORI yang memuat berkas compose, dan stack yang didaftarkan dengan
+// compose_path `/etc/docker-compose.yml` akan membuat `/etc` berpindah pemilik
+// hanya karena seseorang menekan Simpan. Berkasnya sendiri tetap diserahkan,
+// jadi menyunting berkas yang sudah ada tetap bekerja — yang hilang cuma
+// kemampuan membuat berkas baru di direktori yang memang bukan milik stack.
+func dirSistem(p string) bool {
+	switch filepath.Clean(p) {
+	case "/", "/etc", "/usr", "/var", "/opt", "/srv", "/home", "/root", "/tmp",
+		"/mnt", "/media", "/boot", "/lib", "/lib64", "/bin", "/sbin",
+		"/run", "/dev", "/proc", "/sys":
+		return true
+	}
+	return false
+}
+
+// serahkanKonfigStack menyerahkan kepemilikan berkas konfigurasi sebuah stack
+// — berikut direktori yang memuatnya — ke sudoer yang sedang menyimpannya.
+//
+// Perlu ada karena dua keputusan panel yang sama-sama benar bertabrakan:
+// helper daemon MEMBUAT berkas sebagai root (setup.sh Supabase, misalnya),
+// sementara panel MENULIS berkas sebagai user yang login — worker-nya
+// berjalan dengan kredensial user supaya kernel yang menegakkan izinnya.
+// Hasilnya "permission denied" untuk berkas yang justru dibuat panel itu
+// sendiri, dan tidak ada satu pun tombol di panel yang bisa membereskannya:
+// halaman File Manager pun menulis sebagai user, dan chown tidak punya UI.
+//
+// Direktorinya ikut diserahkan, bukan hanya berkasnya: penyimpanan compose
+// menulis berkas sementara di sebelahnya lalu memindahkannya, dan itu menuntut
+// izin tulis pada DIREKTORI, bukan pada berkas lama.
+//
+// HanyaMilikRoot menjaga supaya ini tidak pernah jadi pengambilalihan: berkas
+// yang sudah milik admin lain didiamkan, dan penyimpanannya gagal seperti
+// sebelumnya — dengan pesan izin yang memang benar.
+func (s *Server) serahkanKonfigStack(username string, path ...string) {
+	for _, p := range path {
+		if p == "" || dirSistem(p) {
+			continue
+		}
+		if err := s.helper.Call(helperproto.CmdFileChown, username,
+			helperproto.ChownArgs{Path: p, Owner: username, HanyaMilikRoot: true}, nil); err != nil {
+			// Bukan alasan membatalkan penyimpanan: kalau memang tidak bisa,
+			// penulisannya sendiri yang akan melapor dengan pesan yang tepat.
+			log.Printf("stack: kepemilikan %s tidak diserahkan ke %s: %v", p, username, err)
+		}
+	}
+}
+
 func (s *Server) handleStackEnvSet(w http.ResponseWriter, r *http.Request) {
 	if !requireSudo(w, r) {
 		return
@@ -594,6 +645,7 @@ func (s *Server) handleStackEnvSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envPath := filepath.Join(filepath.Dir(st.ComposePath), ".env")
+	s.serahkanKonfigStack(sess.Username, filepath.Dir(st.ComposePath), envPath)
 	stream, err := s.helper.Stream(helperproto.CmdFileWrite, sess.Username,
 		helperproto.WriteArgs{Path: envPath})
 	if err != nil {
@@ -659,6 +711,12 @@ func (s *Server) handleStackComposeSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "isi compose tidak boleh kosong")
 		return
 	}
+
+	// Cadangannya ikut diserahkan: `.bak` milik root yang sudah ada akan
+	// menolak ditimpa oleh salinan berikutnya, dan kegagalan itu terjadi
+	// SESUDAH compose barunya lolos validasi.
+	s.serahkanKonfigStack(sess.Username,
+		filepath.Dir(st.ComposePath), st.ComposePath, st.ComposePath+".bak")
 
 	// Urutan wajib: tulis ke file sementara → validasi → backup → ganti.
 	// Menulis langsung ke file asli berarti compose yang salah ketik sudah

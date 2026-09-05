@@ -222,6 +222,30 @@ not printed on the card: the Components page is readable at a glance by anyone
 looking at the screen, and it is also the page most likely to end up in a
 screenshot when something is being reported.
 
+**Its configuration belongs to the panel user, not root.** setup.sh runs under
+the helper daemon (root), so without an extra step the whole project folder is
+born owned by root — while the panel WRITES files as the logged-in user,
+because its worker runs with that user's credentials so the kernel enforces
+permissions. The result was `permission denied` when saving `.env`, on a file
+the panel itself had created. So once setup.sh finishes, the panel hands the
+project folder and everything in it to the account that pressed Install —
+**except `volumes/`**, whose contents are bind mounts WRITTEN by containers
+under their own UIDs (`volumes/db/data` belongs to the postgres process,
+`volumes/storage` to storage-api). Handing those over makes Postgres refuse to
+start. The rule fits in one sentence: `volumes/` belongs to the containers,
+everything else belongs to you — `.env`, `docker-compose.yml`, overrides,
+`run.sh`, `utils/`, and the project directory itself (so a new
+`docker-compose.override.yml` can be created from the panel or from a shell).
+
+This applies to **every stack**, not just Supabase: when an `.env` or compose
+file is saved from System → Docker, the panel first hands that file — and the
+directory holding it, because saving compose writes a temporary file beside it
+and then moves it into place — to the sudoer doing the saving. The handover
+**only** covers files still owned by `root`; files owned by another admin are
+left alone, so this never becomes a takeover. System directories (`/`, `/etc`,
+`/usr`, `/var`, `/opt`, …) are never handed over, no matter what
+`compose_path` a stack was registered with.
+
 **Removing it does not delete the database.** All Supabase data lives inside
 the project folder (`volumes/db/data`, `volumes/storage`, and the `.env` that
 holds JWT_SECRET), so a plain uninstall stops the stack and *moves* the folder

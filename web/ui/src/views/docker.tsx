@@ -617,7 +617,10 @@ export function DockerView() {
         apiSend(`/api/docker/stacks/${envModal.id}/env`, "PUT", { content: envModal.content }),
         {
           jalan: tr("Menyimpan file .env…"),
-          sukses: tr("File .env berhasil disimpan."),
+          // Sama seperti penyunting compose: menyimpan .env TIDAK menerapkan
+          // apa pun. Tanpa kalimat ini user mengira nilai barunya sudah
+          // berlaku, lalu menyimpulkan panelnya yang tidak menyimpan.
+          sukses: tr("File .env tersimpan — jalankan Up/Restart agar berlaku."),
           gagal: (e) => trf("Gagal menyimpan .env: {0}", pesanError(e)),
         },
       )
