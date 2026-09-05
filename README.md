@@ -219,6 +219,31 @@ di kartu: halaman Components terbaca sekali pandang oleh siapa pun yang
 melihat layar, dan halaman itu pula yang paling sering ikut terpotret saat
 melaporkan masalah.
 
+**Konfigurasinya milik user panel, bukan root.** setup.sh dijalankan helper
+daemon (root), jadi tanpa langkah tambahan seluruh isi folder proyek lahir
+milik root — sementara panel MENULIS berkas sebagai user yang login, karena
+worker-nya berjalan dengan kredensial user supaya kernel yang menegakkan
+izinnya. Akibatnya menyimpan `.env` berakhir `permission denied` untuk berkas
+yang justru dibuat panel itu sendiri. Karena itu, sesudah setup.sh selesai
+panel menyerahkan folder proyek beserta seluruh isinya ke akun yang menekan
+Pasang — **kecuali `volumes/`**, yang isinya bind mount yang DITULIS container
+dengan UID masing-masing (`volumes/db/data` milik proses postgres,
+`volumes/storage` milik storage-api). Menyerahkan yang itu membuat Postgres
+menolak start. Aturannya satu kalimat: folder `volumes/` milik container,
+sisanya milik Anda — `.env`, `docker-compose.yml`, override, `run.sh`,
+`utils/`, dan folder proyeknya sendiri (jadi `docker-compose.override.yml`
+baru bisa dibuat dari panel maupun dari shell).
+
+Berlaku untuk **semua stack**, bukan cuma Supabase: saat sebuah berkas `.env`
+atau compose disimpan dari System → Docker, panel lebih dulu menyerahkan
+kepemilikan berkas itu — dan direktori yang memuatnya, karena penyimpanan
+compose menulis berkas sementara di sebelahnya lalu memindahkannya — ke sudoer
+yang menyimpannya. Penyerahan itu **hanya** berlaku untuk berkas yang masih
+milik `root`; berkas milik admin lain didiamkan, jadi ini tidak pernah jadi
+pengambilalihan. Direktori sistem (`/`, `/etc`, `/usr`, `/var`, `/opt`, …)
+tidak pernah ikut diserahkan, betapa pun sebuah stack didaftarkan dengan
+`compose_path` di sana.
+
 **Mencopotnya tidak menghapus database.** Seluruh data Supabase ada di dalam
 folder proyek (`volumes/db/data`, `volumes/storage`, dan `.env` yang memuat
 JWT_SECRET), jadi uninstall biasa menghentikan stack lalu *memindahkan*

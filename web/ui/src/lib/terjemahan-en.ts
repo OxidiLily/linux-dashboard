@@ -418,7 +418,8 @@ daftarkanTerjemahan({
   "Container {0}: {1} berhasil.": "Container {0}: {1} succeeded.",
   "DNS nameserver berhasil diperbarui.": "DNS nameservers updated.",
   "Definisi share dicabut dari smb.conf. Isi foldernya tidak dihapus.": "The share definition is removed from smb.conf. The folder contents are kept.",
-  "File .env berhasil disimpan.": ".env file saved.",
+  "File .env tersimpan — jalankan Up/Restart agar berlaku.":
+    ".env saved — run Up/Restart for it to take effect.",
   "File dihapus permanen — tidak masuk Trash.": "The file is deleted permanently — it does not go to Trash.",
   "Folder berhenti dibagikan lewat NFS. Isi foldernya tidak dihapus.": "The folder stops being shared over NFS. Its contents are kept.",
   "Folder beserta seluruh isinya dihapus permanen — tidak masuk Trash.": "The folder and everything in it is deleted permanently — it does not go to Trash.",
