@@ -40,7 +40,7 @@ Components menus).
 
 | Group | Menu |
 |---|---|
-| Home | Dashboard (CPU, RAM, Storage, GPU, Network in real time; empty disks can be formatted & mounted from here) |
+| Home | Dashboard (CPU, RAM, Storage, GPU, Network in real time; empty disks can be formatted & mounted from here, existing mounts can be unmounted) |
 | File manager | File Manager (text editor, file creation, printing) · Samba (shares + users) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (agent CLI sessions inside the panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (every panel alert) · File Operations · Activity Logs |
@@ -412,6 +412,21 @@ entry by UUID with `nofail`, and mounts it. The guards: only disks that
 uses), a disk that turns out to already hold a filesystem is refused with the
 code `disk_has_filesystem` and the dialog then offers mounting without
 formatting, and `fstab` is written atomically and rolled back if the mount fails.
+
+The reverse lives on the same row: every mount on the Storage card has an
+**unmount** button (`umount` only — its `/etc/fstab` line stays, so the disk is
+mounted again after a reboot) and an **unmount & forget** button (`umount`, the
+panel-written `fstab` line dropped, the mount point directory removed). Nothing
+on the disk is erased; mount it again from the not-yet-mounted disk row in the
+same list. The guards: only mounts under `/mnt` or `/media` (`/`, `/var`,
+`/boot` are the system's), the path must satisfy `filepath.Clean(p) == p` so
+`/mnt/../etc` cannot slip past the prefix check, mergerfs pools and NFS mounts
+are refused with a pointer to the page that owns them so their `fstab` lines
+never dangle, and an `fstab` line the panel did not write is left intact and
+reported — otherwise the mount would silently come back after a reboot. A disk
+pulled while still mounted cannot be unmounted normally (the kernel still holds
+it and every read answers `input/output error`); the helper falls back to
+`umount -l`, the only way out that does not require a reboot.
 
 **Disk Pool (mergerfs)** merges several disks into one mount point. What matters:
 
