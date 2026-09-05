@@ -257,6 +257,106 @@ func (s *Server) handleNFSDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// ---- Klien NFS: export server lain yang dipasang di mesin ini ----
+
+func (s *Server) handleNFSMountList(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	var out []helperproto.NFSMount
+	if err := s.helper.Call(helperproto.CmdNFSMountList, sessionFrom(r).Username, nil, &out); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	if out == nil {
+		out = []helperproto.NFSMount{}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleNFSMountSave(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	var m helperproto.NFSMount
+	if err := decodeBody(r, &m); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.helper.Call(helperproto.CmdNFSMountSave, sess.Username, m, nil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	s.store.LogActivity(sess.Username, "nfs_mount_save", "simpan mount NFS",
+		map[string]any{"server": m.Server, "remote": m.Remote, "mountpoint": m.Mountpoint}, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleNFSMountToggle memasang/melepas mount tanpa mengubah /etc/fstab —
+// dipakai untuk menonaktifkan sementara tanpa harus menghapusnya.
+func (s *Server) handleNFSMountToggle(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	var body helperproto.NFSMountToggleArgs
+	if err := decodeBody(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.helper.Call(helperproto.CmdNFSMountToggle, sess.Username, body, nil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	aksi := "mount NFS"
+	if body.Lepas {
+		aksi = "unmount NFS"
+	}
+	s.store.LogActivity(sess.Username, "nfs_mount_toggle", aksi,
+		map[string]any{"mountpoint": body.Mountpoint, "lepas": body.Lepas}, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleNFSDiscover menanyakan daftar export satu server (showmount -e).
+// POST meski hanya membaca: alamat server ikut di body, dan permintaan ini
+// membuat mesin ini menghubungi host lain — bukan bacaan lokal biasa.
+func (s *Server) handleNFSDiscover(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	var body helperproto.NFSDiscoverArgs
+	if err := decodeBody(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var out []helperproto.NFSRemoteExport
+	if err := s.helper.Call(helperproto.CmdNFSMountDiscover, sessionFrom(r).Username, body, &out); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	if out == nil {
+		out = []helperproto.NFSRemoteExport{}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleNFSMountDelete(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	mount := r.URL.Query().Get("mountpoint")
+	if err := s.helper.Call(helperproto.CmdNFSMountDelete, sess.Username,
+		helperproto.PathArgs{Path: mount}, nil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	s.store.LogActivity(sess.Username, "nfs_mount_delete", "hapus mount NFS",
+		map[string]any{"mountpoint": mount}, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // ---- fail2ban ----
 
 func (s *Server) handleFail2banList(w http.ResponseWriter, r *http.Request) {

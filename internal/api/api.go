@@ -109,6 +109,13 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/storage/nfs", s.handleNFSSave)
 			r.Delete("/storage/nfs", s.handleNFSDelete)
 
+			r.Get("/storage/nfs/mounts", s.handleNFSMountList)
+			r.Post("/storage/nfs/mounts", s.handleNFSMountSave)
+			r.Put("/storage/nfs/mounts", s.handleNFSMountSave)
+			r.Post("/storage/nfs/mounts/mount", s.handleNFSMountToggle)
+			r.Post("/storage/nfs/mounts/discover", s.handleNFSDiscover)
+			r.Delete("/storage/nfs/mounts", s.handleNFSMountDelete)
+
 			r.Get("/security/fail2ban", s.handleFail2banList)
 			r.Post("/security/fail2ban", s.handleFail2banSave)
 			r.Put("/security/fail2ban/{jail}", s.handleFail2banSave)
