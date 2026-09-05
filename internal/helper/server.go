@@ -379,6 +379,13 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return nil, nfsDelete(args.Path)
 
+	case helperproto.CmdDiskUnmount:
+		args, err := decodeArgs[helperproto.DiskUnmountArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return nil, diskUnmount(args.Mountpoint, args.Lupakan)
+
 	case helperproto.CmdNFSMountList:
 		return jsonOf(nfsMountList())
 	case helperproto.CmdNFSMountSave:

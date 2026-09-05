@@ -49,6 +49,20 @@ var (
 	spasiRe = regexp.MustCompile(`\s+`)
 )
 
+// pathAman memeriksa path yang akan dipakai sebagai mount point atau folder
+// sumber: absolut, tanpa spasi maupun titik dua (keduanya memecah baris
+// fstab), DAN dalam bentuk yang sudah bersih.
+//
+// Syarat terakhir itu yang menutup lubang sungguhan: "/mnt/../etc" lolos
+// pemeriksaan awalan "/mnt/" tapi menunjuk /etc, sehingga permintaan melepas
+// mount data bisa berubah jadi umount /etc. filepath.Clean mengubahnya jadi
+// "/etc" — berbeda dari masukannya, jadi ditolak di sini. Trailing slash ikut
+// tertolak, dan itu memang yang kita mau: mount point selalu ditulis persis
+// seperti yang ada di /etc/fstab dan /proc/mounts.
+func pathAman(p string) bool {
+	return pathRe.MatchString(p) && filepath.Clean(p) == p
+}
+
 func mergerfsList() ([]helperproto.MergerfsPool, error) {
 	b, err := os.ReadFile(fstabPath)
 	if err != nil {
@@ -102,14 +116,14 @@ func mergerfsSave(pool helperproto.MergerfsPool, u *userInfo) error {
 	if !installed("mergerfs") {
 		return errKode(helperproto.ErrBelumTerpasang, "mergerfs belum terpasang — pasang dulu lewat Components")
 	}
-	if !pathRe.MatchString(pool.Mountpoint) || pool.Mountpoint == "/" {
+	if !pathAman(pool.Mountpoint) || pool.Mountpoint == "/" {
 		return errInvalid("mount point harus path absolut, bukan /")
 	}
 	if len(pool.Branches) < 2 {
 		return errInvalid("pool butuh minimal dua folder sumber")
 	}
 	for _, b := range pool.Branches {
-		if !pathRe.MatchString(b) {
+		if !pathAman(b) {
 			return errInvalid("folder sumber %q tidak valid (harus path absolut tanpa spasi/titik dua)", b)
 		}
 		if st, err := os.Stat(b); err != nil || !st.IsDir() {
@@ -261,7 +275,7 @@ func bersihkanMountPoint(path string) {
 // barisnya ditulis di luar panel hanya ditampilkan, tidak pernah dikendalikan
 // dari sini — pemiliknya tidak pernah menyetujui panel mengutak-atiknya.
 func poolPanel(mountpoint string) (helperproto.MergerfsPool, error) {
-	if !pathRe.MatchString(mountpoint) {
+	if !pathAman(mountpoint) {
 		return helperproto.MergerfsPool{}, errInvalid("mount point tidak valid")
 	}
 	pools, err := mergerfsList()
@@ -281,7 +295,7 @@ func poolPanel(mountpoint string) (helperproto.MergerfsPool, error) {
 }
 
 func mergerfsDelete(mountpoint string) error {
-	if !pathRe.MatchString(mountpoint) {
+	if !pathAman(mountpoint) {
 		return errInvalid("mount point tidak valid")
 	}
 	lama, err := mergerfsList()

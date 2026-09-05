@@ -123,6 +123,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/security/fail2ban/{jail}/unban", s.handleFail2banUnban)
 
 			r.Post("/storage/disks/prepare", s.handleDiskPrepare)
+			r.Post("/storage/disks/unmount", s.handleDiskUnmount)
 
 			r.Get("/storage/mergerfs", s.handleMergerfsList)
 			r.Post("/storage/mergerfs", s.handleMergerfsSave)

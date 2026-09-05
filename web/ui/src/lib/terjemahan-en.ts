@@ -568,6 +568,21 @@ daftarkanTerjemahan({
   "{0} terpasang di {1}.": "{0} mounted at {1}.",
   "{0} dipasang.": "{0} mounted.",
   "{0} dilepas.": "{0} unmounted.",
+
+  // ---- lepas mount disk (Dashboard → Storage) ----
+  "Lepas & lupakan": "Unmount & forget",
+  "Lepas {0}": "Unmount {0}",
+  "Lepas {0}?": "Unmount {0}?",
+  "Lepas dan lupakan {0}": "Unmount and forget {0}",
+  "Lepas dan lupakan {0}?": "Unmount and forget {0}?",
+  "Lepas mount ini (kembali setelah boot)": "Unmount this (comes back after boot)",
+  "Lepas lalu buang barisnya dari /etc/fstab": "Unmount, then drop its /etc/fstab line",
+  "{0} dilepas dan dilupakan.": "{0} unmounted and forgotten.",
+  "Gagal melepas {0}: {1}": "Failed to unmount {0}: {1}",
+  "Mount dilepas sekarang. Barisnya di /etc/fstab dibiarkan, jadi disknya terpasang lagi setelah server boot.":
+    "The mount is released now. Its /etc/fstab line is left alone, so the disk is mounted again after the server boots.",
+  "Mount dilepas, barisnya dibuang dari /etc/fstab, lalu folder mount point-nya dihapus. Isi disknya TIDAK dihapus — pasang lagi lewat baris disk yang belum di-mount di daftar ini.":
+    "The mount is released, its /etc/fstab line removed, and the mount point folder deleted. Nothing on the disk is erased — mount it again from the not-yet-mounted disk row in this list.",
   "{0} tidak membagikan folder apa pun lewat NFS.": "{0} does not share any folder over NFS.",
   "Gagal memuat mount: {0}": "Failed to load mounts: {0}",
   "Gagal membaca export {0}: {1}": "Failed to read exports of {0}: {1}",

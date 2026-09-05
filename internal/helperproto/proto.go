@@ -94,6 +94,9 @@ const (
 
 	// Disk mentah: format (opsional) lalu daftarkan di fstab dan mount.
 	CmdDiskPrepare = "disk.prepare"
+	// Kebalikannya: lepas mount disk, dan (kalau diminta) buang jejaknya dari
+	// fstab beserta folder mount point-nya.
+	CmdDiskUnmount = "disk.unmount"
 
 	CmdMergerfsList   = "mergerfs.list"
 	CmdMergerfsSave   = "mergerfs.save"
@@ -537,6 +540,14 @@ type DiskPrepareArgs struct {
 	// filesystem. Tanpa ini helper menolak, supaya satu klik salah tidak
 	// menghapus data yang sudah ada di sana.
 	Timpa bool `json:"timpa"`
+}
+
+// DiskUnmountArgs melepas satu mount disk. Lupakan=false hanya umount —
+// barisnya tetap di fstab, jadi mount-nya kembali setelah boot. Lupakan=true
+// sekalian membuang baris fstab tulisan panel dan folder mount point-nya.
+type DiskUnmountArgs struct {
+	Mountpoint string `json:"mountpoint"`
+	Lupakan    bool   `json:"lupakan"`
 }
 
 // MergerfsPool adalah satu baris fuse.mergerfs di /etc/fstab.
