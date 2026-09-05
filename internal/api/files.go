@@ -27,10 +27,11 @@ import (
 type fileRoot struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
-	// Pool menandai pintasan pool mergerfs. UI mengelompokkannya di belakang
-	// satu label "Disk pool :" supaya nama pool berdiri sendiri sebagai tombol,
-	// bukan ikut tertulis di dalam setiap tombolnya.
-	Pool bool `json:"pool,omitempty"`
+	// Grup mengelompokkan pintasan yang bukan folder home di belakang satu
+	// label ("Disk pool :", "NFS :") supaya namanya berdiri sendiri sebagai
+	// tombol, bukan ikut tertulis di dalam setiap tombolnya. Kosong = pintasan
+	// biasa. Nilainya "pool" atau "nfs"; UI yang menentukan tulisan labelnya.
+	Grup string `json:"grup,omitempty"`
 }
 
 // dataDirs adalah folder data milik user sendiri: ~/DATA/AppData, ~/DATA/Media,
@@ -79,6 +80,7 @@ func (s *Server) handleFileRoots(w http.ResponseWriter, r *http.Request) {
 	if sess.Sudo {
 		roots = append(roots, fileRoot{Name: "Root (/)", Path: "/"})
 		roots = append(roots, poolRoots(s, sess.Username)...)
+		roots = append(roots, nfsRoots(s, sess.Username)...)
 	}
 	writeJSON(w, http.StatusOK, roots)
 }
@@ -109,7 +111,37 @@ func poolRoots(s *Server, username string) []fileRoot {
 		out = append(out, fileRoot{
 			Name: hurufBesarAwal(filepath.Base(p.Mountpoint)),
 			Path: p.Mountpoint,
-			Pool: true,
+			Grup: "pool",
+		})
+	}
+	return out
+}
+
+// nfsRoots menambahkan pintasan ke tiap folder NFS yang sedang ter-mount di
+// mesin ini. Alasannya sama dengan pool: apa pun yang dipasang panel harus
+// bisa dibuka dari panel tanpa langkah pendaftaran manual — tanpa ini mount
+// baru hanya terjangkau lewat "Root (/)" lalu menyusuri /mnt sendiri.
+//
+// Mount yang dipasang di luar panel ikut dapat pintasan: yang menentukan
+// berguna atau tidaknya sebuah pintasan adalah foldernya ada dan bisa dibuka,
+// bukan siapa yang memasangnya.
+func nfsRoots(s *Server, username string) []fileRoot {
+	var mounts []helperproto.NFSMount
+	if err := s.helper.Call(helperproto.CmdNFSMountList, username, nil, &mounts); err != nil {
+		return nil
+	}
+	out := make([]fileRoot, 0, len(mounts))
+	for _, m := range mounts {
+		// Mount yang sedang lepas menunjuk folder kosong (atau folder yang
+		// sudah dibuang) — pintasan yang membawa user ke tempat kosong lebih
+		// buruk daripada pintasan yang hilang selama mount tidak aktif.
+		if !m.Mounted {
+			continue
+		}
+		out = append(out, fileRoot{
+			Name: hurufBesarAwal(filepath.Base(m.Mountpoint)),
+			Path: m.Mountpoint,
+			Grup: "nfs",
 		})
 	}
 	return out
