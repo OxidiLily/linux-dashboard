@@ -38,7 +38,7 @@ untuk menu Docker, Firewall, Fail2ban, Samba, Disk Pool, NFS, dan Components).
 
 | Grup | Menu |
 |---|---|
-| Home | Dashboard (CPU, RAM, Storage, GPU, Network real-time; disk kosong bisa diformat & di-mount dari sini) |
+| Home | Dashboard (CPU, RAM, Storage, GPU, Network real-time; disk kosong bisa diformat & di-mount dari sini, mount yang ada bisa dilepas) |
 | File manager | File Manager (editor teks, buat file, cetak berkas) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (sesi CLI agent di dalam panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (semua alert panel) · File Operations · Activity Logs |
@@ -497,6 +497,22 @@ disk yang diakui `UnusedDisks()` yang boleh disentuh (daftar yang sama persis
 dengan yang dipakai dashboard), disk yang ternyata sudah berisi filesystem
 ditolak dengan kode `disk_has_filesystem` lalu dialognya menawarkan mount tanpa
 format, dan `fstab` ditulis atomik lalu dikembalikan kalau mount gagal.
+
+Kebalikannya ada di baris mount yang sama: tiap mount di kartu Storage punya
+tombol **lepas** (`umount` saja — barisnya tetap di `/etc/fstab`, jadi disknya
+terpasang lagi setelah boot) dan **lepas & lupakan** (`umount`, baris `fstab`
+tulisan panel dibuang, folder mount point dihapus). Isi disknya tidak pernah
+disentuh; memasangnya kembali lewat baris disk belum-ter-mount di daftar yang
+sama. Pagarnya: hanya mount di `/mnt` atau `/media` (`/`, `/var`, `/boot`
+dikelola sistem), path diperiksa `filepath.Clean(p) == p` supaya
+`/mnt/../etc` tidak lolos pemeriksaan awalan, pool mergerfs dan mount NFS
+ditolak dengan arahan ke halaman pengelolanya sendiri supaya baris `fstab`-nya
+tidak menggantung, dan baris `fstab` yang bukan tulisan panel dibiarkan utuh
+lalu dilaporkan — kalau tidak, mount-nya kembali setelah reboot tanpa
+penjelasan. Disk yang dicabut saat masih ter-mount tidak bisa di-`umount`
+biasa (kernel masih memegangnya dan setiap pembacaan dijawab
+`input/output error`); helper jatuh ke `umount -l`, satu-satunya jalan keluar
+yang tidak menuntut reboot.
 
 **Disk Pool (mergerfs)** menggabungkan beberapa disk jadi satu mount point.
 Yang perlu diketahui:
