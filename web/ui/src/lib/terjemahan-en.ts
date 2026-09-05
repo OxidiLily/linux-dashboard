@@ -277,7 +277,6 @@ daftarkanTerjemahan({
   "Terpasang system-wide sebagai root — jalur npm yang dipakai panel versi lama. Kalau Anda memakai panel sebagai user biasa, pembaruan otomatis agent ini akan gagal setiap kali dijalankan. Tekan Pasang untuk memasang ulang dengan installer resmi vendor ke home Anda.":
     "Installed system-wide as root — the npm path used by an older panel release. If you use the panel as a regular user, this agent's auto-update will fail every time it runs. Press Install to reinstall it with the vendor's official installer into your own home directory.",
   "Salin path": "Copy path",
-  "Salin path {0}": "Copy path of {0}",
   "Salin path folder ini": "Copy the path of this folder",
   "· live tiap 3 detik": "· live every 3 seconds",
 
