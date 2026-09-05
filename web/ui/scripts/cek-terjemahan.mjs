@@ -48,7 +48,7 @@ const teksIndonesia = (v) => KATA_ID.test(v) || AFIKS_ID.test(v)
 
 // Potongan yang jelas berisi kode, bukan kalimat untuk user: muncul saat
 // regex teks JSX menyeberangi baris di antara dua elemen.
-const KODE = /=>|===|!==|\bconst \b|\breturn \(|\bawait \b|\bfunction\b|:\s*(string|number|boolean)\b|\?\s*\(|&&\s*\(|\}\)|\.\w+\(/
+const KODE = /=>|===|!==|\bconst\b|\breturn \(|\bawait \b|\bfunction\b|:\s*(string|number|boolean)\b|\?\s*\(|&&\s*\(|\}\)|\.\w+\(/
 
 const TEKNIS =
   /^(\/|https?:|[a-z0-9_.-]+\/[a-z0-9_./-]+$|#|\$|@)|^[A-Z_]+$|^\w+=|^\d/

@@ -100,6 +100,13 @@ var sudoRequired = map[string]bool{
 	helperproto.CmdNFSList:        true,
 	helperproto.CmdNFSSave:        true,
 	helperproto.CmdNFSDelete:      true,
+	// Klien NFS: menulis /etc/fstab dan menjalankan mount — sama beratnya
+	// dengan sisi server, jadi sudo juga.
+	helperproto.CmdNFSMountList:     true,
+	helperproto.CmdNFSMountSave:     true,
+	helperproto.CmdNFSMountDelete:   true,
+	helperproto.CmdNFSMountToggle:   true,
+	helperproto.CmdNFSMountDiscover: true,
 	helperproto.CmdFail2banList:   true,
 	helperproto.CmdFail2banSave:   true,
 	helperproto.CmdFail2banDelete: true,

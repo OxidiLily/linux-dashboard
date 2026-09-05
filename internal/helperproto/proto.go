@@ -64,6 +64,15 @@ const (
 	CmdNFSSave   = "nfs.save"
 	CmdNFSDelete = "nfs.delete"
 
+	// Sisi KLIEN dari NFS: export milik server lain yang dipasang di mesin
+	// ini. Terpisah dari perintah di atas karena berkas yang disentuh juga
+	// berbeda — /etc/fstab, bukan /etc/exports.
+	CmdNFSMountList     = "nfsmount.list"
+	CmdNFSMountSave     = "nfsmount.save"
+	CmdNFSMountDelete   = "nfsmount.delete"
+	CmdNFSMountToggle   = "nfsmount.mount"
+	CmdNFSMountDiscover = "nfsmount.discover"
+
 	// Print server (CUPS). CmdPrintFile berjalan lewat jalur fileOp, bukan
 	// dispatch biasa: ia butuh identitas user login untuk memeriksa path dan
 	// membaca berkasnya dengan hak user itu, bukan hak root.
@@ -473,6 +482,46 @@ type NFSExport struct {
 type NFSClient struct {
 	Host    string `json:"host"`
 	Options string `json:"options,omitempty"`
+}
+
+// NFSMount adalah satu export milik server LAIN yang dipasang di mesin ini —
+// sisi klien dari halaman NFS. Barisnya ditulis ke /etc/fstab supaya mount
+// bertahan setelah reboot, dengan pola penanda yang sama seperti pool mergerfs.
+type NFSMount struct {
+	Server     string `json:"server"`     // nas.home atau 192.168.2.11
+	Remote     string `json:"remote"`     // path export DI SERVER itu
+	Mountpoint string `json:"mountpoint"` // folder di mesin ini
+	Options    string `json:"options,omitempty"`
+	Mounted    bool   `json:"mounted"`
+	// InFstab=false berarti mount hidup yang tidak tercatat di /etc/fstab —
+	// dipasang manual lewat `mount`, dan akan hilang setelah reboot.
+	InFstab bool `json:"in_fstab"`
+	// External = tidak ditulis panel (baris fstab orang lain, atau mount
+	// manual). Ditampilkan apa adanya, tidak pernah diubah dari sini.
+	External bool   `json:"external,omitempty"`
+	Total    uint64 `json:"total,omitempty"`
+	Used     uint64 `json:"used,omitempty"`
+	Free     uint64 `json:"free,omitempty"`
+}
+
+// NFSMountToggleArgs memasang atau melepas mount yang barisnya sudah ada di
+// fstab, tanpa menyentuh barisnya — mount yang dilepas kembali terpasang saat
+// boot berikutnya.
+type NFSMountToggleArgs struct {
+	Mountpoint string `json:"mountpoint"`
+	Lepas      bool   `json:"lepas"`
+}
+
+// NFSDiscoverArgs menanyakan daftar export yang ditawarkan satu server
+// (showmount -e), supaya path remote tidak perlu diketik dari ingatan.
+type NFSDiscoverArgs struct {
+	Server string `json:"server"`
+}
+
+// NFSRemoteExport adalah satu baris balasan showmount -e.
+type NFSRemoteExport struct {
+	Path    string `json:"path"`
+	Clients string `json:"clients,omitempty"`
 }
 
 // DiskPrepareArgs menyiapkan satu disk mentah supaya bisa dipakai: format

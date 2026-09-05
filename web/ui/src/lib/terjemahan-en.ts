@@ -519,6 +519,61 @@ daftarkanTerjemahan({
   "Tambah Bookmark": "Add Bookmark",
   "Tambah Firewall Rule": "Add Firewall Rule",
   "Tambah NFS Export": "Add NFS Export",
+
+  // ---- klien NFS (bagian Klien NFS di halaman NFS Exports) ----
+  "Klien NFS": "NFS Client",
+  "Pasang export dari server lain ke folder di mesin ini (/etc/fstab)":
+    "Mount an export from another server onto a folder on this machine (/etc/fstab)",
+  "Tambah Mount": "Add Mount",
+  "Tambah Mount NFS": "Add NFS Mount",
+  "Edit Mount {0}": "Edit Mount {0}",
+  "Pasang Mount": "Mount It",
+  "Alamat server NFS": "NFS server address",
+  "Path export di server": "Export path on the server",
+  "Mount point di mesin ini": "Mount point on this machine",
+  "Cari export": "Find exports",
+  "Tanya server folder apa saja yang dibagikannya (showmount -e)":
+    "Ask the server which folders it shares (showmount -e)",
+  "Folder yang dibagikan server ini — klik untuk memakainya:":
+    "Folders this server shares — click one to use it:",
+  "Belum ada folder dari server lain yang dipasang di mesin ini.":
+    "No folder from another server is mounted on this machine yet.",
+  "hilang setelah reboot": "gone after reboot",
+  "dipasang di luar panel": "mounted outside the panel",
+  "Pasang mount": "Mount",
+  "Lepas mount": "Unmount",
+  "Pasang mount {0}": "Mount {0}",
+  "Lepas mount {0}": "Unmount {0}",
+  "Edit mount {0}": "Edit mount {0}",
+  "Hapus mount {0}": "Delete mount {0}",
+  "Mount point adalah kunci baris di /etc/fstab — hapus lalu buat baru untuk memindahkannya.":
+    "The mount point is the key of the /etc/fstab line — delete and recreate it to move it.",
+  "nofail dan _netdev menjaga mesin ini tetap bisa boot kalau server NFS-nya mati; hard menahan tulisan sampai server menjawab lagi, bukan membuangnya diam-diam seperti soft. Hak tulis ditentukan UID: akun di mesin ini harus punya UID yang sama dengan pemilik folder di server.":
+    "nofail and _netdev keep this machine bootable when the NFS server is down; hard holds writes until the server answers again instead of dropping them silently like soft. Write access is decided by UID: the account on this machine must have the same UID as the folder owner on the server.",
+  "Baris /etc/fstab ditulis lalu folder langsung di-mount. Isi folder mount point yang lama tidak terhapus — hanya tertutup selama mount hidup.":
+    "The /etc/fstab line is written and the folder is mounted right away. Anything already inside the mount point is not deleted — only hidden while the mount is live.",
+  "Isi folder dari server langsung hilang dari mount point sampai dipasang lagi. Tidak ada berkas yang dihapus — semuanya tetap di server. Baris /etc/fstab dibiarkan, jadi mount kembali terpasang setelah boot.":
+    "The server's files disappear from the mount point until it is mounted again. Nothing is deleted — everything stays on the server. The /etc/fstab line is left alone, so the mount comes back after boot.",
+  "Folder dilepas dan barisnya dibuang dari /etc/fstab. Isi di server TIDAK dihapus — mesin ini hanya berhenti memasangnya.":
+    "The folder is unmounted and its /etc/fstab line removed. Nothing on the server is deleted — this machine simply stops mounting it.",
+  "Simpan perubahan mount {0}?": "Save changes to mount {0}?",
+  "Pasang {0}:{1} di {2}?": "Mount {0}:{1} at {2}?",
+  "Lepas mount {0}?": "Unmount {0}?",
+  "Hapus mount {0}?": "Delete mount {0}?",
+  "Memasang {0}…": "Mounting {0}…",
+  "Melepas {0}…": "Unmounting {0}…",
+  "Menghapus mount {0}…": "Deleting mount {0}…",
+  "Mount diperbarui.": "Mount updated.",
+  "Mount {0} dihapus.": "Mount {0} deleted.",
+  "{0} terpasang di {1}.": "{0} mounted at {1}.",
+  "{0} dipasang.": "{0} mounted.",
+  "{0} dilepas.": "{0} unmounted.",
+  "{0} tidak membagikan folder apa pun lewat NFS.": "{0} does not share any folder over NFS.",
+  "Gagal memuat mount: {0}": "Failed to load mounts: {0}",
+  "Gagal membaca export {0}: {1}": "Failed to read exports of {0}: {1}",
+  "Gagal memasang mount: {0}": "Failed to mount: {0}",
+  "Gagal melepas mount: {0}": "Failed to unmount: {0}",
+  "Gagal menghapus mount: {0}": "Failed to delete mount: {0}",
   "Tambah Rule FW": "Add FW Rule",
   "Tambah User Samba": "Add Samba User",
   "Ubah Bookmark": "Edit Bookmark",

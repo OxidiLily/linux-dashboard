@@ -379,6 +379,33 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return nil, nfsDelete(args.Path)
 
+	case helperproto.CmdNFSMountList:
+		return jsonOf(nfsMountList())
+	case helperproto.CmdNFSMountSave:
+		args, err := decodeArgs[helperproto.NFSMount](req)
+		if err != nil {
+			return nil, err
+		}
+		return nil, nfsMountSave(args)
+	case helperproto.CmdNFSMountDelete:
+		args, err := decodeArgs[helperproto.PathArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return nil, nfsMountDelete(args.Path)
+	case helperproto.CmdNFSMountToggle:
+		args, err := decodeArgs[helperproto.NFSMountToggleArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return nil, nfsMountToggle(args.Mountpoint, args.Lepas)
+	case helperproto.CmdNFSMountDiscover:
+		args, err := decodeArgs[helperproto.NFSDiscoverArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(nfsDiscover(args.Server))
+
 	case helperproto.CmdPrinterList:
 		return jsonOf(printerList())
 	case helperproto.CmdPrinterAdd:
