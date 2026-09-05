@@ -36,7 +36,7 @@ func diskPrepare(a helperproto.DiskPrepareArgs) error {
 	if !diskKosong(a.Path) {
 		return errKode(helperproto.ErrDiskDipakai, "%s bukan disk kosong — sudah punya partisi, dipakai LVM/RAID, atau sedang ter-mount", a.Path)
 	}
-	if !pathRe.MatchString(a.Mountpoint) || a.Mountpoint == "/" {
+	if !pathAman(a.Mountpoint) || a.Mountpoint == "/" {
 		return errKode(helperproto.ErrPathTidakValid, "mount point harus path absolut, bukan /")
 	}
 	if sudahTerMount(a.Mountpoint) {
@@ -123,4 +123,121 @@ func blkidNilai(path, atribut string) string {
 		return ""
 	}
 	return strings.TrimSpace(res.Stdout)
+}
+
+// diskUnmount melepas satu mount disk dari panel, dan — kalau lupakan=true —
+// sekalian membuang jejaknya: baris /etc/fstab tulisan panel dan folder mount
+// point-nya.
+//
+// Ini pasangan yang selama ini hilang dari diskPrepare: disk bisa disiapkan
+// dari panel tapi tidak bisa dilepas dari panel, sehingga disk yang dicabut
+// meninggalkan mount mati (setiap pembacaan dijawab EIO), baris fstab yang
+// tidak menunjuk apa pun, dan folder immutable yang tidak bisa dihapus user.
+func diskUnmount(mountpoint string, lupakan bool) error {
+	if !pathAman(mountpoint) {
+		return errKode(helperproto.ErrPathTidakValid, "mount point tidak valid")
+	}
+	// Pagar paling penting di berkas ini. Melepas /, /boot, atau /var membuat
+	// mesin tidak bisa dipakai sampai reboot — dan panel tidak punya satu pun
+	// alasan sah untuk menyentuhnya. Yang boleh hanya mount data.
+	if !strings.HasPrefix(mountpoint, "/mnt/") && !strings.HasPrefix(mountpoint, "/media/") {
+		return errInvalid("hanya mount di /mnt atau /media yang bisa dilepas dari panel — %s dikelola sistem", mountpoint)
+	}
+	switch tandaFstab(mountpoint) {
+	case mergerfsTanda:
+		return errInvalid("%s adalah pool mergerfs — lepas dari halaman Disk Pool supaya barisnya ikut terurus", mountpoint)
+	case nfsMountTanda:
+		return errInvalid("%s adalah mount NFS — lepas dari halaman NFS Exports → Klien NFS", mountpoint)
+	}
+
+	if sudahTerMount(mountpoint) {
+		if _, err := run("umount", mountpoint); err != nil {
+			// Disk yang dicabut saat masih ter-mount tidak bisa di-umount biasa:
+			// kernel masih memegang mount-nya dan setiap akses dijawab EIO.
+			// umount -l melepas pohonnya sekarang dan membereskan sisanya
+			// begitu tidak ada yang memakai — satu-satunya jalan keluar yang
+			// tidak menuntut reboot.
+			if _, e := run("umount", "-l", mountpoint); e != nil {
+				return errInvalid("tidak bisa melepas %s: %v — pastikan tidak ada berkas yang sedang dipakai", mountpoint, err)
+			}
+		}
+	}
+	if !lupakan {
+		return nil
+	}
+
+	// Hanya baris tulisan panel yang dibuang. Baris fstab orang lain tetap
+	// utuh — dan karena itu mount-nya akan kembali setelah reboot, jadi
+	// kejadian itu dilaporkan alih-alih didiamkan.
+	adaBarisPanel := tandaFstab(mountpoint) == diskTanda
+	if adaBarisPanel {
+		if err := gantiBarisFstab(diskTanda, mountpoint, ""); err != nil {
+			return err
+		}
+	}
+	// Kunci immutable dipasang diskPrepare; rmdir pada direktori immutable
+	// selalu ditolak, jadi harus dilepas dulu. os.Remove, bukan RemoveAll:
+	// folder yang tidak kosong berarti ada berkas nyata di sana — biasanya
+	// tulisan yang mendarat saat disknya tidak ter-mount — dan itu tidak boleh
+	// ikut terhapus.
+	bukaMountPoint(mountpoint)
+	_ = os.Remove(mountpoint)
+	if !adaBarisPanel && barisFstabAda(mountpoint) {
+		return errInvalid("%s dilepas, tapi baris /etc/fstab-nya bukan tulisan panel — hapus sendiri, kalau tidak mount-nya kembali setelah reboot", mountpoint)
+	}
+	return nil
+}
+
+// tandaFstab mengembalikan penanda panel pada baris fstab untuk mountpoint
+// tertentu ("" kalau barisnya tidak ada atau tidak bertanda). Dipakai untuk
+// menolak mount yang punya halaman pengelolanya sendiri.
+func tandaFstab(mountpoint string) string {
+	b, err := os.ReadFile(fstabPath)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		bersih := strings.TrimSpace(line)
+		if bersih == "" || strings.HasPrefix(bersih, "#") {
+			continue
+		}
+		isi := bersih
+		if i := strings.Index(isi, "#"); i >= 0 {
+			isi = strings.TrimSpace(isi[:i])
+		}
+		f := spasiRe.Split(isi, -1)
+		if len(f) < 2 || f[1] != mountpoint {
+			continue
+		}
+		for _, t := range []string{diskTanda, mergerfsTanda, nfsMountTanda} {
+			if strings.Contains(bersih, t) {
+				return t
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+// barisFstabAda menjawab apakah mountpoint masih punya baris di fstab, tanpa
+// peduli siapa yang menulisnya.
+func barisFstabAda(mountpoint string) bool {
+	b, err := os.ReadFile(fstabPath)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		bersih := strings.TrimSpace(line)
+		if bersih == "" || strings.HasPrefix(bersih, "#") {
+			continue
+		}
+		if i := strings.Index(bersih, "#"); i >= 0 {
+			bersih = strings.TrimSpace(bersih[:i])
+		}
+		f := spasiRe.Split(bersih, -1)
+		if len(f) >= 2 && f[1] == mountpoint {
+			return true
+		}
+	}
+	return false
 }

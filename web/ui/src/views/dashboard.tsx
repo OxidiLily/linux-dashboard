@@ -10,7 +10,12 @@ import { MetricTile } from "@/components/ui/metric-tile"
 import { NilaiSkalaFlow } from "@/components/ui/nilai-flow"
 import { StorageCard } from "@/components/ui/storage-card"
 import { DiskPrepareModal } from "@/components/ui/disk-prepare-modal"
-import { HardDrive } from "lucide-react"
+import { HardDrive, Unplug, Trash2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { notify } from "@/components/ui/toast"
+import { confirmDialog } from "@/components/ui/confirm"
+import { apiSend } from "@/lib/api"
+import { pesanError } from "@/lib/pesan-error"
 import { UnusedDisk } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { formatBytes, formatPercent, formatRate, formatUptime, formatTanggal, pecahRate } from "@/lib/format"
@@ -31,6 +36,15 @@ function KerangkaChart({ className }: { className?: string }) {
 // Byte → GB (basis 1024), 1 desimal — StorageCard menampilkan angka apa adanya.
 function gb(bytes: number): number {
   return Number((bytes / 1024 ** 3).toFixed(1))
+}
+
+// Mount yang boleh dilepas dari panel: hanya mount data di /mnt atau /media,
+// dan bukan yang punya halaman pengelolanya sendiri (pool mergerfs, klien
+// NFS). Pagar yang sama ditegakkan ulang di helper — ini hanya menyembunyikan
+// tombol yang pasti ditolak.
+export function bisaDilepas(mount: string, fstype: string): boolean {
+  if (!mount.startsWith("/mnt/") && !mount.startsWith("/media/")) return false
+  return !fstype.startsWith("fuse.") && !fstype.startsWith("nfs") && fstype !== "cifs"
 }
 
 // Segmen storage netral putih (PRD §4.3); warna hanya saat lewat threshold.
@@ -54,6 +68,30 @@ export function DashboardView() {
   // Disk yang sedang disiapkan lewat dialog. Hook dipanggil sebelum early
   // return di bawah — urutan hook tidak boleh berubah antar render.
   const [diskDisiapkan, setDiskDisiapkan] = useState<UnusedDisk | null>(null)
+  // Melepas mount = pekerjaan kernel yang bisa memakan beberapa detik (dan
+  // lebih lama lagi kalau disknya sudah dicabut), jadi lewat notify.tugas.
+  const lepasDisk = async (mount: string, lupakan: boolean) => {
+    const ok = await confirmDialog({
+      title: lupakan ? trf("Lepas dan lupakan {0}?", mount) : trf("Lepas {0}?", mount),
+      message: lupakan
+        ? tr("Mount dilepas, barisnya dibuang dari /etc/fstab, lalu folder mount point-nya dihapus. Isi disknya TIDAK dihapus — pasang lagi lewat baris disk yang belum di-mount di daftar ini.")
+        : tr("Mount dilepas sekarang. Barisnya di /etc/fstab dibiarkan, jadi disknya terpasang lagi setelah server boot."),
+      confirmLabel: lupakan ? tr("Lepas & lupakan") : tr("Lepas mount"),
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await notify.tugas(apiSend("/api/storage/disks/unmount", "POST", { mountpoint: mount, lupakan }), {
+        jalan: trf("Melepas {0}…", mount),
+        sukses: lupakan ? trf("{0} dilepas dan dilupakan.", mount) : trf("{0} dilepas.", mount),
+        gagal: (e) => trf("Gagal melepas {0}: {1}", mount, pesanError(e)),
+      })
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas. Daftar mount ikut
+      // metrik yang menyegarkan diri sendiri, jadi tidak ada yang perlu
+      // dimuat ulang dari sini.
+    }
+  }
   if (!snap) {
     return (
       <div className="panel p-8 text-center text-sm text-muted-foreground">
@@ -228,6 +266,31 @@ export function DashboardView() {
                 formatPercent(d.used_pct, 0),
               ),
               href: `/files?path=${encodeURIComponent(d.mount)}`,
+              actions:
+                sudo && bisaDilepas(d.mount, d.fstype) ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                      title={tr("Lepas mount ini (kembali setelah boot)")}
+                      aria-label={trf("Lepas {0}", d.mount)}
+                      onClick={() => lepasDisk(d.mount, false)}
+                    >
+                      <Unplug className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-muted-foreground hover:text-crit"
+                      title={tr("Lepas lalu buang barisnya dari /etc/fstab")}
+                      aria-label={trf("Lepas dan lupakan {0}", d.mount)}
+                      onClick={() => lepasDisk(d.mount, true)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </>
+                ) : undefined,
               icon: (
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg border bg-secondary">
                   <HardDrive className="h-5 w-5 text-muted-foreground" />

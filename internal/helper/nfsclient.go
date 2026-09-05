@@ -149,10 +149,10 @@ func nfsMountSave(m helperproto.NFSMount) error {
 	if !serverNfsRe.MatchString(m.Server) {
 		return errInvalid("alamat server %q tidak valid — pakai hostname atau IPv4", m.Server)
 	}
-	if !pathRe.MatchString(m.Remote) {
+	if !pathAman(m.Remote) {
 		return errInvalid("path di server harus absolut, tanpa spasi atau titik dua")
 	}
-	if !pathRe.MatchString(m.Mountpoint) || m.Mountpoint == "/" {
+	if !pathAman(m.Mountpoint) || m.Mountpoint == "/" {
 		return errInvalid("mount point harus path absolut, bukan /")
 	}
 	opsi := strings.TrimSpace(m.Options)
@@ -225,7 +225,7 @@ func nfsMountToggle(mountpoint string, lepas bool) error {
 }
 
 func nfsMountDelete(mountpoint string) error {
-	if !pathRe.MatchString(mountpoint) {
+	if !pathAman(mountpoint) {
 		return errInvalid("mount point tidak valid")
 	}
 	if _, err := nfsMountPanel(mountpoint); err != nil {
@@ -250,7 +250,7 @@ func nfsMountDelete(mountpoint string) error {
 // nfsMountPanel mencari mount milik panel. Mount yang barisnya ditulis di luar
 // panel — atau yang dipasang manual tanpa baris fstab — hanya ditampilkan.
 func nfsMountPanel(mountpoint string) (helperproto.NFSMount, error) {
-	if !pathRe.MatchString(mountpoint) {
+	if !pathAman(mountpoint) {
 		return helperproto.NFSMount{}, errInvalid("mount point tidak valid")
 	}
 	list, err := nfsMountList()

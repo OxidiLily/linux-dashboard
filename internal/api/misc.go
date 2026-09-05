@@ -452,6 +452,32 @@ func (s *Server) handleDiskPrepare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleDiskUnmount melepas satu mount disk — pasangan dari handleDiskPrepare.
+// lupakan=true sekalian membuang baris fstab tulisan panel dan folder mount
+// point-nya, dipakai untuk disk yang sudah dicabut dari mesinnya.
+func (s *Server) handleDiskUnmount(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	var args helperproto.DiskUnmountArgs
+	if err := decodeBody(r, &args); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.helper.Call(helperproto.CmdDiskUnmount, sess.Username, args, nil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	aksi := "lepas disk"
+	if args.Lupakan {
+		aksi = "lepas & lupakan disk"
+	}
+	s.store.LogActivity(sess.Username, "disk_unmount", aksi,
+		map[string]any{"mountpoint": args.Mountpoint, "lupakan": args.Lupakan}, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // ---- Pool mergerfs ----
 
 func (s *Server) handleMergerfsList(w http.ResponseWriter, r *http.Request) {

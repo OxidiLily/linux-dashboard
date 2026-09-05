@@ -18,6 +18,12 @@ interface ApplicationItem {
   href?: string
   /** Baris yang membuka dialog, bukan pindah halaman. */
   onClick?: () => void
+  /**
+   * Tombol aksi di ujung kanan baris. Dirender SEBELAHAN dengan bagian yang
+   * bisa diklik, bukan di dalamnya: tombol di dalam <a>/<button> bukan HTML
+   * yang sah, dan kliknya akan ikut menjalankan aksi barisnya.
+   */
+  actions?: React.ReactNode
   icon: React.ReactNode
 }
 
@@ -141,35 +147,44 @@ const StorageCard = React.forwardRef<HTMLDivElement, StorageCardProps>(
                 const bisaDiklik = Boolean(app.href || app.onClick)
                 const Tag = app.href ? "a" : app.onClick ? "button" : "div"
                 return (
-                  <Tag
+                  <div
                     key={app.name}
-                    href={app.href}
-                    type={app.onClick && !app.href ? "button" : undefined}
-                    onClick={app.onClick}
                     className={cn(
-                      "flex w-full items-center justify-between p-4 text-left",
-                      bisaDiklik && "transition-colors hover:bg-accent",
+                      "flex w-full items-center gap-2 pr-4",
                       index < applications.length - 1 && "border-b",
                     )}
                   >
-                    <div className="flex min-w-0 items-center gap-4">
-                      {app.icon}
-                      <div className="min-w-0">
-                        <span className="num block truncate font-medium">{app.name}</span>
-                        {app.detail && (
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {app.detail}
-                          </span>
-                        )}
+                    <Tag
+                      href={app.href}
+                      type={app.onClick && !app.href ? "button" : undefined}
+                      onClick={app.onClick}
+                      className={cn(
+                        "flex min-w-0 flex-1 items-center justify-between gap-4 p-4 text-left",
+                        bisaDiklik && "transition-colors hover:bg-accent",
+                      )}
+                    >
+                      <div className="flex min-w-0 items-center gap-4">
+                        {app.icon}
+                        <div className="min-w-0">
+                          <span className="num block truncate font-medium">{app.name}</span>
+                          {app.detail && (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {app.detail}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
-                      <span className="num text-sm">
-                        {app.size} {unit}
-                      </span>
-                      {bisaDiklik && <ChevronRight className="h-4 w-4" />}
-                    </div>
-                  </Tag>
+                      <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
+                        <span className="num text-sm">
+                          {app.size} {unit}
+                        </span>
+                        {bisaDiklik && <ChevronRight className="h-4 w-4" />}
+                      </div>
+                    </Tag>
+                    {app.actions && (
+                      <div className="flex shrink-0 items-center gap-1">{app.actions}</div>
+                    )}
+                  </div>
                 )
               })}
             </div>
