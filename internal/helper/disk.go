@@ -16,6 +16,20 @@ import (
 // yang sudah berisi filesystem butuh izin eksplisit.
 const diskTanda = "# lindash-disk"
 
+// Awalan mount data yang boleh dilepas panel. var, bukan const, supaya test
+// bisa mengarahkannya ke direktori sementara — pola yang sama dengan
+// fstabPath, dan satu-satunya cara menguji penghapusan mount point tanpa root.
+var awalanMountData = []string{"/mnt/", "/media/"}
+
+func dalamMountData(p string) bool {
+	for _, a := range awalanMountData {
+		if strings.HasPrefix(p, a) {
+			return true
+		}
+	}
+	return false
+}
+
 // Filesystem yang ditawarkan panel, beserta flag "jangan tanya" masing-masing
 // mkfs — helper tidak punya TTY, jadi prompt konfirmasi mkfs akan menggantung.
 var fsDidukung = map[string][]string{
@@ -140,7 +154,7 @@ func diskUnmount(mountpoint string, lupakan bool) error {
 	// Pagar paling penting di berkas ini. Melepas /, /boot, atau /var membuat
 	// mesin tidak bisa dipakai sampai reboot — dan panel tidak punya satu pun
 	// alasan sah untuk menyentuhnya. Yang boleh hanya mount data.
-	if !strings.HasPrefix(mountpoint, "/mnt/") && !strings.HasPrefix(mountpoint, "/media/") {
+	if !dalamMountData(mountpoint) {
 		return errInvalid("hanya mount di /mnt atau /media yang bisa dilepas dari panel — %s dikelola sistem", mountpoint)
 	}
 	switch tandaFstab(mountpoint) {
@@ -180,8 +194,16 @@ func diskUnmount(mountpoint string, lupakan bool) error {
 	// folder yang tidak kosong berarti ada berkas nyata di sana — biasanya
 	// tulisan yang mendarat saat disknya tidak ter-mount — dan itu tidak boleh
 	// ikut terhapus.
-	bukaMountPoint(mountpoint)
-	_ = os.Remove(mountpoint)
+	//
+	// os.Remove juga menghapus berkas biasa dan symlink, bukan cuma direktori
+	// kosong. Mount point selalu direktori, jadi apa pun selain itu tidak
+	// disentuh: satu salah ketik tidak boleh berakhir menghapus berkas orang
+	// yang kebetulan ada di /mnt. Lstat, bukan Stat — symlink ke direktori
+	// tetap ditolak, bukan diikuti.
+	if st, err := os.Lstat(mountpoint); err == nil && st.IsDir() {
+		bukaMountPoint(mountpoint)
+		_ = os.Remove(mountpoint)
+	}
 	if !adaBarisPanel && barisFstabAda(mountpoint) {
 		return errInvalid("%s dilepas, tapi baris /etc/fstab-nya bukan tulisan panel — hapus sendiri, kalau tidak mount-nya kembali setelah reboot", mountpoint)
 	}
