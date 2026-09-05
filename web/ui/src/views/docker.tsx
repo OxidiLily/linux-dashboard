@@ -531,6 +531,28 @@ export function DockerView() {
     }
   }
 
+  // Menyimpan .env atau compose TIDAK menerapkan apa pun. Container yang
+  // sedang jalan memegang salinan environment dari saat ia DIBUAT, dan
+  // `docker compose restart` hanya menyalakan ulang container yang sama —
+  // bukan membuatnya ulang. Hanya `up -d` yang membuat ulang container yang
+  // konfigurasinya berubah, dan hanya yang berubah.
+  //
+  // Ini yang membuat perubahan DASHBOARD_PASSWORD Supabase seolah tidak
+  // tersimpan: gerbang API-nya tetap meminta password LAMA sampai
+  // container-nya dibuat ulang, dan user yang menekan Restart tidak
+  // mendapat perubahan apa pun. Karena itu panel menawarkannya langsung
+  // alih-alih menitipkan langkah terakhir ke kalimat di toast.
+  const tawarkanUp = async (id: number) => {
+    const ok = await confirmDialog({
+      title: tr("Terapkan sekarang?"),
+      message: tr(
+        "Container yang sedang jalan masih memakai nilai lama — environment dibaca saat container DIBUAT, dan Restart tidak membuatnya ulang. Panel akan menjalankan Up (docker compose up -d), yang membuat ulang hanya container yang konfigurasinya berubah.",
+      ),
+      confirmLabel: tr("Up sekarang"),
+    })
+    if (ok) await stackAction(id, "up")
+  }
+
   const bukaCompose = async (id: number) => {
     try {
       const res = await apiGet<{ path: string; content: string }>(`/api/docker/stacks/${id}/compose`)
@@ -545,27 +567,29 @@ export function DockerView() {
     const ok = await confirmDialog({
       title: tr("Simpan docker-compose.yml?"),
       message:
-        tr("Isi divalidasi Docker dulu; kalau ditolak, file lama tidak disentuh. Versi lama disimpan sebagai .bak. Menyimpan TIDAK men-deploy — jalankan Up/Restart supaya perubahan berlaku."),
+        tr("Isi divalidasi Docker dulu; kalau ditolak, file lama tidak disentuh. Versi lama disimpan sebagai .bak. Menyimpan TIDAK men-deploy — panel menawarkan Up sesudahnya, dan Restart saja tidak cukup."),
       detail: composeModal.path,
       confirmLabel: tr("Simpan"),
     })
     if (!ok) return
     setMenyimpan(true)
+    const idStack = composeModal.id
     // Validasinya menjalankan `docker compose config` di server, bukan sekadar
     // menulis berkas — beberapa detik untuk compose yang besar.
     try {
       await notify.tugas(
-        apiSend(`/api/docker/stacks/${composeModal.id}/compose`, "PUT", {
+        apiSend(`/api/docker/stacks/${idStack}/compose`, "PUT", {
           content: composeModal.content,
         }),
         {
           jalan: tr("Menyimpan docker-compose.yml…"),
-          sukses: tr("docker-compose.yml tersimpan — jalankan Up/Restart agar berlaku."),
+          sukses: tr("docker-compose.yml tersimpan — belum diterapkan."),
           gagal: (e) => trf("Gagal menyimpan compose: {0}", pesanError(e)),
         },
       )
       setComposeModal(null)
       load()
+      await tawarkanUp(idStack)
     } catch {
       // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
@@ -605,26 +629,29 @@ export function DockerView() {
     const ok = await confirmDialog({
       title: tr("Timpa file .env stack ini?"),
       message: tr(
-        "Isi lama tertimpa seluruhnya. Container perlu di-recreate (compose up) agar nilai baru terpakai.",
+        "Isi lama tertimpa seluruhnya. Nilai baru belum berlaku sampai container DIBUAT ULANG — Restart tidak cukup. Panel menawarkan Up sesudah tersimpan.",
       ),
       detail: envModal.path,
       confirmLabel: tr("Simpan"),
       danger: true,
     })
     if (!ok) return
+    const idStack = envModal.id
     try {
       await notify.tugas(
-        apiSend(`/api/docker/stacks/${envModal.id}/env`, "PUT", { content: envModal.content }),
+        apiSend(`/api/docker/stacks/${idStack}/env`, "PUT", { content: envModal.content }),
         {
           jalan: tr("Menyimpan file .env…"),
-          // Sama seperti penyunting compose: menyimpan .env TIDAK menerapkan
-          // apa pun. Tanpa kalimat ini user mengira nilai barunya sudah
-          // berlaku, lalu menyimpulkan panelnya yang tidak menyimpan.
-          sukses: tr("File .env tersimpan — jalankan Up/Restart agar berlaku."),
+          // Menyimpan .env TIDAK menerapkan apa pun; tawarkanUp di bawah yang
+          // mengerjakannya. Kalimatnya menyebut itu supaya toast yang lewat
+          // sendirian — mis. saat dialog berikutnya dibatalkan — tidak
+          // meninggalkan kesan nilai barunya sudah berlaku.
+          sukses: tr("File .env tersimpan — belum diterapkan."),
           gagal: (e) => trf("Gagal menyimpan .env: {0}", pesanError(e)),
         },
       )
       setEnvModal(null)
+      await tawarkanUp(idStack)
     } catch {
       // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
