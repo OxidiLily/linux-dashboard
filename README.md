@@ -244,6 +244,18 @@ pengambilalihan. Direktori sistem (`/`, `/etc`, `/usr`, `/var`, `/opt`, …)
 tidak pernah ikut diserahkan, betapa pun sebuah stack didaftarkan dengan
 `compose_path` di sana.
 
+**Menyimpan `.env` tidak menerapkan apa pun — dan Restart tidak cukup.**
+Container membaca environment saat ia **dibuat**, bukan saat ia dinyalakan,
+jadi `docker compose restart` menyalakan ulang container yang sama beserta
+salinan nilai lamanya. Hanya `docker compose up -d` yang membuat ulang
+container yang konfigurasinya berubah — dan hanya yang berubah. Perbedaan itu
+paling menggigit di Supabase: `DASHBOARD_USERNAME` dan `DASHBOARD_PASSWORD`
+dipakai container gerbang API (`envoy`), jadi mengganti keduanya lalu menekan
+Restart menghasilkan kotak login yang tetap meminta password LAMA — persis
+seperti panel tidak menyimpan apa-apa. Karena itu, sesudah `.env` atau compose
+tersimpan panel langsung **menawarkan Up**, bukan menitipkan langkah terakhir
+ke kalimat di toast.
+
 **Mencopotnya tidak menghapus database.** Seluruh data Supabase ada di dalam
 folder proyek (`volumes/db/data`, `volumes/storage`, dan `.env` yang memuat
 JWT_SECRET), jadi uninstall biasa menghentikan stack lalu *memindahkan*

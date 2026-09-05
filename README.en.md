@@ -246,6 +246,17 @@ left alone, so this never becomes a takeover. System directories (`/`, `/etc`,
 `/usr`, `/var`, `/opt`, …) are never handed over, no matter what
 `compose_path` a stack was registered with.
 
+**Saving `.env` applies nothing — and a Restart is not enough.** A container
+reads its environment when it is **created**, not when it is started, so
+`docker compose restart` restarts the same container along with its old copy of
+the values. Only `docker compose up -d` recreates the containers whose
+configuration changed — and only those. The difference bites hardest on
+Supabase: `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` are consumed by the API
+gateway container (`envoy`), so changing them and pressing Restart leaves a
+login box still asking for the OLD password — exactly as if the panel had saved
+nothing. That is why, once `.env` or compose is saved, the panel **offers Up
+right away** instead of leaving the last step to a sentence in a toast.
+
 **Removing it does not delete the database.** All Supabase data lives inside
 the project folder (`volumes/db/data`, `volumes/storage`, and the `.env` that
 holds JWT_SECRET), so a plain uninstall stops the stack and *moves* the folder
