@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react"
+import { Fragment, useEffect, useState, useRef, useCallback } from "react"
 import { pesanError } from "@/lib/pesan-error"
 import { useSearchParams } from "react-router-dom"
 import { apiGet, apiSend } from "@/lib/api"
@@ -53,8 +53,9 @@ type FileEntry = {
 type FileRoot = {
   name: string
   path: string
-  // Pintasan pool mergerfs; dikelompokkan di belakang label "Disk pool :".
-  pool?: boolean
+  // Pintasan yang bukan folder home dikelompokkan di belakang satu label
+  // ("Disk pool :", "NFS :"); kosong = pintasan biasa.
+  grup?: string
 }
 
 type PrinterRingkas = { name: string; state: string; default: boolean; enabled: boolean }
@@ -141,6 +142,13 @@ function memuat(path: string, root: string): boolean {
   if (path === root) return true
   return path.startsWith(root === "/" ? "/" : root + "/")
 }
+
+// Grup pintasan di baris atas file manager, berurut. Menambah grup baru cukup
+// satu baris di sini — tombolnya dirender dengan cara yang sama.
+const GRUP_ROOT: [string, string][] = [
+  ["pool", "Disk pool :"],
+  ["nfs", "NFS :"],
+]
 
 export function rootAktif(path: string, roots: FileRoot[]): string {
   let terpilih = ""
@@ -714,6 +722,16 @@ export function FileManagerView() {
   }
 
   const aktif = rootAktif(currentPath, roots)
+  const pintasan = (r: FileRoot) => (
+    <Badge
+      key={r.path}
+      tone={r.path === aktif ? "signal" : "muted"}
+      className="cursor-pointer"
+      onClick={() => loadDir(r.path)}
+    >
+      {r.name}
+    </Badge>
+  )
 
   const upDir = () => {
     const parts = currentPath.split("/").filter(Boolean)
@@ -826,34 +844,14 @@ export function FileManagerView() {
           <Button variant="ghost" size="sm" onClick={upDir} disabled={currentPath === "/" || loading}>
             <ArrowLeft className="size-3.5 sm:mr-1" /> <span className="sr-only sm:not-sr-only">{tr("Naik")}</span>
           </Button>
-          {roots
-            .filter((r) => !r.pool)
-            .map((r) => (
-              <Badge
-                key={r.path}
-                tone={r.path === aktif ? "signal" : "muted"}
-                className="cursor-pointer"
-                onClick={() => loadDir(r.path)}
-              >
-                {r.name}
-              </Badge>
-            ))}
-          {roots.some((r) => r.pool) && (
-            <>
-              <span className="ml-1 text-xs text-muted-foreground">{tr("Disk pool :")}</span>
-              {roots
-                .filter((r) => r.pool)
-                .map((r) => (
-                  <Badge
-                    key={r.path}
-                    tone={r.path === aktif ? "signal" : "muted"}
-                    className="cursor-pointer"
-                    onClick={() => loadDir(r.path)}
-                  >
-                    {r.name}
-                  </Badge>
-                ))}
-            </>
+          {roots.filter((r) => !r.grup).map(pintasan)}
+          {GRUP_ROOT.map(([grup, label]) =>
+            roots.some((r) => r.grup === grup) ? (
+              <Fragment key={grup}>
+                <span className="ml-1 text-xs text-muted-foreground">{tr(label)}</span>
+                {roots.filter((r) => r.grup === grup).map(pintasan)}
+              </Fragment>
+            ) : null,
           )}
         </div>
 
