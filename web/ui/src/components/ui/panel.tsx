@@ -5,7 +5,9 @@ import type { AlertLevel } from "@/lib/types"
 
 interface PanelProps {
   title?: string
-  hint?: string
+  // ReactNode, bukan string: File Manager menempelkan tombol salin path
+  // tepat di kanan teks path-nya, di dalam baris hint yang sama.
+  hint?: ReactNode
   level?: AlertLevel
   className?: string
   /**
