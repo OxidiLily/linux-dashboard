@@ -63,6 +63,38 @@ mencatat notifikasi yang benar-benar muncul di layar, jadi kegagalan yang tidak
 pernah sampai ke server — validasi di browser, koneksi putus — tetap punya
 jejak, lengkap dengan halaman asalnya dan keluaran mentahnya.
 
+### Pekerjaan panjang tidak batal saat pindah halaman
+
+Berlaku untuk seluruh panel, bukan satu halaman saja:
+
+- **Sesi Terminal dan AI Agent bertahan.** Dulu berpindah menu menutup
+  WebSocket-nya, dan di sisi server penutupan itu membunuh PTY — `apt install`,
+  build, atau sesi agent yang sedang berjalan mati begitu user membuka menu
+  lain. Sekarang sesi (xterm + WebSocket + elemen host-nya) disimpan di luar
+  daur hidup komponen React; halaman hanya menyediakan slot, dan elemennya
+  diparkir ke penampung tersembunyi saat halaman ditinggalkan. Isi layar,
+  riwayat gulir, dan proses yang berjalan tetap utuh saat halamannya dibuka
+  lagi. Kuota tetap dijaga: satu sesi shell dan satu sesi agent — berpindah
+  agent menutup sesi agent sebelumnya. Reload penuh (F5) tetap mengakhiri sesi,
+  karena seluruh JS beserta WebSocket-nya ikut dibuang.
+- **Aksi panjang punya toast yang ikut berpindah halaman.** Setiap aksi yang
+  dikerjakan helper daemon — pasang/copot komponen, driver printer, ufw,
+  fail2ban, Samba, NFS, mergerfs, VPN, salin/pindah/hapus berkas, format disk,
+  WireGuard, user Linux, Docker — memakai satu toast yang berputar sejak tombol
+  ditekan lalu berubah sendiri jadi berhasil atau gagal. `<Toaster />` dipasang
+  di app-shell (di luar rute), jadi toast itu ikut berpindah halaman bersama
+  user. Sebelumnya toast baru muncul di akhir, sehingga aksi yang selesai saat
+  user sudah di halaman lain tampak "tiba-tiba selesai" tanpa konteks.
+- **Selesai = daftar dimuat ulang sendiri.** Tidak ada langkah reload manual:
+  tiap aksi menarik ulang datanya begitu selesai, dan halaman yang dibuka lagi
+  selalu menarik data segar saat mount. Halaman Components bahkan mengangkat
+  kembali aksi yang MASIH berjalan (`/api/components/progress`) sehingga
+  bar-nya muncul lagi, bukan kartu yang keliru berkata "Belum Terpasang".
+
+Aksi yang benar-benar seketika — bookmark, ambang alert, pendaftaran stack di
+SQLite — sengaja tidak ikut: toast berputar untuk pekerjaan 20 milidetik hanya
+menambah kedipan di layar.
+
 Panel dipakai penuh dari **layar HP**: di bawah `lg` sidebar berubah jadi drawer
 dengan scrim (ditutup oleh scrim, Escape, atau pemilihan menu), tabel berubah
 jadi tumpukan kartu di bawah 640px lewat satu kelas CSS + `data-label` per sel —

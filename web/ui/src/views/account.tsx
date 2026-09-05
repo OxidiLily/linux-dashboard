@@ -81,15 +81,21 @@ export function AccountView() {
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await apiSend("/api/settings/account/password", "PUT", {
-        old_password: oldPass,
-        new_password: newPass,
-      })
-      notify.ok(tr("Password berhasil diubah."))
+      await notify.tugas(
+        apiSend("/api/settings/account/password", "PUT", {
+          old_password: oldPass,
+          new_password: newPass,
+        }),
+        {
+          jalan: tr("Mengubah password…"),
+          sukses: tr("Password berhasil diubah."),
+          gagal: (e) => trf("Gagal mengubah password: {0}", pesanError(e)),
+        },
+      )
       setOldPass("")
       setNewPass("")
-    } catch (e: any) {
-      notify.err(trf("Gagal mengubah password: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -103,29 +109,39 @@ export function AccountView() {
     })
     if (!ok) return
     try {
-      await apiSend("/api/settings/account/hostname", "PUT", { hostname })
-      notify.ok(tr("Hostname berhasil diubah."))
+      await notify.tugas(apiSend("/api/settings/account/hostname", "PUT", { hostname }), {
+        jalan: trf("Mengubah hostname jadi {0}…", hostname),
+        sukses: tr("Hostname berhasil diubah."),
+        gagal: (e) => trf("Gagal mengubah hostname: {0}", pesanError(e)),
+      })
       setHostname("")
-    } catch (e: any) {
-      notify.err(trf("Gagal mengubah hostname: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
+    const namaBaru = newUserForm.username
     try {
-      await apiSend("/api/settings/account/users", "POST", {
-        username: newUserForm.username,
-        password: newUserForm.password,
-        shell: newUserForm.shell,
-        groups: newUserForm.sudo ? ["sudo"] : [],
-      })
-      notify.ok(trf("User {0} berhasil dibuat.", newUserForm.username))
+      await notify.tugas(
+        apiSend("/api/settings/account/users", "POST", {
+          username: namaBaru,
+          password: newUserForm.password,
+          shell: newUserForm.shell,
+          groups: newUserForm.sudo ? ["sudo"] : [],
+        }),
+        {
+          jalan: trf("Membuat user {0}…", namaBaru),
+          sukses: trf("User {0} berhasil dibuat.", namaBaru),
+          gagal: (e) => trf("Gagal membuat user: {0}", pesanError(e)),
+        },
+      )
       setShowAddUser(false)
       setNewUserForm({ username: "", password: "", shell: "/bin/bash", sudo: false })
       loadUsers()
-    } catch (e: any) {
-      notify.err(trf("Gagal membuat user: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -146,10 +162,20 @@ export function AccountView() {
       danger: true,
     })
     try {
-      await apiSend(`/api/settings/account/users/${encodeURIComponent(u.username)}?remove_home=${removeHome}`, "DELETE")
+      await notify.tugas(
+        apiSend(
+          `/api/settings/account/users/${encodeURIComponent(u.username)}?remove_home=${removeHome}`,
+          "DELETE",
+        ),
+        {
+          jalan: trf("Menghapus user {0}…", u.username),
+          sukses: trf("User {0} dihapus.", u.username),
+          gagal: (e) => trf("Gagal menghapus user: {0}", pesanError(e)),
+        },
+      )
       loadUsers()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus user: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -162,10 +188,18 @@ export function AccountView() {
     })
     if (!p) return
     try {
-      await apiSend(`/api/settings/account/users/${encodeURIComponent(u.username)}/password`, "PUT", { new_password: p })
-      notify.ok(tr("Password user berhasil direset."))
-    } catch (e: any) {
-      notify.err(trf("Gagal reset password: {0}", pesanError(e)))
+      await notify.tugas(
+        apiSend(`/api/settings/account/users/${encodeURIComponent(u.username)}/password`, "PUT", {
+          new_password: p,
+        }),
+        {
+          jalan: trf("Mereset password {0}…", u.username),
+          sukses: tr("Password user berhasil direset."),
+          gagal: (e) => trf("Gagal reset password: {0}", pesanError(e)),
+        },
+      )
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -193,20 +227,24 @@ export function AccountView() {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
+    const namaEdit = editTarget.username
     try {
-      await apiSend(
-        `/api/settings/account/users/${encodeURIComponent(editTarget.username)}`,
-        "PUT",
-        {
+      await notify.tugas(
+        apiSend(`/api/settings/account/users/${encodeURIComponent(namaEdit)}`, "PUT", {
           shell: editForm.shell,
           groups,
           lock: editForm.locked,
+        }),
+        {
+          jalan: trf("Menyimpan perubahan user {0}…", namaEdit),
+          sukses: trf("User {0} diperbarui.", namaEdit),
+          gagal: (e) => trf("Gagal mengubah user: {0}", pesanError(e)),
         },
       )
       setEditTarget(null)
       loadUsers()
-    } catch (e: any) {
-      notify.err(trf("Gagal mengubah user: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

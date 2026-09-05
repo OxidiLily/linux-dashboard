@@ -551,15 +551,23 @@ export function DockerView() {
     })
     if (!ok) return
     setMenyimpan(true)
+    // Validasinya menjalankan `docker compose config` di server, bukan sekadar
+    // menulis berkas — beberapa detik untuk compose yang besar.
     try {
-      await apiSend(`/api/docker/stacks/${composeModal.id}/compose`, "PUT", {
-        content: composeModal.content,
-      })
-      notify.ok(tr("docker-compose.yml tersimpan — jalankan Up/Restart agar berlaku."))
+      await notify.tugas(
+        apiSend(`/api/docker/stacks/${composeModal.id}/compose`, "PUT", {
+          content: composeModal.content,
+        }),
+        {
+          jalan: tr("Menyimpan docker-compose.yml…"),
+          sukses: tr("docker-compose.yml tersimpan — jalankan Up/Restart agar berlaku."),
+          gagal: (e) => trf("Gagal menyimpan compose: {0}", pesanError(e)),
+        },
+      )
       setComposeModal(null)
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menyimpan compose: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setMenyimpan(false)
     }
@@ -605,11 +613,17 @@ export function DockerView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/docker/stacks/${envModal.id}/env`, "PUT", { content: envModal.content })
-      notify.ok(tr("File .env berhasil disimpan."))
+      await notify.tugas(
+        apiSend(`/api/docker/stacks/${envModal.id}/env`, "PUT", { content: envModal.content }),
+        {
+          jalan: tr("Menyimpan file .env…"),
+          sukses: tr("File .env berhasil disimpan."),
+          gagal: (e) => trf("Gagal menyimpan .env: {0}", pesanError(e)),
+        },
+      )
       setEnvModal(null)
-    } catch (e: any) {
-      notify.err(trf("Gagal menyimpan .env: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

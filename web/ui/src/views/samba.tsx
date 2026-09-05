@@ -160,15 +160,21 @@ export function SambaView() {
       danger: effectivePublic,
     })
     if (!ok) return
+    // Setiap perubahan share diikuti smb.conf ditulis ulang lalu smbd dimuat
+    // ulang; toast yang berputar selama itu yang membedakan "sedang jalan"
+    // dari "tombolnya tidak berfungsi".
     try {
-      await apiSend("/api/samba/shares", editing ? "PUT" : "POST", body)
+      await notify.tugas(apiSend("/api/samba/shares", editing ? "PUT" : "POST", body), {
+        jalan: editing ? trf("Menyimpan share {0}…", form.name) : trf("Membuat share {0}…", form.name),
+        sukses: editing ? trf("Share \"{0}\" diperbarui.", form.name) : trf("Share \"{0}\" dibuat.", form.name),
+        gagal: (e) => trf("Gagal menyimpan share: {0}", pesanError(e)),
+      })
       setShowModal(false)
       setEditing(null)
       setForm(FORM_KOSONG)
-      notify.ok(editing ? trf("Share \"{0}\" diperbarui.", form.name) : trf("Share \"{0}\" dibuat.", form.name))
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menyimpan share: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -177,26 +183,48 @@ export function SambaView() {
   const simpanUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!userModal) return
+    const um = userModal
     try {
-      await apiSend(
-        userModal.baru ? "/api/samba/users" : `/api/samba/users/${encodeURIComponent(userModal.username)}`,
-        userModal.baru ? "POST" : "PUT",
-        { username: userModal.username, password: userModal.password },
+      await notify.tugas(
+        apiSend(
+          um.baru ? "/api/samba/users" : `/api/samba/users/${encodeURIComponent(um.username)}`,
+          um.baru ? "POST" : "PUT",
+          { username: um.username, password: um.password },
+        ),
+        {
+          jalan: um.baru
+            ? trf("Menambah user Samba {0}…", um.username)
+            : trf("Menyimpan password Samba {0}…", um.username),
+          sukses: um.baru
+            ? trf("User Samba \"{0}\" ditambahkan.", um.username)
+            : tr("Password Samba diperbarui."),
+          gagal: (e) => trf("Gagal menyimpan user Samba: {0}", pesanError(e)),
+        },
       )
       setUserModal(null)
-      notify.ok(userModal.baru ? trf("User Samba \"{0}\" ditambahkan.", userModal.username) : tr("Password Samba diperbarui."))
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menyimpan user Samba: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
   const toggleUser = async (u: SambaUser) => {
     try {
-      await apiSend(`/api/samba/users/${encodeURIComponent(u.username)}`, "PUT", { disable: u.enabled })
+      await notify.tugas(
+        apiSend(`/api/samba/users/${encodeURIComponent(u.username)}`, "PUT", { disable: u.enabled }),
+        {
+          jalan: u.enabled
+            ? trf("Mematikan user Samba {0}…", u.username)
+            : trf("Mengaktifkan user Samba {0}…", u.username),
+          sukses: u.enabled
+            ? trf("User Samba {0} dimatikan.", u.username)
+            : trf("User Samba {0} diaktifkan.", u.username),
+          gagal: (e) => trf("Gagal mengubah status user: {0}", pesanError(e)),
+        },
+      )
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal mengubah status user: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -209,10 +237,14 @@ export function SambaView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/samba/users/${encodeURIComponent(username)}`, "DELETE")
+      await notify.tugas(apiSend(`/api/samba/users/${encodeURIComponent(username)}`, "DELETE"), {
+        jalan: trf("Menghapus user Samba {0}…", username),
+        sukses: trf("User Samba {0} dihapus.", username),
+        gagal: (e) => trf("Gagal menghapus user Samba: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus user Samba: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -225,10 +257,14 @@ export function SambaView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/samba/shares/${encodeURIComponent(name)}`, "DELETE")
+      await notify.tugas(apiSend(`/api/samba/shares/${encodeURIComponent(name)}`, "DELETE"), {
+        jalan: trf("Menghapus share {0}…", name),
+        sukses: trf("Share {0} dihapus.", name),
+        gagal: (e) => trf("Gagal menghapus share: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus share: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

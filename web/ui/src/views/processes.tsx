@@ -58,10 +58,14 @@ export function ProcessesView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/processes/${pid}/kill`, "POST", { signal: 15 })
+      await notify.tugas(apiSend(`/api/processes/${pid}/kill`, "POST", { signal: 15 }), {
+        jalan: trf("Menghentikan PID {0}…", pid),
+        sukses: trf("PID {0} dihentikan.", pid),
+        gagal: (e) => trf("Gagal menghentikan proses: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghentikan proses: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

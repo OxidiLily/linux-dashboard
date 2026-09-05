@@ -82,17 +82,23 @@ export function WireGuardServer({ versi, onBerubah }: { versi: number; onBerubah
     if (!ok) return
     setSibuk(true)
     try {
-      await apiSend("/api/settings/network/wireguard/server", "POST", {
-        subnet: form.subnet.trim(),
-        port: Number(form.port),
-        endpoint: form.endpoint.trim(),
-      })
-      notify.ok(tr("Server WireGuard siap."))
+      await notify.tugas(
+        apiSend("/api/settings/network/wireguard/server", "POST", {
+          subnet: form.subnet.trim(),
+          port: Number(form.port),
+          endpoint: form.endpoint.trim(),
+        }),
+        {
+          jalan: tr("Menyiapkan server WireGuard…"),
+          sukses: tr("Server WireGuard siap."),
+          gagal: (e) => trf("Gagal menyiapkan server: {0}", pesanError(e)),
+        },
+      )
       setSiapkan(false)
       await muat()
       onBerubah()
-    } catch (e: any) {
-      notify.err(trf("Gagal menyiapkan server: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setSibuk(false)
     }
@@ -108,13 +114,18 @@ export function WireGuardServer({ versi, onBerubah }: { versi: number; onBerubah
     if (!nama) return
     setSibuk(true)
     try {
-      const hasil = await apiSend<PeerBaru>("/api/settings/network/wireguard/peers", "POST", {
-        nama,
-      })
+      const hasil = await notify.tugas(
+        apiSend<PeerBaru>("/api/settings/network/wireguard/peers", "POST", { nama }),
+        {
+          jalan: trf("Menambah klien {0}…", nama),
+          sukses: trf("Klien {0} ditambahkan.", nama),
+          gagal: (e) => trf("Gagal menambah klien: {0}", pesanError(e)),
+        },
+      )
       setBaru(hasil)
       await muat()
-    } catch (e: any) {
-      notify.err(trf("Gagal menambah klien: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setSibuk(false)
     }
@@ -130,15 +141,21 @@ export function WireGuardServer({ versi, onBerubah }: { versi: number; onBerubah
     })
     if (!ok) return
     try {
-      await apiSend("/api/settings/network/wireguard/peers", "DELETE", {
-        nama: p.nama,
-        public_key: p.public_key,
-      })
-      notify.ok(tr("Klien dihapus."))
+      await notify.tugas(
+        apiSend("/api/settings/network/wireguard/peers", "DELETE", {
+          nama: p.nama,
+          public_key: p.public_key,
+        }),
+        {
+          jalan: trf("Menghapus klien {0}…", p.nama || p.ip),
+          sukses: tr("Klien dihapus."),
+          gagal: (e) => trf("Gagal menghapus klien: {0}", pesanError(e)),
+        },
+      )
       await muat()
       onBerubah()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus klien: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

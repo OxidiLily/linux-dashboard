@@ -329,10 +329,14 @@ export function FileManagerView() {
     })
     if (!name) return
     try {
-      await apiSend("/api/files/mkdir", "POST", { path: `${currentPath}/${name}` })
+      await notify.tugas(apiSend("/api/files/mkdir", "POST", { path: `${currentPath}/${name}` }), {
+        jalan: trf("Membuat folder {0}…", name),
+        sukses: trf("Folder {0} dibuat.", name),
+        gagal: (e) => trf("Gagal membuat folder: {0}", pesanError(e)),
+      })
       loadDir(currentPath)
-    } catch (e: any) {
-      notify.err(trf("Gagal membuat folder: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -361,13 +365,20 @@ export function FileManagerView() {
   const simpanEditor = async () => {
     if (!editor) return
     setMenyimpanFile(true)
+    const baru = editor.baru
     try {
-      await apiSend("/api/files/content", "PUT", { path: editor.path, content: editor.content })
-      notify.ok(editor.baru ? tr("File dibuat.") : tr("Perubahan tersimpan."))
+      await notify.tugas(
+        apiSend("/api/files/content", "PUT", { path: editor.path, content: editor.content }),
+        {
+          jalan: tr("Menyimpan file…"),
+          sukses: baru ? tr("File dibuat.") : tr("Perubahan tersimpan."),
+          gagal: (e) => trf("Gagal menyimpan file: {0}", pesanError(e)),
+        },
+      )
       setEditor(null)
       loadDir(currentPath)
-    } catch (e: any) {
-      notify.err(trf("Gagal menyimpan file: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setMenyimpanFile(false)
     }
@@ -384,11 +395,17 @@ export function FileManagerView() {
       danger: true,
     })
     if (!ok) return
+    // Menghapus folder besar berjalan rekursif di server — bisa puluhan detik
+    // untuk pohon berisi ribuan berkas.
     try {
-      await apiSend("/api/files/delete", "POST", { path: entry.path })
+      await notify.tugas(apiSend("/api/files/delete", "POST", { path: entry.path }), {
+        jalan: trf("Menghapus {0}…", entry.name),
+        sukses: trf("{0} dihapus.", entry.name),
+        gagal: (e) => trf("Gagal menghapus: {0}", pesanError(e)),
+      })
       loadDir(currentPath)
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -469,23 +486,29 @@ export function FileManagerView() {
     ev.preventDefault()
     if (!printTarget) return
     setMencetak(true)
+    const namaCetak = printTarget.name
     try {
-      const hasil = await apiSend<{ job_id?: string; printer?: string }>("/api/print/file", "POST", {
-        path: printTarget.path,
-        printer: printForm.printer || undefined,
-        copies: printForm.copies > 1 ? printForm.copies : undefined,
-        media: printForm.media || undefined,
-        sides: printForm.sides || undefined,
-      })
-      notify.ok(
-        hasil?.job_id
-          ? trf("Dikirim ke {0} — antrean {1}", hasil.printer || printForm.printer, hasil.job_id)
-          : trf("{0} dikirim ke printer", printTarget.name),
-        tr("Pantau progresnya di Settings → Print server."),
+      await notify.tugas(
+        apiSend<{ job_id?: string; printer?: string }>("/api/print/file", "POST", {
+          path: printTarget.path,
+          printer: printForm.printer || undefined,
+          copies: printForm.copies > 1 ? printForm.copies : undefined,
+          media: printForm.media || undefined,
+          sides: printForm.sides || undefined,
+        }),
+        {
+          jalan: trf("Mengirim {0} ke printer…", namaCetak),
+          sukses: (hasil) =>
+            hasil?.job_id
+              ? trf("Dikirim ke {0} — antrean {1}", hasil.printer || printForm.printer, hasil.job_id)
+              : trf("{0} dikirim ke printer", namaCetak),
+          detail: () => tr("Pantau progresnya di Settings → Print server."),
+          gagal: (e) => trf("Gagal mencetak: {0}", pesanError(e)),
+        },
       )
       setPrintTarget(null)
-    } catch (e: any) {
-      notify.err(trf("Gagal mencetak: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setMencetak(false)
     }
@@ -501,15 +524,20 @@ export function FileManagerView() {
       danger: permMode === "777",
     })
     if (!ok) return
+    const namaPerm = permTarget.name
     try {
-      await apiSend("/api/files/permissions", "PUT", {
-        path: permTarget.path,
-        mode: permMode,
-      })
+      await notify.tugas(
+        apiSend("/api/files/permissions", "PUT", { path: permTarget.path, mode: permMode }),
+        {
+          jalan: trf("Mengubah permission {0}…", namaPerm),
+          sukses: trf("Permission {0} jadi {1}.", namaPerm, permMode),
+          gagal: (e) => trf("Gagal ubah permission: {0}", pesanError(e)),
+        },
+      )
       setPermTarget(null)
       loadDir(currentPath)
-    } catch (e: any) {
-      notify.err(trf("Gagal ubah permission: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -526,12 +554,20 @@ export function FileManagerView() {
       confirmLabel: tr("Ganti nama"),
     })
     if (!ok) return
+    const namaLama = renameTarget.name
     try {
-      await apiSend("/api/files/rename", "POST", { source: renameTarget.path, dest: newPath })
+      await notify.tugas(
+        apiSend("/api/files/rename", "POST", { source: renameTarget.path, dest: newPath }),
+        {
+          jalan: trf("Mengganti nama {0}…", namaLama),
+          sukses: trf("{0} diganti nama jadi {1}.", namaLama, renameValue),
+          gagal: (e) => trf("Gagal rename: {0}", pesanError(e)),
+        },
+      )
       setRenameTarget(null)
       loadDir(currentPath)
-    } catch (e: any) {
-      notify.err(trf("Gagal rename: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -561,19 +597,43 @@ export function FileManagerView() {
     })
     if (!ok) return
     const url = clipboard.kind === "copy" ? "/api/files/copy" : "/api/files/move"
-    let gagal = 0
-    for (const it of clipboard.items) {
-      try {
-        await apiSend(url, "POST", { source: it.path, dest: `${currentPath}/${it.name}`.replace(/\/+/g, "/") })
-      } catch {
-        gagal++
+    const salin = clipboard.kind === "copy"
+    const jumlah = clipboard.items.length
+    // Seluruh perulangan dibungkus SATU promise supaya toast-nya berputar dari
+    // item pertama sampai item terakhir. Menyalin folder besar berjalan
+    // menit-menitan; tanpa ini layar diam sepanjang itu dan hasilnya baru
+    // muncul di akhir — persis keluhan "tiba-tiba selesai".
+    const kerjakan = async () => {
+      let gagal = 0
+      for (const it of clipboard.items) {
+        try {
+          await apiSend(url, "POST", {
+            source: it.path,
+            dest: `${currentPath}/${it.name}`.replace(/\/+/g, "/"),
+          })
+        } catch {
+          gagal++
+        }
       }
+      // Dilempar, bukan dikembalikan: kegagalan sebagian tidak boleh tampil
+      // sebagai toast hijau. Pesannya sama dengan versi lama.
+      if (gagal) throw new Error(trf("{0} item gagal dipaste.", gagal))
+      return jumlah
     }
-    if (gagal) notify.err(trf("{0} item gagal dipaste.", gagal))
-    // Cut baru dianggap selesai kalau semuanya pindah; sisanya masih di
-    // tempat lama dan tetap butuh clipboard-nya.
-    if (clipboard.kind === "cut" && gagal === 0) setClipboard({ kind: "none" })
-    loadDir(currentPath)
+    try {
+      await notify.tugas(kerjakan(), {
+        jalan: salin ? trf("Menyalin {0} item…", jumlah) : trf("Memindahkan {0} item…", jumlah),
+        sukses: salin ? trf("{0} item disalin.", jumlah) : trf("{0} item dipindahkan.", jumlah),
+        gagal: (e) => pesanError(e),
+      })
+      // Cut baru dianggap selesai kalau semuanya pindah; sisanya masih di
+      // tempat lama dan tetap butuh clipboard-nya.
+      if (!salin) setClipboard({ kind: "none" })
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
+    } finally {
+      loadDir(currentPath)
+    }
   }
 
   const pilihan = entries.filter((e) => selected.has(e.path))
@@ -624,20 +684,33 @@ export function FileManagerView() {
       danger: true,
     })
     if (!ok) return
-    let gagal = 0
+    const jumlah = pilihan.length
     // ponytail: hapus satu per satu lewat endpoint yang sudah ada; endpoint
     // batch baru sepadan kalau seleksi ribuan berkas jadi hal biasa.
-    for (const e of pilihan) {
-      try {
-        await apiSend("/api/files/delete", "POST", { path: e.path })
-      } catch {
-        gagal++
+    const kerjakan = async () => {
+      let gagal = 0
+      for (const e of pilihan) {
+        try {
+          await apiSend("/api/files/delete", "POST", { path: e.path })
+        } catch {
+          gagal++
+        }
       }
+      if (gagal) throw new Error(trf("{0} item gagal dihapus.", gagal))
+      return jumlah
     }
-    if (gagal) notify.err(trf("{0} item gagal dihapus.", gagal))
-    else notify.ok(trf("{0} item dihapus.", pilihan.length))
-    setSelected(new Set())
-    loadDir(currentPath)
+    try {
+      await notify.tugas(kerjakan(), {
+        jalan: trf("Menghapus {0} item…", jumlah),
+        sukses: trf("{0} item dihapus.", jumlah),
+        gagal: (e) => pesanError(e),
+      })
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
+    } finally {
+      setSelected(new Set())
+      loadDir(currentPath)
+    }
   }
 
   const aktif = rootAktif(currentPath, roots)

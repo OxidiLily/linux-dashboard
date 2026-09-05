@@ -129,11 +129,14 @@ export function NetworkView() {
     })
     if (!ok) return
     try {
-      await apiSend("/api/settings/network/dns", "PUT", { nameservers: ns })
-      notify.ok(tr("DNS nameserver berhasil diperbarui."))
+      await notify.tugas(apiSend("/api/settings/network/dns", "PUT", { nameservers: ns }), {
+        jalan: tr("Menyimpan DNS nameserver…"),
+        sukses: tr("DNS nameserver berhasil diperbarui."),
+        gagal: (e) => trf("Gagal memperbarui DNS: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal memperbarui DNS: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -158,11 +161,17 @@ export function NetworkView() {
     })
     if (!ok) return
     try {
-      await apiSend("/api/settings/network/vpn/wireguard", "PUT", { name: "wireguard", action: "remove" })
-      notify.ok(tr("Config WireGuard dihapus."))
+      await notify.tugas(
+        apiSend("/api/settings/network/vpn/wireguard", "PUT", { name: "wireguard", action: "remove" }),
+        {
+          jalan: tr("Menghapus config WireGuard…"),
+          sukses: tr("Config WireGuard dihapus."),
+          gagal: (e) => trf("Gagal menghapus config: {0}", pesanError(e)),
+        },
+      )
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus config: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -180,26 +189,36 @@ export function NetworkView() {
       danger: action === "down",
     })
     if (!ok) return
+    // `tailscale up` menunggu sampai 30 detik (batas yang dipasang helper).
+    // Selama itu pola lama tidak menampilkan apa pun, jadi satu-satunya tanda
+    // bahwa panel sedang bekerja baru muncul di akhir — dan hilang sama sekali
+    // kalau user pindah halaman lebih dulu.
+    //
+    // Kalimat "menunggu persetujuan admin" dibawa oleh sukses, bukan toast
+    // warn terpisah: aksinya memang berhasil (node terdaftar), yang belum
+    // selesai ada di pihak lain. Sinyal "butuh perhatian" tetap dipegang badge
+    // amber di kartunya, yang tidak ikut hilang bersama toast.
     try {
-      const st = await apiSend<VPNStatus>(
-        `/api/settings/network/vpn/${name}`,
-        "PUT",
-        buildVPNBody(name, action),
+      await notify.tugas(
+        apiSend<VPNStatus>(`/api/settings/network/vpn/${name}`, "PUT", buildVPNBody(name, action)),
+        {
+          jalan:
+            action === "up"
+              ? trf("Menghubungkan {0}…", vpnLabel(name))
+              : trf("Memutus {0}…", vpnLabel(name)),
+          sukses: (hasil) =>
+            hasil?.needs_approval
+              ? trf("{0}: menunggu persetujuan admin tailnet.", vpnLabel(name))
+              : action === "up"
+                ? trf("{0} tersambung.", vpnLabel(name))
+                : trf("{0} diputus.", vpnLabel(name)),
+          detail: (hasil) =>
+            hasil?.needs_approval
+              ? tr("Node sudah terdaftar. Buka https://login.tailscale.com/admin/machines lalu setujui mesin ini — tidak ada yang perlu diubah di server.")
+              : undefined,
+          gagal: (e) => trf("Gagal mengatur VPN {0}: {1}", name, pesanError(e)),
+        },
       )
-      // Sampai sini aksi VPN berhasil tanpa satu pun pesan ke user: kartu
-      // memang berubah sendiri, tapi perubahan itu terjadi di luar pandangan
-      // dan Tailscale yang menunggu persetujuan admin tidak berubah sama
-      // sekali — persis bentuk yang terbaca sebagai panel rusak.
-      if (st?.needs_approval) {
-        notify.warn(
-          trf("{0}: menunggu persetujuan admin tailnet.", vpnLabel(name)),
-          tr("Node sudah terdaftar. Buka https://login.tailscale.com/admin/machines lalu setujui mesin ini — tidak ada yang perlu diubah di server."),
-        )
-      } else if (action === "up") {
-        notify.ok(trf("{0} tersambung.", vpnLabel(name)))
-      } else {
-        notify.ok(trf("{0} diputus.", vpnLabel(name)))
-      }
       setVpnModal(null)
       setVpnForm({ authKey: "", hostname: "", token: "", config: "" })
       // Token yang barusan diketik sudah tersimpan di sistem; tampilkan lagi
@@ -207,8 +226,8 @@ export function NetworkView() {
       if (name === "cloudflared") setCfDiketik(false)
       if (name === "tailscale") setTsDiketik(false)
       load(name === "cloudflared" || name === "tailscale")
-    } catch (e: any) {
-      notify.err(trf("Gagal mengatur VPN {0}: {1}", name, pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

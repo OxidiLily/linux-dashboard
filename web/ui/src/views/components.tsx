@@ -160,12 +160,19 @@ export function ComponentsView() {
     })
     if (!ok) return
     setAksi({ name, jenis: "install", mulai: Date.now() })
+    // notify.tugas, bukan await-lalu-notify: pemasangan berjalan menit-menitan
+    // di helper daemon. Bar di kartu hanya terlihat selama halaman ini dibuka;
+    // toast-nya dipasang di app-shell, jadi ia ikut berpindah halaman bersama
+    // user dan berubah sendiri jadi berhasil/gagal di mana pun ia berada.
     try {
-      await apiSend(`/api/components/${name}/install`, "POST")
-      notify.ok(trf("Komponen {0} berhasil dipasang.", name))
+      await notify.tugas(apiSend(`/api/components/${name}/install`, "POST"), {
+        jalan: trf("Memasang komponen {0}…", name),
+        sukses: trf("Komponen {0} berhasil dipasang.", name),
+        gagal: (e) => trf("Gagal memasang {0}: {1}", name, pesanError(e)),
+      })
       load(true)
-    } catch (e: any) {
-      notify.err(trf("Gagal memasang {0}: {1}", name, pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setAksi(null)
     }
@@ -197,11 +204,17 @@ export function ComponentsView() {
     if (!ok) return
     setAksi({ name, jenis: "uninstall", mulai: Date.now() })
     try {
-      await apiSend(`/api/components/${name}/uninstall${hapusData ? "?purge=1" : ""}`, "POST")
-      notify.ok(trf("Komponen {0} berhasil dihapus.", name))
+      await notify.tugas(
+        apiSend(`/api/components/${name}/uninstall${hapusData ? "?purge=1" : ""}`, "POST"),
+        {
+          jalan: trf("Menghapus komponen {0}…", name),
+          sukses: trf("Komponen {0} berhasil dihapus.", name),
+          gagal: (e) => trf("Gagal menghapus {0}: {1}", name, pesanError(e)),
+        },
+      )
       load(true)
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus {0}: {1}", name, pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setAksi(null)
     }
@@ -223,11 +236,18 @@ export function ComponentsView() {
     // start/stop service jauh lebih cepat dari apt, tapi tetap dikunci lewat
     // state yang sama supaya tidak ada dua aksi berjalan bersamaan.
     setAksi({ name, jenis: "uninstall", mulai: Date.now() })
+    // Sebelumnya aksi ini TIDAK punya pesan berhasil sama sekali — hanya kartu
+    // yang berubah sendiri, yang tidak terlihat kalau user sedang menggulir
+    // atau sudah pindah halaman.
     try {
-      await apiSend(`/api/components/${name}/${action}`, "POST")
+      await notify.tugas(apiSend(`/api/components/${name}/${action}`, "POST"), {
+        jalan: trf("Service {0}: {1}…", name, action),
+        sukses: trf("Service {0}: {1} berhasil.", name, action),
+        gagal: (e) => trf("Gagal menjalankan aksi {0}: {1}", action, pesanError(e)),
+      })
       load(true)
-    } catch (e: any) {
-      notify.err(trf("Gagal menjalankan aksi {0}: {1}", action, pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setAksi(null)
     }
