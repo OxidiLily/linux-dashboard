@@ -49,12 +49,16 @@ export function TerminalView() {
     })
     if (!sandi) return
     try {
-      const res = await apiSend<{ closed: number }>("/api/terminal/sessions/reset", "POST", {
-        password: sandi,
-      })
-      notify.ok(trf("{0} sesi terminal ditutup.", String(res.closed)))
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus sesi: {0}", pesanError(e)))
+      await notify.tugas(
+        apiSend<{ closed: number }>("/api/terminal/sessions/reset", "POST", { password: sandi }),
+        {
+          jalan: tr("Menutup sesi terminal…"),
+          sukses: (res) => trf("{0} sesi terminal ditutup.", String(res.closed)),
+          gagal: (e) => trf("Gagal menghapus sesi: {0}", pesanError(e)),
+        },
+      )
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
     muatKapasitas()
   }

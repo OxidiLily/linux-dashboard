@@ -81,18 +81,26 @@ export function Fail2banView() {
       confirmLabel: tr("Simpan"),
     })
     if (!ok) return
+    // Menyimpan jail selalu diikuti fail2ban dimuat ulang — beberapa detik di
+    // mesin kecil, dan sepanjang itu layar lama tidak berubah sama sekali.
     try {
-      await apiSend(
-        editing ? `/api/security/fail2ban/${encodeURIComponent(editing)}` : "/api/security/fail2ban",
-        editing ? "PUT" : "POST",
-        { ...form, maxretry: Number(form.maxretry) },
+      await notify.tugas(
+        apiSend(
+          editing ? `/api/security/fail2ban/${encodeURIComponent(editing)}` : "/api/security/fail2ban",
+          editing ? "PUT" : "POST",
+          { ...form, maxretry: Number(form.maxretry) },
+        ),
+        {
+          jalan: editing ? trf("Menyimpan jail {0}…", form.name) : trf("Membuat jail {0}…", form.name),
+          sukses: editing ? tr("Jail diperbarui.") : trf("Jail {0} dibuat.", form.name),
+          gagal: (e) => trf("Gagal menyimpan jail: {0}", pesanError(e)),
+        },
       )
-      notify.ok(editing ? tr("Jail diperbarui.") : trf("Jail {0} dibuat.", form.name))
       setModal(false)
       setEditing(null)
       load()
-    } catch (err: any) {
-      notify.err(trf("Gagal menyimpan jail: {0}", pesanError(err)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -110,18 +118,24 @@ export function Fail2banView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/security/fail2ban/${encodeURIComponent(j.name)}`, "PUT", {
-        name: j.name,
-        enabled: aktif,
-        maxretry: j.maxretry || 5,
-        bantime: j.bantime || "1h",
-        findtime: j.findtime || "10m",
-        port: j.port || "",
-      })
-      notify.ok(aktif ? trf("Jail {0} diaktifkan.", j.name) : trf("Jail {0} dimatikan.", j.name))
+      await notify.tugas(
+        apiSend(`/api/security/fail2ban/${encodeURIComponent(j.name)}`, "PUT", {
+          name: j.name,
+          enabled: aktif,
+          maxretry: j.maxretry || 5,
+          bantime: j.bantime || "1h",
+          findtime: j.findtime || "10m",
+          port: j.port || "",
+        }),
+        {
+          jalan: aktif ? trf("Mengaktifkan jail {0}…", j.name) : trf("Mematikan jail {0}…", j.name),
+          sukses: aktif ? trf("Jail {0} diaktifkan.", j.name) : trf("Jail {0} dimatikan.", j.name),
+          gagal: (e) => trf("Gagal mengubah status jail: {0}", pesanError(e)),
+        },
+      )
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal mengubah status jail: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -135,10 +149,14 @@ export function Fail2banView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/security/fail2ban/${encodeURIComponent(j.name)}`, "DELETE")
+      await notify.tugas(apiSend(`/api/security/fail2ban/${encodeURIComponent(j.name)}`, "DELETE"), {
+        jalan: trf("Menghapus jail {0}…", j.name),
+        sukses: trf("Jail {0} dihapus.", j.name),
+        gagal: (e) => trf("Gagal menghapus jail: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus jail: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -150,14 +168,20 @@ export function Fail2banView() {
     })
     if (!ok) return
     try {
-      await apiSend(
-        `/api/security/fail2ban/${encodeURIComponent(jail)}/unban?ip=${encodeURIComponent(ip)}`,
-        "POST",
+      await notify.tugas(
+        apiSend(
+          `/api/security/fail2ban/${encodeURIComponent(jail)}/unban?ip=${encodeURIComponent(ip)}`,
+          "POST",
+        ),
+        {
+          jalan: trf("Melepas blokir {0}…", ip),
+          sukses: trf("{0} dilepas dari {1}.", ip, jail),
+          gagal: (e) => trf("Gagal melepas blokir: {0}", pesanError(e)),
+        },
       )
-      notify.ok(trf("{0} dilepas dari {1}.", ip, jail))
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal melepas blokir: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

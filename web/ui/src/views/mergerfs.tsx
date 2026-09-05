@@ -83,18 +83,28 @@ export function MergerfsView() {
       confirmLabel: tr("Simpan"),
     })
     if (!ok) return
+    // Menyimpan pool berarti /etc/fstab ditulis lalu mount dijalankan —
+    // pekerjaan kernel, bukan tulis berkas biasa.
     try {
-      await apiSend("/api/storage/mergerfs", editing ? "PUT" : "POST", {
-        mountpoint: form.mountpoint.trim(),
-        branches,
-        options: form.options.trim(),
-      })
-      notify.ok(editing ? tr("Pool diperbarui.") : trf("Pool {0} dibuat.", form.mountpoint))
+      await notify.tugas(
+        apiSend("/api/storage/mergerfs", editing ? "PUT" : "POST", {
+          mountpoint: form.mountpoint.trim(),
+          branches,
+          options: form.options.trim(),
+        }),
+        {
+          jalan: editing
+            ? trf("Menyimpan pool {0}…", form.mountpoint)
+            : trf("Membuat pool {0}…", form.mountpoint),
+          sukses: editing ? tr("Pool diperbarui.") : trf("Pool {0} dibuat.", form.mountpoint),
+          gagal: (e) => trf("Gagal menyimpan pool: {0}", pesanError(e)),
+        },
+      )
       setModal(false)
       setEditing(null)
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menyimpan pool: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -113,15 +123,24 @@ export function MergerfsView() {
       if (!ok) return
     }
     try {
-      await apiSend("/api/storage/mergerfs/mount", "POST", { mountpoint: p.mountpoint, lepas })
-      notify.ok(lepas ? trf("Pool {0} dilepas.", p.mountpoint) : trf("Pool {0} dipasang.", p.mountpoint))
-      load()
-    } catch (e: any) {
-      notify.err(
-        lepas
-          ? trf("Gagal melepas pool: {0}", pesanError(e))
-          : trf("Gagal memasang pool: {0}", pesanError(e)),
+      await notify.tugas(
+        apiSend("/api/storage/mergerfs/mount", "POST", { mountpoint: p.mountpoint, lepas }),
+        {
+          jalan: lepas
+            ? trf("Melepas pool {0}…", p.mountpoint)
+            : trf("Memasang pool {0}…", p.mountpoint),
+          sukses: lepas
+            ? trf("Pool {0} dilepas.", p.mountpoint)
+            : trf("Pool {0} dipasang.", p.mountpoint),
+          gagal: (e) =>
+            lepas
+              ? trf("Gagal melepas pool: {0}", pesanError(e))
+              : trf("Gagal memasang pool: {0}", pesanError(e)),
+        },
       )
+      load()
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -135,10 +154,17 @@ export function MergerfsView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/storage/mergerfs?mountpoint=${encodeURIComponent(p.mountpoint)}`, "DELETE")
+      await notify.tugas(
+        apiSend(`/api/storage/mergerfs?mountpoint=${encodeURIComponent(p.mountpoint)}`, "DELETE"),
+        {
+          jalan: trf("Menghapus pool {0}…", p.mountpoint),
+          sukses: trf("Pool {0} dihapus.", p.mountpoint),
+          gagal: (e) => trf("Gagal menghapus pool: {0}", pesanError(e)),
+        },
+      )
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus pool: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

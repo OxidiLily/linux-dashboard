@@ -66,6 +66,39 @@ notifications that actually appeared on screen, so failures that never reached
 the server — browser-side validation, a dropped connection — still leave a
 trace, together with the page they came from and their raw output.
 
+### Long-running work survives page changes
+
+This applies panel-wide, not to one page:
+
+- **Terminal and AI Agent sessions survive.** Switching menus used to close the
+  WebSocket, and on the server that closure killed the PTY — a running
+  `apt install`, a build, or an agent session died the moment the user opened
+  another menu. The session (xterm + WebSocket + its host element) now lives
+  outside any React component's lifetime; the page only provides a slot, and
+  the element is parked in a hidden holder while the page is away. Screen
+  contents, scrollback, and the running process are intact when the page comes
+  back. The quota is still respected: one shell session and one agent session —
+  switching agents closes the previous agent session. A full reload (F5) still
+  ends the session, because it throws away all the JS along with the WebSocket.
+- **Long actions carry a toast that follows you.** Every action executed by the
+  helper daemon — install/remove components, printer drivers, ufw, fail2ban,
+  Samba, NFS, mergerfs, VPN, file copy/move/delete, disk formatting, WireGuard,
+  Linux users, Docker — uses one toast that spins from the moment the button is
+  pressed and turns into success or failure by itself. `<Toaster />` is mounted
+  in the app shell (outside the routes), so that toast travels with the user.
+  Previously the toast only appeared at the end, so an action that finished
+  while the user was on another page looked like it "suddenly finished" with no
+  context.
+- **Finished means the list reloads itself.** No manual reload step: each
+  action refetches its own data as soon as it completes, and a page opened
+  again always fetches fresh data on mount. The Components page even re-adopts
+  an action that is STILL running (`/api/components/progress`) so its bar comes
+  back, instead of a card wrongly claiming "Not Installed".
+
+Genuinely instant actions — bookmarks, alert thresholds, registering a stack in
+SQLite — are deliberately left out: a spinner for 20 milliseconds of work only
+adds a flicker.
+
 The panel is fully usable on a **phone screen**: below `lg` the sidebar becomes a
 drawer with a scrim (dismissed by the scrim, Escape, or picking a menu item), and
 below 640px tables turn into stacks of cards through a single CSS class plus a

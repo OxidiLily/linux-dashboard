@@ -29,15 +29,35 @@ export function DiskPrepareModal({ disk, onClose }: { disk: UnusedDisk; onClose:
   const kirim = async (format: boolean, timpa: boolean) => {
     setGalat("")
     setJalan(true)
+    // mkfs pada disk besar berjalan menit-menitan. Toast-nya dipasang di
+    // app-shell, jadi ia bertahan meski modal ini ditutup atau user pindah
+    // halaman — dan berubah sendiri jadi berhasil/gagal di sana.
+    //
+    // disk_has_filesystem bukan kegagalan biasa: itu penolakan pengaman yang
+    // dijawab modal ini dengan tawaran menimpa. Kalimatnya karena itu menunjuk
+    // ke jendela penyiapan, bukan mengulang pesan yang sudah tampil di sana —
+    // berguna justru buat user yang sudah pindah halaman dan tidak lagi
+    // melihat modalnya.
     try {
-      await apiSend("/api/storage/disks/prepare", "POST", {
-        path: disk.path,
-        mountpoint: mountpoint.trim(),
-        fstype,
-        format,
-        timpa,
-      })
-      notify.ok(trf("{0} siap dipakai di {1}.", disk.path, mountpoint.trim()))
+      await notify.tugas(
+        apiSend("/api/storage/disks/prepare", "POST", {
+          path: disk.path,
+          mountpoint: mountpoint.trim(),
+          fstype,
+          format,
+          timpa,
+        }),
+        {
+          jalan: format
+            ? trf("Memformat {0} lalu memasangnya di {1}…", disk.path, mountpoint.trim())
+            : trf("Memasang {0} di {1}…", disk.path, mountpoint.trim()),
+          sukses: trf("{0} siap dipakai di {1}.", disk.path, mountpoint.trim()),
+          gagal: (e) =>
+            e instanceof ApiError && e.code === "disk_has_filesystem"
+              ? trf("{0} sudah berisi filesystem — pilih Timpa di jendela penyiapan.", disk.path)
+              : trf("Gagal menyiapkan {0}: {1}", disk.path, pesanError(e)),
+        },
+      )
       onClose(true)
     } catch (e) {
       if (e instanceof ApiError && e.code === "disk_has_filesystem") {

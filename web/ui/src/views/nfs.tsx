@@ -93,14 +93,22 @@ export function NFSView() {
       danger: terbuka,
     })
     if (!ok) return
+    // /etc/exports ditulis lalu `exportfs -ra` dijalankan; di mesin dengan
+    // banyak export itu beberapa detik tanpa satu pun perubahan di layar.
     try {
-      await apiSend("/api/storage/nfs", editing ? "PUT" : "POST", { path: form.path.trim(), clients })
-      notify.ok(editing ? tr("Export diperbarui.") : trf("Export {0} dibuat.", form.path))
+      await notify.tugas(
+        apiSend("/api/storage/nfs", editing ? "PUT" : "POST", { path: form.path.trim(), clients }),
+        {
+          jalan: editing ? trf("Menyimpan export {0}…", form.path) : trf("Membuat export {0}…", form.path),
+          sukses: editing ? tr("Export diperbarui.") : trf("Export {0} dibuat.", form.path),
+          gagal: (e) => trf("Gagal menyimpan export: {0}", pesanError(e)),
+        },
+      )
       setModal(false)
       setEditing(null)
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menyimpan export: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -113,10 +121,14 @@ export function NFSView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/storage/nfs?path=${encodeURIComponent(e.path)}`, "DELETE")
+      await notify.tugas(apiSend(`/api/storage/nfs?path=${encodeURIComponent(e.path)}`, "DELETE"), {
+        jalan: trf("Menghapus export {0}…", e.path),
+        sukses: trf("Export {0} dihapus.", e.path),
+        gagal: (err) => trf("Gagal menghapus export: {0}", pesanError(err)),
+      })
       load()
-    } catch (err: any) {
-      notify.err(trf("Gagal menghapus export: {0}", pesanError(err)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

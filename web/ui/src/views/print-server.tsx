@@ -139,12 +139,16 @@ export function PrintServerView() {
     setSibuk(d.uri)
     try {
       // apt bisa berjalan puluhan detik; tombolnya dikunci selama itu supaya
-      // tidak ada dua pemasangan berjalan bersamaan.
-      await apiSend("/api/print/drivers", "POST", { vendor })
-      notify.ok(trf("Driver {0} terpasang", vendor))
+      // tidak ada dua pemasangan berjalan bersamaan, dan toast-nya berputar
+      // selama itu supaya user yang pindah halaman tetap melihat hasilnya.
+      await notify.tugas(apiSend("/api/print/drivers", "POST", { vendor }), {
+        jalan: trf("Memasang driver {0}…", vendor),
+        sukses: trf("Driver {0} terpasang", vendor),
+        gagal: (e) => trf("Gagal memasang driver: {0}", pesanError(e)),
+      })
       await jalankanDeteksi()
-    } catch (e: any) {
-      notify.err(trf("Gagal memasang driver: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setSibuk("")
     }
@@ -161,18 +165,24 @@ export function PrintServerView() {
   const tambahDariDeteksi = async (d: Deteksi) => {
     setSibuk(d.uri)
     try {
-      await apiSend("/api/print/printers", "POST", {
-        name: namaDariProduk(d),
-        uri: d.uri,
-        model: d.model,
-        description: d.info || d.produk || "",
-        location: "",
-        shared: true,
-      })
-      notify.ok(trf("Printer {0} ditambahkan", namaDariProduk(d)))
+      await notify.tugas(
+        apiSend("/api/print/printers", "POST", {
+          name: namaDariProduk(d),
+          uri: d.uri,
+          model: d.model,
+          description: d.info || d.produk || "",
+          location: "",
+          shared: true,
+        }),
+        {
+          jalan: trf("Menambah printer {0}…", namaDariProduk(d)),
+          sukses: trf("Printer {0} ditambahkan", namaDariProduk(d)),
+          gagal: (e) => trf("Gagal menambah printer: {0}", pesanError(e)),
+        },
+      )
       await Promise.all([load(), jalankanDeteksi()])
-    } catch (e: any) {
-      notify.err(trf("Gagal menambah printer: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     } finally {
       setSibuk("")
     }
@@ -181,12 +191,15 @@ export function PrintServerView() {
   const simpan = async (ev: React.FormEvent) => {
     ev.preventDefault()
     try {
-      await apiSend("/api/print/printers", "POST", form)
-      notify.ok(trf("Printer {0} ditambahkan", form.name))
+      await notify.tugas(apiSend("/api/print/printers", "POST", form), {
+        jalan: trf("Menambah printer {0}…", form.name),
+        sukses: trf("Printer {0} ditambahkan", form.name),
+        gagal: (e) => trf("Gagal menambah printer: {0}", pesanError(e)),
+      })
       setModal(false)
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menambah printer: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -199,39 +212,56 @@ export function PrintServerView() {
     })
     if (!ok) return
     try {
-      await apiSend(`/api/print/printers/${encodeURIComponent(p.name)}`, "DELETE")
-      notify.ok(trf("Printer {0} dihapus", p.name))
+      await notify.tugas(apiSend(`/api/print/printers/${encodeURIComponent(p.name)}`, "DELETE"), {
+        jalan: trf("Menghapus printer {0}…", p.name),
+        sukses: trf("Printer {0} dihapus", p.name),
+        gagal: (e) => trf("Gagal menghapus printer: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus printer: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
   const jadikanDefault = async (p: Printer) => {
     try {
-      await apiSend(`/api/print/printers/${encodeURIComponent(p.name)}/default`, "POST")
+      await notify.tugas(apiSend(`/api/print/printers/${encodeURIComponent(p.name)}/default`, "POST"), {
+        jalan: trf("Menjadikan {0} printer default…", p.name),
+        sukses: trf("{0} jadi printer default", p.name),
+        gagal: (e) => trf("Gagal set default: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal set default: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
   const ubahAktif = async (p: Printer) => {
     try {
-      await apiSend(`/api/print/printers/${encodeURIComponent(p.name)}/enable`, "POST", { enable: !p.enabled })
+      await notify.tugas(
+        apiSend(`/api/print/printers/${encodeURIComponent(p.name)}/enable`, "POST", { enable: !p.enabled }),
+        {
+          jalan: p.enabled ? trf("Mematikan antrean {0}…", p.name) : trf("Menyalakan antrean {0}…", p.name),
+          sukses: p.enabled ? trf("Antrean {0} dimatikan", p.name) : trf("Antrean {0} dinyalakan", p.name),
+          gagal: (e) => trf("Gagal mengubah status antrean: {0}", pesanError(e)),
+        },
+      )
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal mengubah status antrean: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
   const batalkan = async (j: PrintJob) => {
     try {
-      await apiSend(`/api/print/jobs/${encodeURIComponent(j.id)}`, "DELETE")
-      notify.ok(trf("Cetakan {0} dibatalkan", j.id))
+      await notify.tugas(apiSend(`/api/print/jobs/${encodeURIComponent(j.id)}`, "DELETE"), {
+        jalan: trf("Membatalkan cetakan {0}…", j.id),
+        sukses: trf("Cetakan {0} dibatalkan", j.id),
+        gagal: (e) => trf("Gagal membatalkan cetakan: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal membatalkan cetakan: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 

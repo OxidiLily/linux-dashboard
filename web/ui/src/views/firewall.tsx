@@ -96,22 +96,27 @@ export function FirewallView() {
       // kosong = Anywhere; ufw butuh literal "any" untuk itu.
       from: form.from.trim() || "any",
     }
+    // Menyimpan rule berarti ufw menulis ulang aturannya dan memuat ulang
+    // filter di kernel — bukan tulis berkas biasa. Rule baru juga tidak pernah
+    // punya pesan berhasil sebelum ini: yang mengonfirmasi hanya baris yang
+    // muncul di tabel, dan itu tidak terlihat kalau daftarnya panjang.
+    const spec = editing?.num ? "" : editing?.raw
+    const url = editing
+      ? editing.num
+        ? `/api/firewall/rules/${editing.num}`
+        : `/api/firewall/rules/-?spec=${encodeURIComponent(spec!)}`
+      : "/api/firewall/rules"
     try {
-      if (editing) {
-        const spec = editing.num ? "" : editing.raw
-        const url = editing.num
-          ? `/api/firewall/rules/${editing.num}`
-          : `/api/firewall/rules/-?spec=${encodeURIComponent(spec!)}`
-        await apiSend(url, "PUT", body)
-        notify.ok(tr("Rule firewall diperbarui."))
-      } else {
-        await apiSend("/api/firewall/rules", "POST", body)
-      }
+      await notify.tugas(apiSend(url, editing ? "PUT" : "POST", body), {
+        jalan: editing ? tr("Menyimpan rule firewall…") : tr("Menambah rule firewall…"),
+        sukses: editing ? tr("Rule firewall diperbarui.") : tr("Rule firewall ditambahkan."),
+        gagal: (e) => trf("Gagal menyimpan rule: {0}", pesanError(e)),
+      })
       tutupForm()
       setForm({ port: "", proto: "tcp", action: "allow", from: "" })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menyimpan rule: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -129,15 +134,22 @@ export function FirewallView() {
     })
     if (!ok) return
     try {
-      await apiSend(
-        rule.num
-          ? `/api/firewall/rules/${rule.num}`
-          : `/api/firewall/rules/-?spec=${encodeURIComponent(spec!)}`,
-        "DELETE",
+      await notify.tugas(
+        apiSend(
+          rule.num
+            ? `/api/firewall/rules/${rule.num}`
+            : `/api/firewall/rules/-?spec=${encodeURIComponent(spec!)}`,
+          "DELETE",
+        ),
+        {
+          jalan: tr("Menghapus rule firewall…"),
+          sukses: tr("Rule firewall dihapus."),
+          gagal: (e) => trf("Gagal menghapus rule: {0}", pesanError(e)),
+        },
       )
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal menghapus rule: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
@@ -153,10 +165,14 @@ export function FirewallView() {
     })
     if (!ok) return
     try {
-      await apiSend("/api/firewall/toggle", "POST", { enable: next })
+      await notify.tugas(apiSend("/api/firewall/toggle", "POST", { enable: next }), {
+        jalan: next ? tr("Menyalakan ufw…") : tr("Mematikan ufw…"),
+        sukses: next ? tr("ufw dinyalakan.") : tr("ufw dimatikan."),
+        gagal: (e) => trf("Gagal mengubah status ufw: {0}", pesanError(e)),
+      })
       load()
-    } catch (e: any) {
-      notify.err(trf("Gagal mengubah status ufw: {0}", pesanError(e)))
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
   }
 
