@@ -95,6 +95,21 @@ type DockerStack = {
   external?: boolean
 }
 
+// Stack yang tidak punya SATU PUN container: Down dan Restart tidak punya apa
+// pun untuk dikerjakan di sana. Keduanya tetap keluar dengan status 0, jadi
+// panel melaporkan "selesai" untuk perintah yang tidak mengubah apa-apa —
+// persis bentuk kegagalan yang membuat tombol terasa rusak.
+//
+// `total` menghitung container yang mati juga (lihat argsStatusStack: `compose
+// ps -a`), jadi stack yang container-nya exited TETAP bisa di-Down — di situ
+// Down membersihkan container mati berikut network-nya — dan di-Restart.
+//
+// Saat status gagal dibaca, angkanya 0 karena TIDAK TAHU, bukan karena kosong.
+// Tombolnya dibiarkan hidup: mematikan satu-satunya jalan membereskan stack
+// justru ketika panel sedang tidak bisa membaca Docker membuat stack itu tidak
+// bisa disentuh sama sekali.
+const stackTanpaContainer = (st: DockerStack) => !st.error && st.total === 0
+
 // Bentuk balasan /api/docker/{images,volumes,networks} — lihat dockerImage,
 // dockerVolume, dan dockerNetwork di internal/api/docker.go.
 type DockerImage = {
@@ -706,10 +721,22 @@ export function DockerView() {
               <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => stackAction(st.id, "up")}>
                 <Play className="mr-1 size-3 text-ok" /> Up
               </Button>
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => stackAction(st.id, "down")}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={stackTanpaContainer(st)}
+                onClick={() => stackAction(st.id, "down")}
+              >
                 <Square className="mr-1 size-3 text-crit" /> Down
               </Button>
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => stackAction(st.id, "restart")}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={stackTanpaContainer(st)}
+                onClick={() => stackAction(st.id, "restart")}
+              >
                 <RotateCw className="mr-1 size-3" /> {tr("Restart")}
               </Button>
               <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => bukaCompose(st.id)}>
