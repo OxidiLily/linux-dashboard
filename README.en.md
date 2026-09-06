@@ -257,6 +257,17 @@ login box still asking for the OLD password — exactly as if the panel had save
 nothing. That is why, once `.env` or compose is saved, the panel **offers Up
 right away** instead of leaving the last step to a sentence in a toast.
 
+**Down and Restart are disabled on a stack with no containers at all.** Both
+still exit 0 there, so the panel reports "done" for a command that did nothing;
+the "0 / 0 running" badge on the same row is the reason. A stack whose
+containers **exist but are stopped** keeps both buttons: Down is still useful
+there (it clears the exited containers and their network) and Restart still
+starts them. The two states are distinguishable because stack status is read
+with `docker compose ps -a`, not plain `ps`. If the status cannot be read at
+all the buttons stay live: a 0 there means "unknown", and disabling the only
+way to clean a stack up precisely when the panel cannot read Docker would leave
+it untouchable.
+
 **Removing it does not delete the database.** All Supabase data lives inside
 the project folder (`volumes/db/data`, `volumes/storage`, and the `.env` that
 holds JWT_SECRET), so a plain uninstall stops the stack and *moves* the folder

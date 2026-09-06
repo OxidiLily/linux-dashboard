@@ -256,6 +256,18 @@ seperti panel tidak menyimpan apa-apa. Karena itu, sesudah `.env` atau compose
 tersimpan panel langsung **menawarkan Up**, bukan menitipkan langkah terakhir
 ke kalimat di toast.
 
+**Down dan Restart mati pada stack yang tidak punya satu pun container.**
+Keduanya tetap keluar dengan status 0 di sana, jadi panel melaporkan "selesai"
+untuk perintah yang tidak mengerjakan apa pun; badge "0 / 0 berjalan" di baris
+yang sama adalah alasannya. Stack yang container-nya **ada tapi mati** tidak
+ikut dimatikan tombolnya — di situ Down masih berguna (ia membersihkan
+container exited berikut network-nya) dan Restart masih menyalakannya. Kedua
+keadaan itu bisa dibedakan karena status stack dibaca dengan `docker compose
+ps -a`, bukan `ps` saja. Kalau statusnya gagal dibaca, tombolnya tetap hidup:
+angka 0 di situ berarti "tidak tahu", dan mematikan satu-satunya jalan
+membereskan stack justru saat panel tidak bisa membaca Docker akan membuatnya
+tidak bisa disentuh sama sekali.
+
 **Mencopotnya tidak menghapus database.** Seluruh data Supabase ada di dalam
 folder proyek (`volumes/db/data`, `volumes/storage`, dan `.env` yang memuat
 JWT_SECRET), jadi uninstall biasa menghentikan stack lalu *memindahkan*

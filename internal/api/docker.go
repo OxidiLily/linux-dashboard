@@ -239,6 +239,19 @@ func argsCompose(st store.Stack, pemegang map[string]string) []string {
 	return []string{"compose", "-p", proyek, "-f", st.ComposePath}
 }
 
+// argsStatusStack menyusun perintah pembaca status sebuah stack.
+//
+// `-a` menentukan arti tombol di halaman Docker, bukan cuma isi angkanya.
+// Tanpa `-a`, `compose ps` hanya menghitung container yang BERJALAN, jadi
+// stack yang seluruh container-nya exited melapor "0 / 0" — tidak bisa
+// dibedakan dari stack yang container-nya memang sudah tidak ada. UI memakai
+// Total untuk mematikan tombol Down dan Restart, dan keduanya justru masih
+// berguna pada stack yang container-nya ada tapi mati: Down membersihkan
+// container exited berikut network-nya, Restart menyalakannya lagi.
+func argsStatusStack(st store.Stack, pemegang map[string]string) []string {
+	return append(argsCompose(st, pemegang), "ps", "-a", "--format", "{{json .}}")
+}
+
 type stackView struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
@@ -346,7 +359,7 @@ func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 	out := make([]stackView, 0, len(stacks))
 	for _, st := range stacks {
 		v := stackView{ID: st.ID, Name: st.Name, ComposePath: st.ComposePath, Description: st.Description}
-		args := append(argsCompose(st, pemegang), "ps", "--format", "{{json .}}")
+		args := argsStatusStack(st, pemegang)
 		res, err := s.dockerRun(sess.Username, filepath.Dir(st.ComposePath), args...)
 		if err != nil {
 			v.Error = err.Error()
