@@ -406,6 +406,11 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	st.PunyaData = c.purge != nil
 	if st.Installed && name == "9router" {
 		st.Note = catatan9Router()
+		// Versi terpasang kosong (prefix npm lain) tidak dibandingkan: tombol
+		// Perbarui yang menyala permanen lebih menyesatkan daripada tidak ada.
+		if terbaru := versiTerbaruNpm("9router"); terbaru != "" && st.Version != "" && terbaru != st.Version {
+			st.VersiBaru = terbaru
+		}
 	}
 	if st.Installed && name == "docker" {
 		st.Note = catatanGrupDocker
@@ -714,6 +719,16 @@ func componentService(name, action string, u *userInfo) error {
 	c, ok := components[name]
 	if !ok {
 		return errInvalid("component %q tidak dikenal", name)
+	}
+	// "update" bukan aksi systemctl: paketnya ditarik ulang dari registry
+	// lalu service-nya dijalankan lagi. Lewat endpoint service yang sama
+	// supaya UI tidak butuh jalur baru — cuma 9router yang punya jalur
+	// pembaruan di panel; agent AI memperbarui dirinya sendiri saat start.
+	if action == "update" {
+		if name != "9router" {
+			return errInvalid("component %s tidak punya pembaruan lewat panel", name)
+		}
+		return update9Router(u)
 	}
 	if c.Service == "" {
 		return errInvalid("component %s tidak punya service", name)
@@ -1444,6 +1459,43 @@ func install9Router(u *userInfo) error {
 	if err := npmInstallGlobal("9router"); err != nil {
 		return err
 	}
+	return pasangUnit9Router(u)
+}
+
+// update9Router = tombol Perbarui di halaman Components. Urutannya persis
+// yang diminta 9router sendiri di dialog "Update 9Router": hentikan, `npm i
+// -g 9router@latest --prefer-online`, jalankan lagi.
+//
+// Unit systemd-nya DIHAPUS sebelum dipasang ulang dari embed — bukan
+// dihormati seperti saat Pasang. Unit yang ditulis installer lain (mis. milik
+// Hermes: ExecStart=/root/.hermes/node/bin/9router, User=root) menunjuk
+// binary yang tidak disentuh npm global, jadi tanpa ini pembaruan selesai
+// tapi yang dijalankan tetap versi lama. Drop-in password & user tidak ikut
+// dihapus: keduanya di direktori terpisah dan tetap berlaku untuk unit baru.
+func update9Router(u *userInfo) error {
+	if err := mulaiProgres("9router", "install"); err != nil {
+		return err
+	}
+	defer selesaiProgres()
+	_, _ = run("systemctl", "stop", "9router.service")
+	if err := npmInstallGlobal("9router@latest", "--prefer-online"); err != nil {
+		// Paket lama masih utuh; jangan tinggalkan 9router mati cuma karena
+		// registry tidak terjangkau.
+		_, _ = run("systemctl", "start", "9router.service")
+		return err
+	}
+	lupakanVersiTerbaru("9router")
+	// Unit lama baru dihapus setelah penggantinya dipastikan ada — kalau
+	// embed kosong, 9router versi baru masih punya unit untuk dijalankan.
+	if sumber, err := bacaUnit9Router(); err == nil && len(sumber) > 0 {
+		_ = os.Remove(unitDst9Router)
+	}
+	return pasangUnit9Router(u)
+}
+
+// pasangUnit9Router memasang unit systemd 9router kalau belum ada (atau
+// rusak), lalu menjalankan service-nya.
+func pasangUnit9Router(u *userInfo) error {
 	// Pasang unit systemd hanya jika belum ada — admin yang sudah menulis
 	// ExecStart/env khusus tidak boleh ditimpa diam-diam tiap install ulang.
 	if lama, err := os.ReadFile(unitDst9Router); err == nil {
@@ -1459,15 +1511,21 @@ func install9Router(u *userInfo) error {
 		}
 		log.Printf("9router: unit lama yang tidak bisa start diganti dengan versi yang benar")
 	}
+	// Kegagalan di sini dilaporkan, tidak ditelan: sejak update9Router
+	// menghapus unit lama lebih dulu, jawaban "berhasil" tanpa unit berarti
+	// service yang tidak akan pernah hidup lagi.
 	sumber, err := bacaUnit9Router()
 	if err != nil || len(sumber) == 0 {
-		return nil
+		return fmt.Errorf("unit systemd 9router tidak tersedia di binary panel")
 	}
 	if err := os.WriteFile(unitDst9Router, sumber, 0o644); err != nil {
-		return nil
+		return fmt.Errorf("tulis %s: %w", unitDst9Router, err)
 	}
-	if _, err := run("systemctl", "daemon-reload"); err != nil {
-		return nil
+	// Tanpa systemd (WSL/LXC) daemon-reload pasti gagal, tapi paket dan unit
+	// sudah terpasang — jangan laporkan pemasangan gagal untuk sesuatu yang
+	// memang tidak bisa dilakukan di mesin itu.
+	if _, err := run("systemctl", "daemon-reload"); err != nil && !hasNoSystemd() {
+		return fmt.Errorf("daemon-reload: %w", err)
 	}
 	// Identitas user dipasang SEBELUM start pertama: kalau 9router sempat
 	// hidup sebagai root, ia membuat ~/.9router milik root di HOME lama dan
@@ -1577,6 +1635,27 @@ func unit9RouterRusak(isi string) bool {
 	// reached". Tidak ada admin yang menulis path itu sendiri.
 	if strings.Contains(isi, "dist/index.js") {
 		return true
+	}
+	// Bentuk ketiga: ExecStart menunjuk binary yang sudah tidak ada — sisa
+	// installer lain (mis. /root/.hermes/node/bin/9router) yang paketnya
+	// sudah dicopot atau dipindah. Tombol Jalankan pada unit seperti ini
+	// hanya menghasilkan "status=203/EXEC"; menulis ulang unitnya membuat
+	// 9router yang terpasang lewat npm global-lah yang dijalankan.
+	for _, b := range arahan {
+		p, ok := strings.CutPrefix(b, "ExecStart=")
+		if !ok {
+			continue
+		}
+		f := strings.Fields(p)
+		if len(f) == 0 {
+			continue
+		}
+		bin := strings.TrimLeft(f[0], "-@:+!")
+		if strings.HasPrefix(bin, "/") {
+			if _, err := os.Stat(bin); err != nil {
+				return true
+			}
+		}
 	}
 	if !strings.Contains(isi, "ProtectSystem=strict") {
 		return false
@@ -1844,7 +1923,9 @@ func hasNoSystemd() bool {
 	return false
 }
 
-func npmInstallGlobal(pkg string) error {
+// npmInstallGlobal memasang paket npm global. pkg boleh menyertakan versi
+// ("9router@latest"); flag tambahan diteruskan apa adanya ke npm.
+func npmInstallGlobal(pkg string, flag ...string) error {
 	if _, err := exec.LookPath("npm"); err != nil {
 		// npm tidak punya status-fd seperti apt, jadi kemajuannya tidak bisa
 		// dijadikan angka. Yang tetap bisa dilaporkan jujur adalah langkah
@@ -1871,9 +1952,69 @@ func npmInstallGlobal(pkg string) error {
 	// warisan image: omit=optional (binary per-platform tidak diunduh) dan
 	// ignore-scripts=true (postinstall dimatikan menyeluruh).
 	tahapBaru("mengunduh dan memasang paket npm")
-	_, err := run("npm", "install", "-g",
-		"--allow-scripts="+pkg, "--include=optional", "--ignore-scripts=false", pkg)
+	// allowScripts dicocokkan npm dengan NAMA paket — "9router@latest" tidak
+	// pernah cocok, dan postinstall-nya diam-diam dilewati lagi.
+	nama := pkg
+	if i := strings.LastIndex(pkg, "@"); i > 0 {
+		nama = pkg[:i]
+	}
+	args := append([]string{"install", "-g",
+		"--allow-scripts=" + nama, "--include=optional", "--ignore-scripts=false"}, flag...)
+	_, err := run("npm", append(args, pkg)...)
 	return err
+}
+
+// ---- versi terbaru dari registry npm --------------------------------------
+//
+// Dibaca dari https://registry.npmjs.org/<paket>/latest, bukan `npm view`:
+// satu GET 5 detik versus proses Node yang memuat npm penuh. Di-cache sejam —
+// status komponen diminta tiap 30 detik, dan registry tidak perlu ditanya
+// sesering itu. Kegagalan (offline, registry lambat) ikut di-cache sebagai
+// kosong supaya mesin tanpa internet tidak menunggu 5 detik tiap refresh.
+var (
+	terbaruMu    sync.Mutex
+	terbaruCache = map[string]struct {
+		versi string
+		waktu time.Time
+	}{}
+)
+
+const umurCacheTerbaru = time.Hour
+
+func versiTerbaruNpm(paket string) string {
+	terbaruMu.Lock()
+	if c, ok := terbaruCache[paket]; ok && time.Since(c.waktu) < umurCacheTerbaru {
+		terbaruMu.Unlock()
+		return c.versi
+	}
+	terbaruMu.Unlock()
+
+	versi := ""
+	client := &http.Client{Timeout: 5 * time.Second}
+	if resp, err := client.Get("https://registry.npmjs.org/" + paket + "/latest"); err == nil {
+		var p struct {
+			Version string `json:"version"`
+		}
+		if resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&p) == nil {
+			versi = p.Version
+		}
+		resp.Body.Close()
+	}
+	terbaruMu.Lock()
+	terbaruCache[paket] = struct {
+		versi string
+		waktu time.Time
+	}{versi, time.Now()}
+	terbaruMu.Unlock()
+	return versi
+}
+
+// lupakanVersiTerbaru dipanggil setelah pembaruan supaya status berikutnya
+// membandingkan dengan registry lagi, bukan dengan angka sejam lalu.
+func lupakanVersiTerbaru(paket string) {
+	terbaruMu.Lock()
+	delete(terbaruCache, paket)
+	terbaruMu.Unlock()
 }
 
 func npmUninstallGlobal(pkg string) error {
