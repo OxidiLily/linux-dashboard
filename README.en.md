@@ -672,6 +672,12 @@ defaults.
 - `~/DATA/*` is this panel's primary data location. The default Samba share
   points there through the `%U` macro (`/home/%U/DATA/Documents`), so a single
   share gives every account its own data folder.
+- **A Guest OK share inside a user's home maps guests to the folder's owner**
+  (`force user = <owner>`). Without it guests run as `nobody`, and Ubuntu's
+  `0750` home directory stops them at the door: Windows says "You do not have
+  permission to access", `log.smbd` logs `vfs_ChDir … Permission denied …
+  uid=65534`. Root-owned folders are not mapped — `force user = root` would
+  hand the whole LAN root access to that path.
 - **Per-user data folders** (`~/DATA/AppData`, `~/DATA/Documents`,
   `~/DATA/Downloads`, `~/DATA/Gallery`, `~/DATA/Media`) are created when the
   File Manager is opened and show up there as their own roots. They live inside
