@@ -554,14 +554,18 @@ tulisan panel dibuang, folder mount point dihapus). Isi disknya tidak pernah
 disentuh; memasangnya kembali lewat baris disk belum-ter-mount di daftar yang
 sama. Pagarnya: hanya mount di `/mnt` atau `/media` (`/`, `/var`, `/boot`
 dikelola sistem), path diperiksa `filepath.Clean(p) == p` supaya
-`/mnt/../etc` tidak lolos pemeriksaan awalan, pool mergerfs dan mount NFS
-ditolak dengan arahan ke halaman pengelolanya sendiri supaya baris `fstab`-nya
-tidak menggantung, dan baris `fstab` yang bukan tulisan panel dibiarkan utuh
-lalu dilaporkan — kalau tidak, mount-nya kembali setelah reboot tanpa
-penjelasan. Disk yang dicabut saat masih ter-mount tidak bisa di-`umount`
-biasa (kernel masih memegangnya dan setiap pembacaan dijawab
-`input/output error`); helper jatuh ke `umount -l`, satu-satunya jalan keluar
-yang tidak menuntut reboot.
+`/mnt/../etc` tidak lolos pemeriksaan awalan, pool mergerfs, anggota
+(branch) pool mergerfs, dan mount NFS ditolak dengan arahan ke halaman
+pengelolanya sendiri supaya baris `fstab`-nya tidak menggantung — dan supaya
+pool tidak tiba-tiba menulis ke direktori kosong di disk sistem — dan baris
+`fstab` yang bukan tulisan panel dibiarkan utuh lalu dilaporkan — kalau tidak,
+mount-nya kembali setelah reboot tanpa penjelasan. Disk yang dicabut saat
+masih ter-mount tidak bisa di-`umount` biasa (kernel masih memegangnya dan
+setiap pembacaan dijawab `input/output error`); helper jatuh ke `umount -l`,
+satu-satunya jalan keluar yang tidak menuntut reboot — tapi hanya kalau
+device-nya memang sudah hilang dari `/dev`. `umount` yang gagal pada disk yang
+masih ada berarti ada proses yang sedang memakainya, dan itu dilaporkan, bukan
+disembunyikan dengan lazy unmount.
 
 **Disk Pool (mergerfs)** menggabungkan beberapa disk jadi satu mount point.
 Yang perlu diketahui:

@@ -466,13 +466,17 @@ panel-written `fstab` line dropped, the mount point directory removed). Nothing
 on the disk is erased; mount it again from the not-yet-mounted disk row in the
 same list. The guards: only mounts under `/mnt` or `/media` (`/`, `/var`,
 `/boot` are the system's), the path must satisfy `filepath.Clean(p) == p` so
-`/mnt/../etc` cannot slip past the prefix check, mergerfs pools and NFS mounts
-are refused with a pointer to the page that owns them so their `fstab` lines
-never dangle, and an `fstab` line the panel did not write is left intact and
-reported — otherwise the mount would silently come back after a reboot. A disk
-pulled while still mounted cannot be unmounted normally (the kernel still holds
-it and every read answers `input/output error`); the helper falls back to
-`umount -l`, the only way out that does not require a reboot.
+`/mnt/../etc` cannot slip past the prefix check, mergerfs pools, mergerfs pool
+members (branches) and NFS mounts are refused with a pointer to the page that
+owns them so their `fstab` lines never dangle — and so a pool never silently
+starts writing into an empty directory on the system disk — and an `fstab`
+line the panel did not write is left intact and reported — otherwise the mount
+would silently come back after a reboot. A disk pulled while still mounted
+cannot be unmounted normally (the kernel still holds it and every read answers
+`input/output error`); the helper falls back to `umount -l`, the only way out
+that does not require a reboot — but only when the device is actually gone
+from `/dev`. A failed `umount` on a disk that is still present means a process
+is using it, and that is reported rather than hidden behind a lazy unmount.
 
 **Disk Pool (mergerfs)** merges several disks into one mount point. What matters:
 
