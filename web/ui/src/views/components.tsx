@@ -8,7 +8,7 @@ import { trf, useTr } from "@/stores/i18n"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { RefreshCw, Download, Trash2, Power, ExternalLink } from "lucide-react"
+import { RefreshCw, Download, Trash2, Power, ExternalLink, ArrowUpCircle } from "lucide-react"
 
 // Backend helperproto.ComponentStatus: Name, Installed, Version, Running, Service.
 type ComponentStatus = {
@@ -27,6 +27,8 @@ type ComponentStatus = {
   has_data?: boolean
   /** Halaman yang memegang kendali service ini — di sini statusnya saja yang tampil. */
   managed_in?: string
+  /** Versi lebih baru yang tersedia di registry — kartu menampilkan tombol Perbarui. */
+  latest_version?: string
 }
 
 // Fase apt dari helper ditulis sebagai kalimat, bukan satu kata teknis:
@@ -220,8 +222,15 @@ export function ComponentsView() {
     }
   }
 
-  const handleService = async (name: string, action: string) => {
-    if (action !== "start") {
+  const handleService = async (name: string, action: string, versiBaru?: string) => {
+    if (action === "update") {
+      const ok = await confirmDialog({
+        title: trf("Perbarui {0} ke v{1}?", name, versiBaru ?? ""),
+        message: tr("Service dihentikan, paket ditarik ulang dari registry, unit systemd-nya ditulis ulang oleh panel, lalu dijalankan lagi. Bisa berjalan beberapa menit."),
+        confirmLabel: tr("Perbarui"),
+      })
+      if (!ok) return
+    } else if (action !== "start") {
       const ok = await confirmDialog({
         title: trf("Jalankan \"{0}\" pada service {1}?", action, name),
         message:
@@ -392,6 +401,9 @@ export function ComponentsView() {
                           {isInstalled && c.version && (
                             <span className="num text-[10px] text-muted-foreground">{c.version}</span>
                           )}
+                          {isInstalled && c.latest_version && (
+                            <Badge tone="warn">{trf("Versi baru: v{0}", c.latest_version)}</Badge>
+                          )}
                         </div>
                         {c.description && (
                           <p className="mt-0.5 text-xs text-muted-foreground">{tr(c.description)}</p>
@@ -466,6 +478,15 @@ export function ComponentsView() {
                                 onClick={() => handleService(c.name, isActive ? "stop" : "start")}
                               >
                                 <Power className="mr-1 size-3.5" /> {isActive ? tr("Hentikan") : tr("Jalankan")}
+                              </Button>
+                            )}
+                            {c.latest_version && (
+                              <Button
+                                size="sm"
+                                disabled={actionLoading !== null}
+                                onClick={() => handleService(c.name, "update", c.latest_version)}
+                              >
+                                <ArrowUpCircle className="mr-1 size-3.5" /> {tr("Perbarui")}
                               </Button>
                             )}
                             {c.managed_in && (

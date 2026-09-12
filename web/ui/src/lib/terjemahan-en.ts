@@ -653,6 +653,10 @@ daftarkanTerjemahan({
   "Buka di File Manager": "Open in File Manager",
   "Belum ada bookmark folder.": "No folder bookmarks yet.",
   "Pasang komponen {0}?": "Install component {0}?",
+  "Perbarui {0} ke v{1}?": "Update {0} to v{1}?",
+  "Service dihentikan, paket ditarik ulang dari registry, unit systemd-nya ditulis ulang oleh panel, lalu dijalankan lagi. Bisa berjalan beberapa menit.":
+    "The service is stopped, the package is re-pulled from the registry, its systemd unit is rewritten by the panel, then started again. May take a few minutes.",
+  "Versi baru: v{0}": "New version: v{0}",
   "Paket diunduh dan dipasang ke sistem. Bisa berjalan beberapa menit.": "The package is downloaded and installed onto the system. This can take a few minutes.",
   "Service berhenti sampai dinyalakan lagi secara manual.": "The service stays down until it is started again manually.",
   "Service terputus sesaat selama proses berjalan.": "The service is briefly interrupted while this runs.",

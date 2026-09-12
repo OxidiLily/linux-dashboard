@@ -115,7 +115,7 @@ const (
 	CmdComponentStatusAll = "component.status.all"
 	CmdComponentInstall   = "component.install"
 	CmdComponentUninstall = "component.uninstall"
-	CmdComponentService   = "component.service" // start/stop/restart
+	CmdComponentService   = "component.service" // start/stop/restart, update (9router)
 	// Progres instalasi dibaca terpisah dari perintah installnya. Install
 	// sendiri tetap sinkron seperti sebelumnya; UI memanggil ini secara
 	// berkala selama menunggu, jadi kontrak install lama tidak berubah.
@@ -693,6 +693,10 @@ type ComponentStatus struct {
 	// halaman Components bisa menawarkan "hapus data juga" saat uninstall —
 	// hanya untuk komponen yang memang punya sesuatu untuk dihapus.
 	PunyaData bool `json:"has_data,omitempty"`
+	// VersiBaru diisi kalau registry paketnya sudah punya versi yang lebih
+	// baru dari yang terpasang — halaman Components menampilkan tombol
+	// Perbarui. Baru 9router yang mengisinya (lihat versiTerbaruNpm).
+	VersiBaru string `json:"latest_version,omitempty"`
 }
 
 type DockerExecArgs struct {
