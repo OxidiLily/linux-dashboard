@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"syscall"
 	"os"
 	"strings"
 
@@ -163,6 +164,20 @@ func diskUnmount(mountpoint string, lupakan bool) error {
 	case nfsMountTanda:
 		return errInvalid("%s adalah mount NFS — lepas dari halaman NFS Exports → Klien NFS", mountpoint)
 	}
+	// Branch pool mergerfs bukan pool, jadi lolos pemeriksaan tanda di atas —
+	// padahal melepasnya lebih merusak: mergerfs bekerja lewat path, bukan fd,
+	// jadi begitu branch-nya kosong ia menulis ke direktori kosong di disk
+	// sistem, dan "lupakan" yang me-rmdir direktori itu membuat pool melempar
+	// ENOENT. Keluarkan dulu dari pool di halaman Disk Pool.
+	if pools, _ := mergerfsList(); len(pools) > 0 {
+		for _, pool := range pools {
+			for _, b := range pool.Branches {
+				if b == mountpoint {
+					return errInvalid("%s adalah anggota pool mergerfs %s — keluarkan dari pool di halaman Disk Pool dulu", mountpoint, pool.Mountpoint)
+				}
+			}
+		}
+	}
 
 	if sudahTerMount(mountpoint) {
 		if _, err := run("umount", mountpoint); err != nil {
@@ -171,8 +186,17 @@ func diskUnmount(mountpoint string, lupakan bool) error {
 			// umount -l melepas pohonnya sekarang dan membereskan sisanya
 			// begitu tidak ada yang memakai — satu-satunya jalan keluar yang
 			// tidak menuntut reboot.
-			if _, e := run("umount", "-l", mountpoint); e != nil {
+			//
+			// Tapi HANYA untuk disk yang memang sudah hilang. EBUSY pada disk
+			// yang masih ada berarti ada proses yang sedang memakainya, dan
+			// lazy unmount di situ cuma menyembunyikan mount-nya sementara
+			// proses itu terus menulis — lalu "lupakan" me-rmdir dan membuang
+			// baris fstab di bawah kakinya.
+			if !deviceHilang(mountpoint) {
 				return errInvalid("tidak bisa melepas %s: %v — pastikan tidak ada berkas yang sedang dipakai", mountpoint, err)
+			}
+			if _, e := run("umount", "-l", mountpoint); e != nil {
+				return errInvalid("tidak bisa melepas %s: %v", mountpoint, e)
 			}
 		}
 	}
@@ -208,6 +232,26 @@ func diskUnmount(mountpoint string, lupakan bool) error {
 		return errInvalid("%s dilepas, tapi baris /etc/fstab-nya bukan tulisan panel — hapus sendiri, kalau tidak mount-nya kembali setelah reboot", mountpoint)
 	}
 	return nil
+}
+
+// deviceHilang menjawab "apakah disk di balik mount ini sudah tidak ada":
+// statfs dijawab EIO, atau device sumbernya di /proc/mounts sudah tidak ada
+// lagi di /dev. Mount yang device-nya masih ada bukan urusan umount -l.
+func deviceHilang(mountpoint string) bool {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(mountpoint, &st); err == syscall.EIO {
+		return true
+	}
+	res, err := run("findmnt", "-rn", "-o", "SOURCE", mountpoint)
+	if err != nil {
+		return false
+	}
+	src := strings.TrimSpace(res.Stdout)
+	if !strings.HasPrefix(src, "/dev/") {
+		return false
+	}
+	_, err = os.Stat(src)
+	return err != nil
 }
 
 // tandaFstab mengembalikan penanda panel pada baris fstab untuk mountpoint
