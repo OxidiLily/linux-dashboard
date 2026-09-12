@@ -602,11 +602,23 @@ type envBody struct {
 // jadi menyunting berkas yang sudah ada tetap bekerja — yang hilang cuma
 // kemampuan membuat berkas baru di direktori yang memang bukan milik stack.
 func dirSistem(p string) bool {
-	switch filepath.Clean(p) {
+	p = filepath.Clean(p)
+	switch p {
 	case "/", "/etc", "/usr", "/var", "/opt", "/srv", "/home", "/root", "/tmp",
 		"/mnt", "/media", "/boot", "/lib", "/lib64", "/bin", "/sbin",
 		"/run", "/dev", "/proc", "/sys":
 		return true
+	}
+	// Pohon sistem ditolak seluruhnya, bukan cuma akarnya: /etc/lindash atau
+	// /usr/local/lib/x sama-sama bukan tempat stack tinggal, dan
+	// menyerahkannya sama buruknya dengan menyerahkan /etc. Pohon data
+	// (/opt, /srv, /home, /var, /mnt, /media) sengaja tidak ikut — di sanalah
+	// stack memang berada.
+	for _, akar := range []string{"/etc/", "/usr/", "/boot/", "/lib/", "/lib64/",
+		"/bin/", "/sbin/", "/run/", "/dev/", "/proc/", "/sys/"} {
+		if strings.HasPrefix(p, akar) {
+			return true
+		}
 	}
 	return false
 }
