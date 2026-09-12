@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
@@ -301,6 +302,20 @@ func writeSambaShares(shares []helperproto.SambaShare) error {
 		fmt.Fprintf(&b, "   browseable = yes\n")
 		fmt.Fprintf(&b, "   writable = %s\n", yesNo(s.Writable))
 		fmt.Fprintf(&b, "   guest ok = %s\n", yesNo(s.Public))
+		// Guest berjalan sebagai `nobody`, dan home user di Ubuntu adalah 0750:
+		// share Guest OK yang menunjuk ~/Documents lolos semua pemeriksaan
+		// panel, lalu Windows menjawab "You do not have permission to access"
+		// dan log.smbd berisi `vfs_ChDir ... Permission denied. Current token:
+		// uid=65534`. Guest dipetakan ke pemilik foldernya: itulah yang
+		// dimaksud user saat memilih "siapa pun boleh memakai folder ini" —
+		// dan berkas yang ditaruh klien pun jadi miliknya, bukan milik nobody.
+		// Folder milik root dibiarkan sebagai nobody: force user = root
+		// memberi seluruh LAN akses root ke path itu.
+		if s.Public {
+			if pemilik := pemilikShare(s.Path); pemilik != "" {
+				fmt.Fprintf(&b, "   force user = %s\n", pemilik)
+			}
+		}
 		if s.Comment != "" {
 			fmt.Fprintf(&b, "   comment = %s\n", strings.ReplaceAll(s.Comment, "\n", " "))
 		}
@@ -325,6 +340,20 @@ func writeSambaShares(shares []helperproto.SambaShare) error {
 	// Harganya, transfer yang sedang berjalan ikut terputus saat share diubah.
 	_, err := run("systemctl", "restart", "smbd")
 	return err
+}
+
+// pemilikShare = nama user pemilik folder share, atau "" kalau root, tidak
+// terbaca, atau path bermakro %U (yang baru ada saat klien menyambung).
+func pemilikShare(path string) string {
+	uid := pemilikBerkas(path)
+	if uid <= 0 {
+		return ""
+	}
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return ""
+	}
+	return u.Username
 }
 
 func yesNo(b bool) string {

@@ -757,6 +757,12 @@ Semua lewat environment variable; nilai di bawah adalah default.
 - `~/DATA/*` adalah lokasi data utama panel ini. Share Samba bawaan menunjuk ke
   sana lewat makro `%U` (`/home/%U/DATA/Documents`), sehingga satu share memberi
   tiap akun folder datanya sendiri.
+- **Share Guest OK di dalam home user memetakan guest ke pemilik foldernya**
+  (`force user = <pemilik>`). Tanpa itu guest berjalan sebagai `nobody`, dan
+  home Ubuntu yang `0750` menolaknya di pintu: Windows menjawab "You do not
+  have permission to access", `log.smbd` mencatat `vfs_ChDir … Permission
+  denied … uid=65534`. Folder milik root tidak dipetakan — `force user = root`
+  berarti seluruh LAN dapat akses root ke path itu.
 - **Folder data per user** (`~/DATA/AppData`, `~/DATA/Documents`,
   `~/DATA/Downloads`, `~/DATA/Gallery`, `~/DATA/Media`) dibuat otomatis saat
   File Manager dibuka dan muncul di sana sebagai root tersendiri. Semuanya
