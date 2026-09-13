@@ -7,8 +7,9 @@ import { Panel } from "@/components/ui/panel"
 import { trf, useTr } from "@/stores/i18n"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { RefreshCw, Download, Trash2, Power, ExternalLink, ArrowUpCircle } from "lucide-react"
+import { Search, RefreshCw, Download, Trash2, Power, ExternalLink, ArrowUpCircle } from "lucide-react"
 
 // Backend helperproto.ComponentStatus: Name, Installed, Version, Running, Service.
 type ComponentStatus = {
@@ -109,6 +110,7 @@ export function ComponentsView() {
   }, [aksi])
   // Sembunyikan yang sudah terpasang saat user cuma mencari apa yang bisa dipasang.
   const [hanyaBelum, setHanyaBelum] = useState(false)
+  const [cari, setCari] = useState("")
 
   // fresh = paksa helper memeriksa ulang, bukan menjawab dari cache 30 detik.
   // Dipakai tombol Refresh dan setiap kali panel baru saja mengubah sesuatu;
@@ -281,7 +283,17 @@ export function ComponentsView() {
     }
   }
 
-  const terlihat = hanyaBelum ? list.filter((c) => !c.installed) : list
+  // Deskripsi dicocokkan dalam bahasa yang sedang tampil: user mengetik apa
+  // yang ia baca di kartu, bukan teks sumber bahasa Indonesianya.
+  const q = cari.trim().toLowerCase()
+  const terlihat = list.filter(
+    (c) =>
+      (!hanyaBelum || !c.installed) &&
+      (!q ||
+        c.name.toLowerCase().includes(q) ||
+        tr(c.description ?? "").toLowerCase().includes(q) ||
+        tr(c.category ?? "").toLowerCase().includes(q)),
+  )
   // Urutan kategori mengikuti urutan kemunculan dari backend.
   const kategori: string[] = []
   for (const c of terlihat) {
@@ -306,6 +318,15 @@ export function ComponentsView() {
       }
       actions={
         <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-48 sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <Input
+              placeholder={tr("Cari komponen...")}
+              className="h-8 pl-8 text-xs"
+              value={cari}
+              onChange={(e) => setCari(e.target.value)}
+            />
+          </div>
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
             <input type="checkbox" checked={hanyaBelum} onChange={(e) => setHanyaBelum(e.target.checked)} />
             {tr("Hanya yang belum terpasang")}
@@ -546,7 +567,9 @@ export function ComponentsView() {
           <p className="py-6 text-center text-xs text-muted-foreground">
             {list.length === 0
               ? tr("Gagal memuat daftar komponen. Pastikan helper daemon aktif.")
-              : tr("Semua komponen di katalog sudah terpasang.")}
+              : q
+                ? trf("Tidak ada komponen yang cocok dengan \"{0}\".", cari.trim())
+                : tr("Semua komponen di katalog sudah terpasang.")}
           </p>
         )}
       </div>

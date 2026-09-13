@@ -68,6 +68,8 @@ daftarkanTerjemahan({
   "Keamanan": "Security",
   "Utilitas": "Utilities",
   "Semua komponen di katalog sudah terpasang.": "Every component in the catalog is installed.",
+  "Cari komponen...": "Search components…",
+  "Tidak ada komponen yang cocok dengan \"{0}\".": "No component matches \"{0}\".",
   "Gagal memuat daftar komponen. Pastikan helper daemon aktif.":
     "Failed to load the component list. Make sure the helper daemon is running.",
 
