@@ -34,7 +34,12 @@ RestartSec=3
 # ikut dipindahkan sekali, jadi provider dan API key yang sudah disetel tidak
 # hilang.
 Environment=HOME=/root
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+# /opt/headroom/bin memuat CLI Headroom DAN python3 miliknya. 9router
+# memilih interpreter Python-nya dengan dirname(which headroom), jadi
+# keduanya harus berada di direktori yang sama — kalau tidak, setiap
+# pemasangan extras dari halaman Token Saver jatuh ke python sistem dan
+# ditolak PEP 668. Lihat venvHeadroom di internal/helper/aitools.go.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/headroom/bin
 # Tanpa TTY, 9router otomatis masuk tray mode dan menjalankan server sebagai
 # child process. KillMode=control-group memastikan child itu ikut berhenti.
 KillMode=control-group
