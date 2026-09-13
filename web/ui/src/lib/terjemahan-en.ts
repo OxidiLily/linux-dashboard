@@ -907,6 +907,9 @@ daftarkanTerjemahan({
     "\"Lazy senior dev\" harness at ultra level + the ponytail-audit/review/debt skill bundle.",
   "Browser Use — kendali browser lewat CDP untuk AI Agent (buka halaman, klik, isi form, ambil data dari halaman ber-JavaScript). Skill-nya didaftarkan ke tiap agent saat sesinya dibuka; butuh Chrome/Chromium di mesin yang dipakai.":
     "Browser Use — CDP browser control for AI Agents (open pages, click, fill forms, read JavaScript-rendered pages). Its skill is registered with each agent when a session opens; needs Chrome/Chromium on the machine it runs on.",
+  "Headroom — lapisan kompresi konteks yang dipakai Token Saver 9router (/v1/compress). Dipasang otomatis bersama 9router.":
+    "Headroom — the context compression layer used by 9router's Token Saver (/v1/compress). Installed automatically together with 9router.",
+  "9router → Token Saver": "9router → Token Saver",
   "Password akun ini wajib diganti. Banner SSH \"Default password must be changed\" muncul karena akun masih memakai password bawaan installer.": "This account's password must be changed. The SSH banner \"Default password must be changed\" appears because the account still uses the installer default.",
   "Ganti sekarang": "Change now",
   "Guest OK akan dinonaktifkan": "Guest OK will be turned off",
@@ -1188,6 +1191,7 @@ daftarkanTerjemahan({
   "menjalankan skrip resmi Hermes": "running the official Hermes script",
   "menjalankan skrip resmi rtk": "running the official rtk script",
   "memasang graphify lewat pipx": "installing graphify with pipx",
+  "memasang headroom lewat pipx": "installing headroom with pipx",
   "Printer USB tidak mendukung IPP Everywhere — pilih driver yang cocok dari daftar, kalau tidak cetakan akan keluar kosong.":
     "USB printers do not support IPP Everywhere — pick a matching driver, otherwise pages come out blank.",
 

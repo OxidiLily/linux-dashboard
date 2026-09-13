@@ -201,6 +201,62 @@ func uninstallBrowserUse() error {
 	return err
 }
 
+// installHeadroom memasang CLI Headroom — lapisan kompresi konteks yang
+// dipakai halaman Token Saver milik 9router ("Compress context (Headroom)").
+//
+// Tanpa ini kartu itu berbunyi "Not installed" dan satu-satunya petunjuk yang
+// diberikan 9router adalah perintah `pip install "headroom-ai[proxy]"` yang
+// harus diketik user sendiri di terminal — dan di Debian 12 / Ubuntu 23.04+
+// perintah itu ditolak PEP 668. Karena itu ia dipasang bersama 9router (lihat
+// install9Router), bukan ditinggalkan sebagai pekerjaan manual.
+//
+// Extra [proxy] wajib: itu yang membawa server proxy + endpoint /v1/compress
+// yang dipanggil 9router. Paket intinya saja hanya menyediakan library Python.
+//
+// pipx dengan PIPX_BIN_DIR=/usr/local/bin, alasannya sama dengan graphify dan
+// browser-use — dan di sini ada syarat tambahan: 9router mencari CLI-nya lewat
+// `which headroom` dengan PATH yang memuat /usr/local/bin, jadi pemasangan ke
+// $HOME milik root tidak akan pernah terlihat olehnya.
+//
+// ponytail: kartu extras di Token Saver (code/ml) tetap kosong karena 9router
+// membacanya lewat `python3 -m pip list` pada python SISTEM, sementara pipx
+// mengisolasi paketnya di venv sendiri. Yang menentukan status terpasang —
+// `which headroom` — tetap benar, dan tombol Start tetap bekerja. Jalan
+// naiknya kalau extras itu diperlukan: pasang extra-nya lewat
+// `pipx inject headroom-ai …`, bukan menaruh python venv di PATH sistem.
+func installHeadroom() error {
+	if _, err := exec.LookPath("pipx"); err != nil {
+		if err := aptInstall("pipx"); err != nil {
+			return err
+		}
+	}
+	tahapBaru("memasang headroom lewat pipx")
+	_, err := runIn("", envPipx(), "pipx", "install", "headroom-ai[proxy]")
+	return err
+}
+
+func uninstallHeadroom() error {
+	_, err := runIn("", envPipx(), "pipx", "uninstall", "headroom-ai")
+	return err
+}
+
+// pastikanHeadroom memasang Headroom kalau belum ada. Kegagalannya TIDAK
+// membatalkan pemasangan 9router: gateway-nya tetap berfungsi penuh tanpa
+// kompresi konteks, dan status Headroom terlihat sendiri di halaman Components.
+//
+// Keberadaannya dicek lewat lookBinary, bukan componentStatus: fungsi ini
+// dipanggil dari install9Router yang sendiri terdaftar di dalam katalog
+// `components`, dan membaca katalog itu dari sini membuat Go menolak
+// kompilasi dengan initialization cycle.
+func pastikanHeadroom() {
+	if _, ada := lookBinary("headroom"); ada {
+		return
+	}
+	if err := installHeadroom(); err != nil {
+		log.Printf("9router: pemasangan headroom gagal: %v", err)
+	}
+}
+
 // versiPipx membaca versi paket dari metadata venv pipx.
 //
 // Bukan lewat `<binary> --version`: CLI browser-use tidak punya flag itu, dan
