@@ -1191,7 +1191,8 @@ daftarkanTerjemahan({
   "menjalankan skrip resmi Hermes": "running the official Hermes script",
   "menjalankan skrip resmi rtk": "running the official rtk script",
   "memasang graphify lewat pipx": "installing graphify with pipx",
-  "memasang headroom lewat pipx": "installing headroom with pipx",
+  "menyiapkan virtualenv headroom": "preparing the headroom virtualenv",
+  "memasang headroom-ai[proxy]": "installing headroom-ai[proxy]",
   "Printer USB tidak mendukung IPP Everywhere — pilih driver yang cocok dari daftar, kalau tidak cetakan akan keluar kosong.":
     "USB printers do not support IPP Everywhere — pick a matching driver, otherwise pages come out blank.",
 

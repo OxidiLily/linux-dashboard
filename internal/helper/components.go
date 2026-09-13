@@ -265,12 +265,13 @@ var components = map[string]*component{
 		Name: "headroom", Binary: "headroom",
 		Category: katAI, RequiredFor: "9router → Token Saver",
 		Description: "Headroom — lapisan kompresi konteks yang dipakai Token Saver 9router (/v1/compress). Dipasang otomatis bersama 9router.",
-		install:     installHeadroom,
+		// installUser, bukan install: venv-nya diserahkan ke user panel agar
+		// tombol extras di halaman Token Saver (yang berjalan sebagai user itu)
+		// bisa menulis ke dalamnya — lihat serahkanVenvHeadroom.
+		installUser: installHeadroom,
 		uninstall:   uninstallHeadroom,
-		// Versi dibaca dari metadata venv pipx, bukan `headroom --version`:
-		// CLI Python itu memuat kompresornya saat start dan butuh beberapa
-		// detik, sementara berkas metadata dibaca seketika.
-		version: versiPipx("headroom-ai"),
+		terpasang:   headroomTerpasang,
+		version:     versiHeadroom,
 	},
 	"browser-use": {
 		Name: "browser-use", Binary: "browser-use",
@@ -607,7 +608,7 @@ func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, er
 			// sebelum rilis ini punya gateway tanpa lapisan kompresinya, dan
 			// menekan "Pasang" lagi adalah satu-satunya jalan dari dalam panel
 			// untuk menyusulkannya.
-			pastikanHeadroom()
+			pastikanHeadroom(u)
 		}
 		return componentStatus(name), nil
 	}
@@ -1485,7 +1486,7 @@ func install9Router(u *userInfo) error {
 	// petunjuk yang diberikan 9router di sana adalah perintah pip yang ditolak
 	// PEP 668 di Debian/Ubuntu modern. Kegagalannya tidak membatalkan
 	// pemasangan 9router — lihat pastikanHeadroom.
-	pastikanHeadroom()
+	pastikanHeadroom(u)
 	return pasangUnit9Router(u)
 }
 
@@ -1588,6 +1589,19 @@ func uninstall9Router() error {
 	// dihapus akan gagal berulang dan tercatat sebagai failed di systemd.
 	_, _ = run("systemctl", "disable", "--now", "9router.service")
 
+	// HOME service dibaca SEBELUM drop-in-nya dihapus, lalu diingat untuk
+	// purge9Router. Tanpa ini, "hapus data juga" tidak pernah menyentuh
+	// ~/.9router milik user panel: purge berjalan SETELAH uninstall (lihat
+	// uninstallComponent), dan pada saat itu satu-satunya berkas yang tahu di
+	// mana data itu berada sudah ikut terhapus di bawah. Gejalanya persis
+	// seperti data yang "nyangkut": 9router dipasang ulang lalu seluruh
+	// provider, API key, dan sesi login lama muncul kembali.
+	//
+	// Drop-in itu tetap bukan satu-satunya sumber — lihat purge9Router, yang
+	// juga menyapu home setiap akun manusia. Ini yang menangani kasus
+	// sebaliknya: HOME kustom yang tidak sesuai dengan akun mana pun.
+	ingatHome9Router()
+
 	if _, err := run("npm", "uninstall", "-g", "9router"); err != nil {
 		return err
 	}
@@ -1597,6 +1611,18 @@ func uninstall9Router() error {
 	_ = os.Remove(unitDst9Router)
 	_, _ = run("systemctl", "daemon-reload")
 	return nil
+}
+
+// homeTerakhir9Router menyimpan HOME service yang terbaca sebelum drop-in-nya
+// dihapus uninstall9Router. Kosong di luar rangkaian uninstall→purge, dan
+// purge tetap punya jalur lain (drop-in yang masih ada, /root, StateDirectory)
+// untuk jalur CLI yang memanggil purge tanpa uninstall lebih dulu.
+var homeTerakhir9Router string
+
+func ingatHome9Router() {
+	if h := homeUser9Router(dropUser9Router); h != "" {
+		homeTerakhir9Router = h
+	}
 }
 
 // purge9Router menghapus data 9router: database (koneksi provider, API key,
@@ -1609,18 +1635,30 @@ func uninstall9Router() error {
 // pemasangan berikutnya benar-benar berlaku; selama settings masih menyimpan
 // password, 9router mengabaikan INITIAL_PASSWORD sepenuhnya.
 //
-// Beberapa lokasi dicoba karena HOME service-nya berbeda antar generasi unit:
-// /var/lib/9router (StateDirectory, generasi pertama), /root (generasi kedua),
-// dan sejak rilis ini home user panel — yang hanya diketahui dari drop-in,
-// karena purge tidak menerima identitas user.
+// Semua lokasi yang mungkin disapu, bukan cuma satu yang "seharusnya" benar:
+// HOME service berbeda antar generasi unit (/var/lib/9router lalu /root lalu
+// home user panel), berpindah lagi setiap panel dipakai admin yang berbeda,
+// dan ~/.9router juga muncul di home siapa pun yang pernah menjalankan
+// 9router langsung dari terminal. Data yang tertinggal di salah satunya
+// membuat pemasangan ulang menemukan provider dan sesi login lama — persis
+// kebalikan dari apa yang diminta user saat mencentang "hapus data juga".
 func purge9Router() error {
 	lokasi := []string{homeRoot9Router, "/var/lib/9router"}
-	if h := homeUser9Router(dropUser9Router); h != "" {
-		lokasi = append(lokasi, h)
-	}
+	lokasi = append(lokasi, rumahAkunManusia()...)
+	// Dibaca sebelum drop-in dihapus (lihat ingatHome9Router) dan dari
+	// drop-in yang masih ada, untuk HOME kustom yang bukan home akun mana pun.
+	lokasi = append(lokasi, homeTerakhir9Router, homeUser9Router(dropUser9Router))
+	sudah := map[string]bool{}
 	for _, home := range lokasi {
+		if home == "" || sudah[home] {
+			continue
+		}
+		sudah[home] = true
+		// Kegagalan satu lokasi tidak menghentikan sisanya: home milik akun
+		// lain bisa saja tidak terbaca, dan berhenti di situ meninggalkan
+		// justru data yang paling mungkin dipakai — milik user panel sendiri.
 		if err := os.RemoveAll(filepath.Join(home, ".9router")); err != nil {
-			return err
+			log.Printf("9router: hapus data di %s: %v", home, err)
 		}
 	}
 	// StateDirectory milik unit panel generasi lama.
@@ -1784,7 +1822,7 @@ func konfigUser9Router(u *userInfo) string {
 		"User=" + u.Name + "\n" +
 		"Group=" + strconv.Itoa(u.GID) + "\n" +
 		"Environment=HOME=" + u.Home + "\n" +
-		"Environment=PATH=" + pathAgen(u) + "\n"
+		"Environment=PATH=" + pathAgen(u) + ":" + binHeadroom + "\n"
 }
 
 // pastikanUser9Router memindahkan service 9router dari root ke user panel.

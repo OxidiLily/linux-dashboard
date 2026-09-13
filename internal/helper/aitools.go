@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -201,6 +202,27 @@ func uninstallBrowserUse() error {
 	return err
 }
 
+// ---- Headroom (dipakai Token Saver 9router) -------------------------------
+
+const (
+	// venvHeadroom sengaja BUKAN pipx dan BUKAN symlink di /usr/local/bin.
+	//
+	// 9router memilih interpreter Python-nya dengan `dirname(which headroom)`
+	// lalu mencari python3 di direktori yang sama. Symlink pipx di
+	// /usr/local/bin membuat direktori itu jadi /usr/local/bin, yang tidak
+	// punya python3 — jadi 9router jatuh ke python SISTEM, dan setiap
+	// pemasangan extras dari halaman Token Saver berakhir dengan
+	// "error: externally-managed-environment … pip install exited with
+	// code=1" (PEP 668). Menaruh python3 di /usr/local/bin bukan jalan
+	// keluarnya: itu membajak python3 seluruh mesin.
+	//
+	// Venv biasa menyelesaikannya di akarnya: bin-nya memuat headroom DAN
+	// python3 yang punya headroom-ai, jadi 9router menemukan pasangan yang
+	// benar dan extras [code]/[ml] terpasang ke dalam venv ini.
+	venvHeadroom = "/opt/headroom"
+	binHeadroom  = venvHeadroom + "/bin"
+)
+
 // installHeadroom memasang CLI Headroom — lapisan kompresi konteks yang
 // dipakai halaman Token Saver milik 9router ("Compress context (Headroom)").
 //
@@ -212,47 +234,109 @@ func uninstallBrowserUse() error {
 //
 // Extra [proxy] wajib: itu yang membawa server proxy + endpoint /v1/compress
 // yang dipanggil 9router. Paket intinya saja hanya menyediakan library Python.
-//
-// pipx dengan PIPX_BIN_DIR=/usr/local/bin, alasannya sama dengan graphify dan
-// browser-use — dan di sini ada syarat tambahan: 9router mencari CLI-nya lewat
-// `which headroom` dengan PATH yang memuat /usr/local/bin, jadi pemasangan ke
-// $HOME milik root tidak akan pernah terlihat olehnya.
-//
-// ponytail: kartu extras di Token Saver (code/ml) tetap kosong karena 9router
-// membacanya lewat `python3 -m pip list` pada python SISTEM, sementara pipx
-// mengisolasi paketnya di venv sendiri. Yang menentukan status terpasang —
-// `which headroom` — tetap benar, dan tombol Start tetap bekerja. Jalan
-// naiknya kalau extras itu diperlukan: pasang extra-nya lewat
-// `pipx inject headroom-ai …`, bukan menaruh python venv di PATH sistem.
-func installHeadroom() error {
-	if _, err := exec.LookPath("pipx"); err != nil {
-		if err := aptInstall("pipx"); err != nil {
-			return err
-		}
+func installHeadroom(u *userInfo) error {
+	// Rilis sebelumnya memasang lewat pipx, dan symlink /usr/local/bin/headroom
+	// peninggalannya akan MENANG atas venv ini (9router mencari /usr/local/bin
+	// lebih dulu) — jadi pemasangan yang benar tetap menghasilkan extras yang
+	// gagal. Dibuang di sini, bukan cuma di uninstall.
+	bersihkanHeadroomPipx()
+
+	tahapBaru("menyiapkan virtualenv headroom")
+	if err := pastikanVenv(venvHeadroom); err != nil {
+		return err
 	}
-	tahapBaru("memasang headroom lewat pipx")
-	_, err := runIn("", envPipx(), "pipx", "install", "headroom-ai[proxy]")
+	tahapBaru("memasang headroom-ai[proxy]")
+	// --upgrade supaya memasang ulang di atas venv lama menarik versi baru,
+	// bukan berhenti dengan "already satisfied".
+	if _, err := run(binHeadroom+"/python3", "-m", "pip", "install", "--upgrade", "headroom-ai[proxy]"); err != nil {
+		return err
+	}
+	serahkanVenvHeadroom(u)
+	return nil
+}
+
+// serahkanVenvHeadroom memberikan venv ke user panel.
+//
+// Tombol "Install" extras di halaman Token Saver menjalankan
+// `python3 -m pip install headroom-ai[code]` dari dalam proses 9router, yang
+// berjalan sebagai user panel — bukan root. Venv milik root berarti pip itu
+// ditolak dengan permission denied, dan yang terlihat user adalah kegagalan
+// yang sama persis seperti sebelum perbaikan ini. Kepemilikan diserahkan ke
+// akun pemicunya, bukan dibiarkan di root.
+//
+// Tanpa identitas user (jalur CLI tanpa sesi panel) tidak ada yang bisa
+// diserahkan; proxy-nya tetap jalan, hanya extras yang butuh sudo.
+func serahkanVenvHeadroom(u *userInfo) {
+	if u == nil || u.Name == "" || u.UID == 0 {
+		return
+	}
+	if _, err := run("chown", "-R", strconv.Itoa(u.UID)+":"+strconv.Itoa(u.GID), venvHeadroom); err != nil {
+		log.Printf("headroom: kepemilikan %s gagal diubah: %v", venvHeadroom, err)
+	}
+}
+
+// pastikanVenv membuat virtualenv kalau belum ada. python3-venv tidak selalu
+// terpasang di Debian/Ubuntu server — di sana `python3 -m venv` gagal dengan
+// pesan yang menyuruh memasang paket itu, jadi dicoba sekali lalu diulang.
+func pastikanVenv(dir string) error {
+	if _, err := os.Stat(dir + "/bin/python3"); err == nil {
+		return nil
+	}
+	if _, err := run("python3", "-m", "venv", dir); err == nil {
+		return nil
+	}
+	if err := aptInstall("python3-venv"); err != nil {
+		return err
+	}
+	_, err := run("python3", "-m", "venv", dir)
 	return err
 }
 
+// bersihkanHeadroomPipx membuang instalasi pipx dari rilis sebelumnya. Gagal
+// diabaikan: di mesin yang tidak pernah memakainya memang tidak ada apa-apa.
+func bersihkanHeadroomPipx() {
+	_, _ = runIn("", envPipx(), "pipx", "uninstall", "headroom-ai")
+	_ = os.Remove(pipxBinDir + "/headroom")
+}
+
 func uninstallHeadroom() error {
-	_, err := runIn("", envPipx(), "pipx", "uninstall", "headroom-ai")
-	return err
+	bersihkanHeadroomPipx()
+	return os.RemoveAll(venvHeadroom)
+}
+
+// versiHeadroom membaca versi dari metadata dist-info di dalam venv, bukan
+// `headroom --version`: CLI Python itu memuat kompresornya saat start dan
+// butuh beberapa detik, sementara halaman Components memprobe seluruh katalog
+// sekaligus.
+func versiHeadroom() string {
+	m, _ := filepath.Glob(venvHeadroom + "/lib/python*/site-packages/headroom_ai-*.dist-info")
+	if len(m) == 0 {
+		return ""
+	}
+	nama := filepath.Base(m[0])
+	nama = strings.TrimPrefix(nama, "headroom_ai-")
+	return strings.TrimSuffix(nama, ".dist-info")
+}
+
+// headroomTerpasang memeriksa binary di dalam venv, bukan lewat PATH: venv ini
+// sengaja TIDAK punya symlink di /usr/local/bin (lihat venvHeadroom).
+func headroomTerpasang() bool {
+	_, err := os.Stat(binHeadroom + "/headroom")
+	return err == nil
 }
 
 // pastikanHeadroom memasang Headroom kalau belum ada. Kegagalannya TIDAK
 // membatalkan pemasangan 9router: gateway-nya tetap berfungsi penuh tanpa
 // kompresi konteks, dan status Headroom terlihat sendiri di halaman Components.
-//
-// Keberadaannya dicek lewat lookBinary, bukan componentStatus: fungsi ini
-// dipanggil dari install9Router yang sendiri terdaftar di dalam katalog
-// `components`, dan membaca katalog itu dari sini membuat Go menolak
-// kompilasi dengan initialization cycle.
-func pastikanHeadroom() {
-	if _, ada := lookBinary("headroom"); ada {
+func pastikanHeadroom(u *userInfo) {
+	if headroomTerpasang() {
+		// Venv yang sudah ada tapi masih milik root dari rilis sebelumnya
+		// tetap membuat tombol extras gagal — penyembuhannya di jalur yang
+		// dilewati tiap pemasangan, bukan cuma di jalur instalasi baru.
+		serahkanVenvHeadroom(u)
 		return
 	}
-	if err := installHeadroom(); err != nil {
+	if err := installHeadroom(u); err != nil {
 		log.Printf("9router: pemasangan headroom gagal: %v", err)
 	}
 }
