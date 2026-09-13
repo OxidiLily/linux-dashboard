@@ -1026,7 +1026,7 @@ func (s *Server) handleDockerDayaDelete(w http.ResponseWriter, r *http.Request) 
 	// menjawab "subcommand builder \"rm\" tidak diizinkan".
 	if daya == "builder" {
 		writeErr(w, http.StatusBadRequest,
-			"cache build tidak dihapus satu per satu — pakai tombol Bersihkan pada baris Build Cache")
+			"cache build tidak dihapus satu per satu — pakai tombol Bersihkan di panel Image, Volume & Network")
 		return
 	}
 	id := chi.URLParam(r, "id")

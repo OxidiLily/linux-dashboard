@@ -25,6 +25,7 @@ import {
   HardDrive,
   Network,
   Eraser,
+  Search,
 } from "lucide-react"
 
 type DockerContainer = {
@@ -110,6 +111,21 @@ type DockerStack = {
 // bisa disentuh sama sekali.
 const stackTanpaContainer = (st: DockerStack) => !st.error && st.total === 0
 
+// Stack yang seluruh container-nya sudah jalan: `up` tidak punya apa pun untuk
+// dinyalakan. Tombolnya dimatikan supaya tidak menawarkan aksi kosong. Jalur
+// tawarkanUp (sesudah .env/compose disimpan) TIDAK lewat tombol ini — di sana
+// `up -d` memang harus jalan justru saat stack-nya hidup, untuk membuat ulang
+// container yang konfigurasinya berubah.
+const stackSemuaJalan = (st: DockerStack) => !st.error && st.total > 0 && st.running === st.total
+
+// cocok: pencarian teks bebas, case-insensitive, di beberapa field sekaligus.
+// Query kosong = semua lolos.
+const cocok = (q: string, ...isi: (string | number | undefined)[]) => {
+  const k = q.trim().toLowerCase()
+  if (!k) return true
+  return isi.some((v) => String(v ?? "").toLowerCase().includes(k))
+}
+
 // Bentuk balasan /api/docker/{images,volumes,networks} — lihat dockerImage,
 // dockerVolume, dan dockerNetwork di internal/api/docker.go.
 type DockerImage = {
@@ -186,6 +202,17 @@ export function DockerView() {
   // df` menghitung ulang pemakaian disk tiap panggilan, dan menempelkannya ke
   // pergantian tab berarti membayarnya tiga kali untuk angka yang sama.
   const [df, setDf] = useState<DockerDf[]>([])
+  // Satu kotak cari untuk seluruh halaman: stack, container, dan ketiga tabel
+  // sumber daya. Tiga kotak terpisah berarti user harus menebak lebih dulu di
+  // panel mana namanya berada — padahal nama image muncul di dua tempat dan
+  // port hanya di satu.
+  const [cari, setCari] = useState("")
+
+  const stacksTampil = stacks.filter((st) => cocok(cari, st.name, st.compose_path, st.description))
+  const containersTampil = containers.filter((c) => cocok(cari, c.name, c.id, c.image, c.ports))
+  const imagesTampil = images.filter((im) => cocok(cari, im.repository, im.tag, im.id))
+  const volumesTampil = volumes.filter((v) => cocok(cari, v.name, v.driver, v.mountpoint))
+  const networksTampil = networks.filter((n) => cocok(cari, n.name, n.driver, n.scope, n.id))
 
   const load = async () => {
     setLoading(true)
@@ -416,53 +443,18 @@ export function DockerView() {
     loadDf()
   }, [])
 
-  // pruneDf membebaskan ruang untuk satu baris ringkasan. Sesudahnya df DAN
-  // tabel yang sedang dibuka dimuat ulang: menghapus image mengubah keduanya,
-  // dan angka lama yang bertahan di layar terbaca sebagai aksi yang gagal.
-  const pruneDf = async (row: DockerDf) => {
-    const aksi = aksiDf[row.type]
-    if (!aksi) return
-    const ok = await confirmDialog({
-      title: aksi.judul,
-      message: aksi.pesan,
-      confirmLabel: tr("Bersihkan"),
-      danger: row.type !== "Build Cache",
-    })
-    if (!ok) return
-    // Aksi paling lama di halaman ini: `image prune -a` pada host yang penuh
-    // menghapus puluhan GB dan berjalan beberapa menit. Tanpa toast yang
-    // berputar selama itu, satu-satunya tanda bahwa sesuatu terjadi baru
-    // muncul saat pekerjaannya selesai — dan kalau user sudah berpindah
-    // halaman, toast berhasilnya datang tiba-tiba tanpa konteks.
-    try {
-      await notify.tugas(apiSend<{ output?: string }>(aksi.path, "POST"), {
-        jalan: trf("Membersihkan {0}…", tr(row.type)),
-        sukses: trf("{0} dibersihkan.", tr(row.type)),
-        gagal: (e) => trf("Gagal membersihkan: {0}", pesanError(e)),
-        // Baris "Total reclaimed space" dari docker adalah satu-satunya
-        // jawaban yang dicari user sesudah menekan tombol ini.
-        detail: (res) => res?.output?.trim() || undefined,
-      })
-      loadDf()
-      loadDaya(daya)
-    } catch {
-      // Pesan gagalnya sudah ditampilkan notify.tugas.
-    }
-  }
-
   // Kalimat konfirmasi ditulis per jenis karena akibatnya memang berbeda
   // jauh: image bisa diunduh ulang, isi volume tidak bisa dikembalikan sama
   // sekali. Satu kalimat umum untuk ketiganya akan menyesatkan di kasus yang
   // paling mahal.
   const hapusDaya = async (jenis: JenisDaya, id: string, label: string) => {
-    const pesan = {
-      images: tr("Container yang memakai image ini harus mengunduhnya lagi sebelum bisa jalan."),
-      volumes: tr("SELURUH isi volume ikut terhapus dan tidak bisa dikembalikan. Docker menolak kalau volume ini masih dipakai container mana pun, termasuk yang berhenti."),
-      networks: tr("Container yang tersambung ke network ini harus dibuat ulang."),
-    }
     const ok = await confirmDialog({
       title: trf("Hapus {0}?", label),
-      message: pesan[jenis],
+      message: {
+        images: tr("Container yang memakai image ini harus mengunduhnya lagi sebelum bisa jalan."),
+        volumes: tr("SELURUH isi volume ikut terhapus dan tidak bisa dikembalikan. Docker menolak kalau volume ini masih dipakai container mana pun, termasuk yang berhenti."),
+        networks: tr("Container yang tersambung ke network ini harus dibuat ulang."),
+      }[jenis],
       confirmLabel: tr("Hapus"),
       danger: true,
     })
@@ -483,67 +475,61 @@ export function DockerView() {
     }
   }
 
-  const prunePesan = {
-    images: tr("Hanya image dangling — yang tidak punya tag sama sekali — yang dibuang. Image bertag tetap ada meski tidak sedang dipakai."),
-    volumes: tr("Setiap volume yang tidak dipakai container mana pun dihapus BESERTA seluruh isinya. Volume stack yang sedang berhenti ikut terkena."),
-    networks: tr("Network yang tidak dipakai container mana pun dihapus. Network bawaan docker tidak ikut."),
-  }
-
-  // Aksi pembebasan ruang per baris ringkasan pemakaian disk. Kuncinya nilai
-  // .Type milik docker sendiri ("Images", "Local Volumes", "Build Cache"),
-  // bukan terjemahannya — itu yang stabil antar versi docker.
+  // SATU tombol bersih-bersih untuk seluruh panel, bukan satu per tab dan satu
+  // per baris ringkasan. Empat tombol bertuliskan kata yang sama dengan akibat
+  // yang berbeda-beda adalah cara yang rapi untuk membuat orang menekan yang
+  // salah; kalimat konfirmasinya sekarang menyebut keempat jenisnya sekaligus.
   //
-  // Containers tidak punya entri: `container prune` tidak ada di whitelist
-  // helper, dan container yang berhenti sudah terlihat satu per satu di panel
-  // Containers di atas — menghapusnya dari sana lebih jelas daripada satu
-  // tombol yang menyapu tanpa menyebut yang mana.
+  // Images memakai varian `?semua=1` (`image prune -a`), BUKAN prune polos:
+  // di host yang penuh image bertag tapi tak terpakai, prune polos
+  // mengembalikan 0 B dan terbaca sebagai tombol rusak.
   //
-  // Images memakai varian `?semua=1` (`image prune -a`), BUKAN prune polos
-  // yang sudah ada di tombol Bersihkan tab Images. Justru selisih itu yang
-  // membuat baris ini ada: di host yang penuh image bertag tapi tak terpakai,
-  // prune polos mengembalikan 0 B dan terbaca sebagai tombol rusak.
-  const aksiDf: Record<string, { path: string; judul: string; pesan: string }> = {
-    Images: {
-      path: "/api/docker/images/prune?semua=1",
-      judul: tr("Buang semua image yang tidak dipakai container?"),
-      pesan: tr(
-        "Bukan hanya image dangling: SETIAP image yang tidak dipakai container mana pun ikut dibuang, termasuk image stack yang sedang Down — container-nya sudah tidak ada, jadi image-nya dihitung tidak terpakai. Semuanya harus diunduh ulang sebelum stack itu bisa dinyalakan lagi.",
-      ),
-    },
-    "Local Volumes": {
-      path: "/api/docker/volumes/prune",
-      judul: tr("Bersihkan volume yang tidak terpakai?"),
-      pesan: prunePesan.volumes,
-    },
-    "Build Cache": {
-      path: "/api/docker/buildcache/prune",
-      judul: tr("Bersihkan cache build?"),
-      pesan: tr(
-        "Cache build seluruhnya hasil turunan — tidak ada data yang hilang. Yang dibayar cuma build image berikutnya yang mulai dari nol.",
-      ),
-    },
-  }
+  // Containers tidak ikut: `container prune` tidak ada di whitelist helper,
+  // dan container yang berhenti sudah terlihat satu per satu di panel
+  // Containers di atas.
+  const LANGKAH_BERSIH = [
+    { path: "/api/docker/images/prune?semua=1", label: "Images" },
+    { path: "/api/docker/volumes/prune", label: "Local Volumes" },
+    { path: "/api/docker/networks/prune", label: "Networks" },
+    { path: "/api/docker/buildcache/prune", label: "Build Cache" },
+  ]
 
-  const pruneDaya = async () => {
+  const bersihkanSemua = async () => {
     const ok = await confirmDialog({
-      title: trf("Bersihkan {0} yang tidak terpakai?", labelDaya[daya]),
-      message: prunePesan[daya],
+      title: tr("Bersihkan semua sumber daya Docker yang tidak terpakai?"),
+      message: tr(
+        "Dibuang: SETIAP image yang tidak dipakai container mana pun (termasuk image stack yang sedang Down — harus diunduh ulang), volume yang tidak dipakai container mana pun BESERTA seluruh isinya, network yang tidak terpakai, dan seluruh cache build. Container tidak disentuh.",
+      ),
       confirmLabel: tr("Bersihkan"),
-      danger: daya === "volumes",
+      danger: true,
     })
     if (!ok) return
-    try {
-      await notify.tugas(apiSend<{ output?: string }>(`/api/docker/${daya}/prune`, "POST"), {
-        jalan: trf("Membersihkan {0}…", labelDaya[daya]),
-        sukses: trf("{0} dibersihkan.", labelDaya[daya]),
-        gagal: (e) => trf("Gagal membersihkan: {0}", pesanError(e)),
-        detail: (res) => res?.output?.trim() || undefined,
-      })
-      loadDaya(daya)
-      loadDf()
-    } catch {
-      // Pesan gagalnya sudah ditampilkan notify.tugas.
-    }
+    // Dijalankan berurutan, dan satu langkah yang gagal tidak menghentikan
+    // sisanya: `volume prune` bisa ditolak daemon sementara build cache tetap
+    // layak dibuang. Hasil tiap langkah dikumpulkan supaya baris "Total
+    // reclaimed space" milik docker — satu-satunya jawaban yang dicari sesudah
+    // menekan tombol ini — tetap terlihat.
+    const jalan = (async () => {
+      const hasil: string[] = []
+      for (const l of LANGKAH_BERSIH) {
+        try {
+          const res = await apiSend<{ output?: string }>(l.path, "POST")
+          const out = res?.output?.trim()
+          if (out) hasil.push(`${l.label}: ${out}`)
+        } catch (e: any) {
+          hasil.push(`${l.label}: ${pesanError(e)}`)
+        }
+      }
+      return hasil.join("\n")
+    })()
+    await notify.tugas(jalan, {
+      jalan: tr("Membersihkan sumber daya Docker…"),
+      sukses: tr("Pembersihan selesai."),
+      gagal: (e) => trf("Gagal membersihkan: {0}", pesanError(e)),
+      detail: (out) => out || undefined,
+    })
+    loadDaya(daya)
+    loadDf()
   }
 
   // Menyimpan .env atau compose TIDAK menerapkan apa pun. Container yang
@@ -680,6 +666,17 @@ export function DockerView() {
       hint={tr("Kelola stack docker-compose")}
       actions={
         <div className="flex flex-wrap items-center gap-2">
+          {/* Satu kotak cari untuk seluruh halaman — menyaring stack, container,
+              image, volume, dan network sekaligus. */}
+          <div className="relative w-44 sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <Input
+              placeholder={tr("Cari stack / container / image / port...")}
+              className="h-8 pl-8 text-xs"
+              value={cari}
+              onChange={(e) => setCari(e.target.value)}
+            />
+          </div>
           <Button size="sm" onClick={openTambahStack}>
             <Plus className="mr-1 size-3.5" /> {tr("Tambah Stack")}
           </Button>
@@ -690,7 +687,7 @@ export function DockerView() {
       }
     >
       <div className="space-y-3">
-        {stacks.map((st) => (
+        {stacksTampil.map((st) => (
           <div
             key={st.external ? `ext:${st.compose_path}` : st.id}
             className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3 hover:bg-secondary/40"
@@ -718,7 +715,14 @@ export function DockerView() {
                 </Button>
               ) : (
               <>
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => stackAction(st.id, "up")}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={stackSemuaJalan(st)}
+                title={stackSemuaJalan(st) ? tr("Semua container stack ini sudah berjalan.") : undefined}
+                onClick={() => stackAction(st.id, "up")}
+              >
                 <Play className="mr-1 size-3 text-ok" /> Up
               </Button>
               <Button
@@ -768,9 +772,9 @@ export function DockerView() {
             </div>
           </div>
         ))}
-        {stacks.length === 0 && !loading && (
+        {stacksTampil.length === 0 && !loading && (
           <p className="py-4 text-center text-xs text-muted-foreground">
-            {tr("Belum ada Compose stack terdaftar maupun berjalan di Docker.")}
+            {cari ? tr("Tidak ada yang cocok dengan pencarian.") : tr("Belum ada Compose stack terdaftar maupun berjalan di Docker.")}
           </p>
         )}
       </div>
@@ -790,7 +794,7 @@ export function DockerView() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {containers.map((c) => (
+            {containersTampil.map((c) => (
               <tr key={c.id} className="hover:bg-secondary/40">
                 <td data-label="" className="py-2">
                   <div className="flex items-center gap-2">
@@ -896,10 +900,10 @@ export function DockerView() {
                 </td>
               </tr>
             ))}
-            {containers.length === 0 && !loading && (
+            {containersTampil.length === 0 && !loading && (
               <tr>
                 <td data-label="" colSpan={5} className="py-6 text-center text-muted-foreground">
-                  {tr("Tidak ada container yang ditemukan.")}
+                  {cari ? tr("Tidak ada yang cocok dengan pencarian.") : tr("Tidak ada container yang ditemukan.")}
                 </td>
               </tr>
             )}
@@ -937,8 +941,8 @@ export function DockerView() {
           <Button
             variant="outline"
             size="sm"
-            onClick={pruneDaya}
-            title={prunePesan[daya]}
+            onClick={bersihkanSemua}
+            title={tr("Buang image, volume, network, dan cache build yang tidak terpakai")}
             disabled={loadingDaya}
           >
             <Eraser className="size-3.5 sm:mr-1" />
@@ -971,8 +975,7 @@ export function DockerView() {
                 <th className="pb-2 font-medium">{tr("Jumlah")}</th>
                 <th className="pb-2 font-medium">{tr("Aktif")}</th>
                 <th className="pb-2 font-medium">{tr("Ukuran")}</th>
-                <th className="pb-2 font-medium">{tr("Bisa dibebaskan")}</th>
-                <th className="pb-2 pr-2" />
+                <th className="pb-2 pr-2 font-medium">{tr("Bisa dibebaskan")}</th>
               </tr>
             </thead>
             <tbody>
@@ -982,21 +985,7 @@ export function DockerView() {
                   <td className="num py-1.5">{row.total}</td>
                   <td className="num py-1.5">{row.active}</td>
                   <td className="num py-1.5">{row.size}</td>
-                  <td className="num py-1.5">{row.reclaimable}</td>
-                  <td className="py-1.5 pr-2 text-right">
-                    {aksiDf[row.type] && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => pruneDf(row)}
-                        title={aksiDf[row.type].pesan}
-                      >
-                        <Eraser className="size-3.5 sm:mr-1" />
-                        <span className="sr-only sm:not-sr-only">{tr("Bersihkan")}</span>
-                      </Button>
-                    )}
-                  </td>
+                  <td className="num py-1.5 pr-2">{row.reclaimable}</td>
                 </tr>
               ))}
             </tbody>
@@ -1017,7 +1006,7 @@ export function DockerView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {images.map((im) => (
+              {imagesTampil.map((im) => (
                 <tr key={im.id} className="hover:bg-secondary/40">
                   <td data-label={tr("Repository")} className="py-2 font-medium">
                     <div className="flex items-center gap-2">
@@ -1043,10 +1032,10 @@ export function DockerView() {
                   </td>
                 </tr>
               ))}
-              {images.length === 0 && !loadingDaya && (
+              {imagesTampil.length === 0 && !loadingDaya && (
                 <tr>
                   <td data-label="" colSpan={6} className="py-6 text-center text-muted-foreground">
-                    {tr("Belum ada image di host ini.")}
+                    {cari ? tr("Tidak ada yang cocok dengan pencarian.") : tr("Belum ada image di host ini.")}
                   </td>
                 </tr>
               )}
@@ -1065,7 +1054,7 @@ export function DockerView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {volumes.map((v) => (
+              {volumesTampil.map((v) => (
                 <tr key={v.name} className="hover:bg-secondary/40">
                   <td data-label={tr("Nama")} className="py-2 font-medium">
                     <span className="break-all">{v.name}</span>
@@ -1088,7 +1077,7 @@ export function DockerView() {
                   </td>
                 </tr>
               ))}
-              {volumes.length === 0 && !loadingDaya && (
+              {volumesTampil.length === 0 && !loadingDaya && (
                 <tr>
                   <td data-label="" colSpan={4} className="py-6 text-center text-muted-foreground">
                     {/* Kalimat kedua ada karena pertanyaan yang sama muncul terus:
@@ -1120,7 +1109,7 @@ export function DockerView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {networks.map((n) => (
+              {networksTampil.map((n) => (
                 <tr key={n.id} className="hover:bg-secondary/40">
                   <td data-label={tr("Nama")} className="py-2 font-medium">
                     <div className="flex items-center gap-2">
@@ -1150,10 +1139,10 @@ export function DockerView() {
                   </td>
                 </tr>
               ))}
-              {networks.length === 0 && !loadingDaya && (
+              {networksTampil.length === 0 && !loadingDaya && (
                 <tr>
                   <td data-label="" colSpan={5} className="py-6 text-center text-muted-foreground">
-                    {tr("Belum ada network di host ini.")}
+                    {cari ? tr("Tidak ada yang cocok dengan pencarian.") : tr("Belum ada network di host ini.")}
                   </td>
                 </tr>
               )}
