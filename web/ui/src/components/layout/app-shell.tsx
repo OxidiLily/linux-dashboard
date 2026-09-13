@@ -26,17 +26,19 @@ import {
   Loader2,
   RefreshCw,
   Trash2,
+  Power,
   ChevronsUpDown,
   Bot,
 } from "lucide-react"
-import { apiGet } from "@/lib/api"
+import { apiGet, apiSend } from "@/lib/api"
+import { pesanError } from "@/lib/pesan-error"
 import { prefetchRute } from "@/router/lazy-routes"
 import { useAuth } from "@/stores/auth"
 import { useMetricsSocket } from "@/hooks/use-metrics-socket"
 import { useMetrics } from "@/stores/metrics"
 import { StatusDot } from "@/components/ui/status-dot"
 import { Button } from "@/components/ui/button"
-import { ConfirmHost } from "@/components/ui/confirm"
+import { ConfirmHost, confirmDialog } from "@/components/ui/confirm"
 import { PromptHost } from "@/components/ui/prompt"
 import { Byline } from "@/components/ui/byline"
 import { UpdateModal } from "@/components/ui/update-modal"
@@ -45,7 +47,7 @@ import { UninstallModal } from "@/components/ui/uninstall-modal"
 import { notify } from "@/components/ui/toast"
 import { Toaster } from "@/components/ui/sonner"
 import { formatJam, setFormatPrefs } from "@/lib/format"
-import { tr, useT } from "@/stores/i18n"
+import { tr, trf, useT } from "@/stores/i18n"
 import { usePrefs } from "@/stores/prefs"
 import { TimezonePicker } from "@/components/ui/timezone-picker"
 import { cn } from "@/lib/utils"
@@ -319,6 +321,25 @@ export function AppShell() {
     navigate("/login", { replace: true })
   }
 
+  // Reboot mesin. Setelah "ok", socket metrik putus sendiri dan overlay
+  // "Menyambungkan…" yang sudah ada mengambil alih: begitu server kembali,
+  // halaman dimuat ulang otomatis — tidak perlu penanganan khusus di sini.
+  async function reboot() {
+    const ok = await confirmDialog({
+      title: tr("Reboot server?"),
+      message: tr("Semua service di mesin ini akan berhenti sampai server menyala kembali. Panel menyambung ulang otomatis."),
+      confirmLabel: tr("Reboot"),
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await apiSend("/api/settings/reboot", "POST")
+      notify.ok(tr("Server sedang reboot — panel menyambung kembali otomatis."))
+    } catch (e) {
+      notify.err(trf("Gagal reboot: {0}", pesanError(e)))
+    }
+  }
+
   return (
     <div className="flex h-dvh overflow-hidden bg-bg">
       {/* Scrim hanya ada di bawah lg: di desktop sidebar mendorong konten,
@@ -466,6 +487,19 @@ export function AppShell() {
                   <UserCog className="size-4 shrink-0" />
                   <span className="truncate">{t("nav.account")}</span>
                 </button>
+                {user?.sudo && (
+                  <button
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left text-sm text-muted hover:bg-secondary hover:text-foreground"
+                    onClick={() => {
+                      setProfilBuka(false)
+                      void reboot()
+                    }}
+                  >
+                    <Power className="size-4 shrink-0" />
+                    <span className="truncate">{t("nav.reboot")}</span>
+                  </button>
+                )}
                 {/* Uninstall tetap disembunyikan di balik menu profil: aksinya
                     menghapus panel dari mesin, jadi tidak boleh sejajar dengan
                     menu biasa. */}

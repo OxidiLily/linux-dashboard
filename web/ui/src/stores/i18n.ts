@@ -64,6 +64,7 @@ const kamus: Kamus = {
   // umum
   "nav.update": { id: "Update", en: "Update" },
   "nav.uninstall": { id: "Uninstall", en: "Uninstall" },
+  "nav.reboot": { id: "Reboot", en: "Reboot" },
 
   "common.sudoer": { id: "sudoer", en: "sudoer" },
   "common.user": { id: "user", en: "user" },

@@ -64,3 +64,19 @@ func uninstallJalankan(u *userInfo, args helperproto.UninstallArgs) error {
 	)
 	return err
 }
+
+// Reboot mesin dari panel. Jadwalkan lewat timer transient satu detik, bukan
+// `systemctl reboot` langsung: begitu job reboot masuk antrean, systemd mulai
+// menghentikan unit — termasuk linux-dashboard-web — dan jawaban HTTP untuk
+// klik ini bisa mati sebelum sampai ke browser. Satu detik cukup untuk
+// membalas "ok" sehingga browser tahu reboot memang dimulai, bukan gagal.
+func rebootJalankan() error {
+	_, _ = run("systemctl", "reset-failed", "linux-dashboard-reboot")
+	_, err := run("systemd-run",
+		"--unit=linux-dashboard-reboot",
+		"--description=linux-dashboard reboot",
+		"--on-active=1",
+		"systemctl", "reboot",
+	)
+	return err
+}

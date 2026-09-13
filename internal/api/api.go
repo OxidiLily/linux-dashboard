@@ -195,6 +195,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/settings/update", s.handleUpdateStatus)
 			r.Post("/settings/update", s.handleUpdateStart)
 			r.Post("/settings/uninstall", s.handleUninstall)
+			r.Post("/settings/reboot", s.handleReboot)
 
 			r.Get("/components", s.handleComponents)
 			r.Get("/components/progress", s.handleComponentProgress)

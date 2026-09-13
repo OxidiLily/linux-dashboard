@@ -139,6 +139,7 @@ const (
 	CmdWGPeerDelete = "wg.peer.delete"
 
 	CmdUninstall = "panel.uninstall"
+	CmdReboot    = "system.reboot"
 )
 
 // Kode error terstruktur supaya layer API bisa memetakan ke HTTP status.

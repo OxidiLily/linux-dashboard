@@ -640,6 +640,8 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		return jsonOf(updateStatus(args), nil)
 	case helperproto.CmdUpdateStart:
 		return jsonOf(updateStart())
+	case helperproto.CmdReboot:
+		return nil, rebootJalankan()
 
 	case helperproto.CmdDockerExec:
 		args, err := decodeArgs[helperproto.DockerExecArgs](req)
