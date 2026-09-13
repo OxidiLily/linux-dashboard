@@ -188,6 +188,33 @@ daftarkanTerjemahan({
   "Sistem DNS resolver host": "Host DNS resolver",
   "Nameservers (pisahkan dengan koma)": "Nameservers (comma separated)",
   "Simpan DNS": "Save DNS",
+  "Ubah alamat IP": "Edit IP address",
+  "Konfigurasi {0}": "Configure {0}",
+  "Membaca konfigurasi netplan…": "Reading netplan configuration…",
+  "Interface ini tidak ada di /etc/netplan — biasanya interface virtual (Docker, VPN) yang alamatnya diatur programnya sendiri.":
+    "This interface is not in /etc/netplan — usually a virtual interface (Docker, VPN) whose address is managed by its own program.",
+  "Otomatis (DHCP)": "Automatic (DHCP)",
+  "Otomatis (SLAAC/DHCPv6)": "Automatic (SLAAC/DHCPv6)",
+  "Manual": "Manual",
+  "Dimatikan": "Disabled",
+  "Alamat/prefix": "Address/prefix",
+  "Gateway": "Gateway",
+  "Beberapa alamat dipisah koma. Nonaktif pada IPv6 juga mematikan alamat link-local (fe80::).":
+    "Separate multiple addresses with commas. Disabling IPv6 also removes the link-local address (fe80::).",
+  "Terapkan": "Apply",
+  "Terapkan konfigurasi {0}?": "Apply the {0} configuration?",
+  "Panel ini sedang dibuka lewat {0}. Setelah diterapkan, sesi ini terputus dan browser diarahkan ke {1} — login ulang diperlukan. Alamat yang salah berarti server hanya bisa dijangkau lewat konsol.":
+    "This panel is open via {0}. Once applied, this session drops and the browser is sent to {1} — you will need to log in again. A wrong address means the server is only reachable from the console.",
+  "Panel ini sedang dibuka lewat {0}. Setelah diterapkan alamat itu hilang dan sesi ini terputus — cari alamat baru server di router/DHCP atau konsol VM.":
+    "This panel is open via {0}. Once applied that address goes away and this session drops — find the server's new address in the router/DHCP or the VM console.",
+  "Konfigurasi ditulis ke /etc/netplan lalu diterapkan dengan netplan apply. Koneksi yang lewat interface ini bisa terputus sesaat.":
+    "The configuration is written to /etc/netplan and applied with netplan apply. Connections through this interface may drop briefly.",
+  "Menerapkan konfigurasi {0}…": "Applying the {0} configuration…",
+  "Konfigurasi {0} diterapkan.": "{0} configuration applied.",
+  "Koneksi ke {0} terputus — kalau alamat baru tidak bisa dibuka, periksa lewat konsol. ({1})":
+    "Connection to {0} dropped — if the new address does not open, check from the console. ({1})",
+  "Gagal menerapkan konfigurasi {0}: {1}": "Failed to apply the {0} configuration: {1}",
+  "Gagal membaca konfigurasi {0}: {1}": "Failed to read the {0} configuration: {1}",
   "Token tunnel": "Tunnel token",
   "Hostname di tailnet (opsional)": "Hostname on the tailnet (optional)",
   "Status VPN tidak terbaca. Pastikan helper daemon aktif.":
@@ -896,6 +923,7 @@ daftarkanTerjemahan({
   "tulis file": "write file",
   "ubah ambang": "change thresholds",
   "ubah DNS": "change DNS",
+  "ubah IP interface": "change interface IP",
   "ubah docker-compose.yml": "edit docker-compose.yml",
   "ubah .env": "edit .env",
   "ubah rule": "edit rule",

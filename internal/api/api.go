@@ -167,6 +167,8 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/settings/account/users/{name}/password", s.handleUserResetPassword)
 
 			r.Get("/settings/network/interfaces", s.handleInterfaces)
+			r.Get("/settings/network/interfaces/{name}/config", s.handleIfaceConfig)
+			r.Put("/settings/network/interfaces/{name}/config", s.handleIfaceConfigSet)
 			r.Get("/settings/network/dns", s.handleGetDNS)
 			r.Put("/settings/network/dns", s.handleSetDNS)
 			r.Get("/settings/network/vpn", s.handleVPNStatus)

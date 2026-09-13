@@ -9,9 +9,10 @@ import { trf, useTr } from "@/stores/i18n"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Network, ShieldCheck, RefreshCw, Power, Package, Trash2 } from "lucide-react"
+import { Network, ShieldCheck, RefreshCw, Power, Package, Trash2, Pencil } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { WireGuardServer } from "@/components/ui/wireguard-server"
+import { IfaceEditor } from "@/components/ui/iface-editor"
 
 type Iface = {
   name: string
@@ -59,6 +60,7 @@ export function NetworkView() {
   const [vpns, setVpns] = useState<VPNStatus[]>([])
   const [loading, setLoading] = useState(false)
   const [vpnModal, setVpnModal] = useState<string | null>(null)
+  const [editIface, setEditIface] = useState<Iface | null>(null)
   // Penanda muat-ulang: panel WireGuard punya endpoint sendiri, jadi ia perlu
   // diberi tahu kalau daftar VPN berubah (mis. config baru saja dihapus) —
   // tanpa ini isinya tetap menampilkan server yang sudah tidak ada.
@@ -258,7 +260,20 @@ export function NetworkView() {
                   <Network className="size-4 text-signal" />
                   <span>{i.name}</span>
                 </div>
-                <Badge tone={i.up ? "ok" : "muted"}>{i.up ? "UP" : "DOWN"}</Badge>
+                <div className="flex items-center gap-1.5">
+                  <Badge tone={i.up ? "ok" : "muted"}>{i.up ? "UP" : "DOWN"}</Badge>
+                  {user?.sudo && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-1.5"
+                      title={tr("Ubah alamat IP")}
+                      onClick={() => setEditIface(i)}
+                    >
+                      <Pencil className="size-3" />
+                    </Button>
+                  )}
+                </div>
               </div>
               <p className="num text-[11px] text-muted-foreground">MAC: {i.mac}</p>
               <div className="space-y-0.5 pt-1">
@@ -467,6 +482,18 @@ export function NetworkView() {
           </Panel>
         )}
       </div>
+
+      {editIface && (
+        <IfaceEditor
+          iface={editIface.name}
+          ipsSekarang={editIface.ips}
+          onClose={() => setEditIface(null)}
+          onSaved={() => {
+            setEditIface(null)
+            load()
+          }}
+        />
+      )}
 
       {/* Modal khusus WireGuard: isinya berkas config, bukan satu kunci —
           terlalu besar untuk ditaruh inline di daftar. */}

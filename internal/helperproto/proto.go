@@ -25,6 +25,8 @@ const (
 
 	CmdSysHostnameSet = "sys.hostname_set"
 	CmdSysDNSSet      = "sys.dns_set"
+	CmdNetIfaceGet    = "net.iface_get"
+	CmdNetIfaceSet    = "net.iface_set"
 
 	CmdProcKill = "proc.kill"
 
@@ -748,6 +750,23 @@ type TerminalArgs struct {
 
 type DNSArgs struct {
 	Nameservers []string `json:"nameservers"`
+}
+
+// IfaceConfig adalah konfigurasi IP satu interface dari netplan, dalam
+// bentuk yang sama dengan pengaturan jaringan Ubuntu: satu mode per keluarga
+// alamat, bukan berkas YAML mentah.
+type IfaceConfig struct {
+	Iface string `json:"iface"`
+	// Managed: interface dikenal netplan (ada di salah satu berkas
+	// /etc/netplan). Interface virtual (docker0, veth) tidak, dan tidak bisa
+	// diedit dari sini.
+	Managed bool     `json:"managed"`
+	IPv4    string   `json:"ipv4"` // dhcp | static | off
+	Addrs4  []string `json:"addrs4"`
+	Gw4     string   `json:"gw4,omitempty"`
+	IPv6    string   `json:"ipv6"` // auto | static | off
+	Addrs6  []string `json:"addrs6"`
+	Gw6     string   `json:"gw6,omitempty"`
 }
 
 // Frame type untuk stream terminal (arah client → helper).

@@ -88,6 +88,8 @@ func lookupUser(username string) (*userInfo, error) {
 var sudoRequired = map[string]bool{
 	helperproto.CmdSysHostnameSet: true,
 	helperproto.CmdSysDNSSet:      true,
+	helperproto.CmdNetIfaceGet:    true,
+	helperproto.CmdNetIfaceSet:    true,
 	helperproto.CmdSvcAction:      true,
 	helperproto.CmdUfwStatus:      true,
 	helperproto.CmdUfwAdd:         true,
