@@ -262,7 +262,7 @@ var components = map[string]*component{
 	// Tetap muncul terpisah di katalog dengan alasan yang sama seperti
 	// mereka — supaya statusnya terlihat dan bisa dipasang ulang sendiri.
 	"headroom": {
-		Name: "headroom", Binary: "headroom",
+		Name: "headroom", Binary: "headroom", Service: "headroom",
 		Category: katAI, RequiredFor: "9router → Token Saver",
 		Description: "Headroom — lapisan kompresi konteks yang dipakai Token Saver 9router (/v1/compress). Dipasang otomatis bersama 9router.",
 		// installUser, bukan install: venv-nya diserahkan ke user panel agar
