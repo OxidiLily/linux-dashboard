@@ -299,6 +299,19 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return nil, setDNS(args.Nameservers)
 
+	case helperproto.CmdNetIfaceGet:
+		args, err := decodeArgs[helperproto.PathArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(ifaceConfigGet(args.Path))
+	case helperproto.CmdNetIfaceSet:
+		args, err := decodeArgs[helperproto.IfaceConfig](req)
+		if err != nil {
+			return nil, err
+		}
+		return nil, ifaceConfigSet(args)
+
 	case helperproto.CmdProcKill:
 		args, err := decodeArgs[helperproto.KillArgs](req)
 		if err != nil {

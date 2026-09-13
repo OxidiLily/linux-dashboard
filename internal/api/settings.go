@@ -240,6 +240,43 @@ func (s *Server) handleInterfaces(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handleIfaceConfig membaca konfigurasi netplan satu interface. Lewat helper
+// karena berkas /etc/netplan bermode 0600 root.
+func (s *Server) handleIfaceConfig(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	var cfg helperproto.IfaceConfig
+	if err := s.helper.Call(helperproto.CmdNetIfaceGet, sessionFrom(r).Username,
+		helperproto.PathArgs{Path: chi.URLParam(r, "name")}, &cfg); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) handleIfaceConfigSet(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	var body helperproto.IfaceConfig
+	if err := decodeBody(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	body.Iface = chi.URLParam(r, "name")
+	if err := s.helper.Call(helperproto.CmdNetIfaceSet, sess.Username, body, nil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	s.store.LogActivity(sess.Username, "iface_change", "ubah IP interface", map[string]any{
+		"iface": body.Iface, "ipv4": body.IPv4, "addrs4": body.Addrs4, "gw4": body.Gw4,
+		"ipv6": body.IPv6, "addrs6": body.Addrs6, "gw6": body.Gw6,
+	}, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
 type dnsBody struct {
 	Nameservers []string `json:"nameservers"`
 }
