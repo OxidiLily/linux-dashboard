@@ -256,6 +256,22 @@ var components = map[string]*component{
 		uninstall:   uninstallPonytail,
 		terpasang:   ponytailTerpasang,
 	},
+	// Headroom bukan alat agent seperti keempat di atas: ia dipakai 9router
+	// sendiri (halaman Token Saver → "Compress context (Headroom)"), jadi
+	// yang membawanya adalah pemasangan 9router, bukan pemasangan agent.
+	// Tetap muncul terpisah di katalog dengan alasan yang sama seperti
+	// mereka — supaya statusnya terlihat dan bisa dipasang ulang sendiri.
+	"headroom": {
+		Name: "headroom", Binary: "headroom",
+		Category: katAI, RequiredFor: "9router → Token Saver",
+		Description: "Headroom — lapisan kompresi konteks yang dipakai Token Saver 9router (/v1/compress). Dipasang otomatis bersama 9router.",
+		install:     installHeadroom,
+		uninstall:   uninstallHeadroom,
+		// Versi dibaca dari metadata venv pipx, bukan `headroom --version`:
+		// CLI Python itu memuat kompresornya saat start dan butuh beberapa
+		// detik, sementara berkas metadata dibaca seketika.
+		version: versiPipx("headroom-ai"),
+	},
 	"browser-use": {
 		Name: "browser-use", Binary: "browser-use",
 		Category: katAI, RequiredFor: "AI → AI Agent",
@@ -364,7 +380,7 @@ var components = map[string]*component{
 // ComponentNames menentukan urutan tampil di halaman Components.
 func ComponentNames() []string {
 	return []string{
-		"docker", "nodejs", "tailscale", "cloudflared", "wireguard", "9router",
+		"docker", "nodejs", "tailscale", "cloudflared", "wireguard", "9router", "headroom",
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
 		"rtk", "graphify", "ponytail", "browser-use",
 		"supabase",
@@ -587,6 +603,11 @@ func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, er
 		// dalam panel untuk memindahkannya ke identitas user.
 		if name == "9router" {
 			pastikanUser9Router(u)
+			// Alasan yang sama untuk Headroom: mesin yang memasang 9router
+			// sebelum rilis ini punya gateway tanpa lapisan kompresinya, dan
+			// menekan "Pasang" lagi adalah satu-satunya jalan dari dalam panel
+			// untuk menyusulkannya.
+			pastikanHeadroom()
 		}
 		return componentStatus(name), nil
 	}
@@ -1459,6 +1480,12 @@ func install9Router(u *userInfo) error {
 	if err := npmInstallGlobal("9router"); err != nil {
 		return err
 	}
+	// Headroom menyusul gateway-nya, bukan langkah manual terpisah: halaman
+	// Token Saver milik 9router tidak bisa dipakai tanpanya, dan satu-satunya
+	// petunjuk yang diberikan 9router di sana adalah perintah pip yang ditolak
+	// PEP 668 di Debian/Ubuntu modern. Kegagalannya tidak membatalkan
+	// pemasangan 9router — lihat pastikanHeadroom.
+	pastikanHeadroom()
 	return pasangUnit9Router(u)
 }
 
