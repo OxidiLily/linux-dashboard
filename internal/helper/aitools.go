@@ -2,6 +2,7 @@ package helper
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -252,7 +253,86 @@ func installHeadroom(u *userInfo) error {
 		return err
 	}
 	serahkanVenvHeadroom(u)
+	return pasangUnitHeadroom(u)
+}
+
+// unitHeadroomTertanam adalah salinan deploy/headroom.service yang ikut
+// compile. Sumber kebenarannya deploy/headroom.service; untuk sinkron:
+// `cp deploy/headroom.service internal/helper/embed/headroom.service`.
+//
+//go:embed embed/headroom.service
+var unitHeadroomTertanam []byte
+
+const (
+	unitDstHeadroom  = "/etc/systemd/system/headroom.service"
+	dropDirHeadroom  = unitDstHeadroom + ".d"
+	dropUserHeadroom = dropDirHeadroom + "/10-user.conf"
+)
+
+// pasangUnitHeadroom memasang unit systemd Headroom lalu menjalankannya.
+//
+// Tanpa ini Headroom terpasang tapi tidak pernah hidup: halaman Token Saver
+// menampilkan "Stopped" di mesin yang paketnya jelas ada, dan satu-satunya
+// cara menghidupkannya adalah menekan Start di halaman itu setiap kali mesin
+// reboot — 9router menjalankan proxy sebagai proses lepas yang pid-nya
+// disimpan di ~/.9router/headroom/proxy.pid, bukan sebagai service.
+// Memasangnya sebagai komponen panel tapi membiarkan hidup-matinya jadi
+// pekerjaan manual user adalah setengah pekerjaan.
+//
+// Identitasnya disamakan dengan 9router lewat drop-in: cache CCR dan statistik
+// kompresi ditulis ke $HOME, dan dua proses yang menulis ke HOME berbeda
+// berarti angka yang ditampilkan Token Saver bukan angka milik proxy yang
+// benar-benar melayani permintaan.
+func pasangUnitHeadroom(u *userInfo) error {
+	// Unit yang sudah ada tidak ditimpa — admin yang menyetel port atau
+	// ExecStart sendiri tidak boleh kehilangan setelannya tiap pasang ulang.
+	if _, err := os.Stat(unitDstHeadroom); err != nil {
+		if len(unitHeadroomTertanam) == 0 {
+			return fmt.Errorf("unit systemd headroom tidak tersedia di binary panel")
+		}
+		if err := os.WriteFile(unitDstHeadroom, unitHeadroomTertanam, 0o644); err != nil {
+			return fmt.Errorf("tulis %s: %w", unitDstHeadroom, err)
+		}
+	}
+	pastikanUserHeadroom(u)
+	if _, err := run("systemctl", "daemon-reload"); err != nil && !hasNoSystemd() {
+		return fmt.Errorf("daemon-reload: %w", err)
+	}
+	// Kegagalan start tidak dilaporkan sebagai kegagalan pemasangan: di
+	// WSL/LXC tanpa systemd init yang utuh systemctl selalu gagal, sementara
+	// paket dan unit-nya sudah benar-benar terpasang.
+	if _, err := run("systemctl", "enable", "--now", "headroom.service"); err != nil {
+		log.Printf("headroom: service gagal dijalankan: %v", err)
+	}
 	return nil
+}
+
+// pastikanUserHeadroom menulis drop-in identitas user, dan me-restart service
+// kalau isinya berubah — drop-in baru tidak berlaku pada proses yang sudah
+// berjalan dengan identitas lama.
+func pastikanUserHeadroom(u *userInfo) {
+	if u == nil || u.UID == 0 || u.Home == "" || u.Name == "" {
+		return
+	}
+	inginkan := "[Service]\n" +
+		"User=" + u.Name + "\n" +
+		"Group=" + strconv.Itoa(u.GID) + "\n" +
+		"Environment=HOME=" + u.Home + "\n"
+	if b, err := os.ReadFile(dropUserHeadroom); err == nil && string(b) == inginkan {
+		return
+	}
+	if err := os.MkdirAll(dropDirHeadroom, 0o755); err != nil {
+		log.Printf("headroom: %s gagal dibuat: %v", dropDirHeadroom, err)
+		return
+	}
+	if err := os.WriteFile(dropUserHeadroom, []byte(inginkan), 0o644); err != nil {
+		log.Printf("headroom: drop-in identitas user gagal ditulis: %v", err)
+		return
+	}
+	_, _ = run("systemctl", "daemon-reload")
+	if _, err := run("systemctl", "is-active", "--quiet", "headroom.service"); err == nil {
+		_, _ = run("systemctl", "restart", "headroom.service")
+	}
 }
 
 // serahkanVenvHeadroom memberikan venv ke user panel.
@@ -300,6 +380,13 @@ func bersihkanHeadroomPipx() {
 }
 
 func uninstallHeadroom() error {
+	// Service dihentikan dan unitnya dibuang lebih dulu: unit yang menunjuk
+	// venv yang sudah tidak ada hanya menghasilkan status=203/EXEC berulang,
+	// dan pemasangan berikutnya menemukannya masih ada lalu membiarkannya.
+	_, _ = run("systemctl", "disable", "--now", "headroom.service")
+	_ = os.RemoveAll(dropDirHeadroom)
+	_ = os.Remove(unitDstHeadroom)
+	_, _ = run("systemctl", "daemon-reload")
 	bersihkanHeadroomPipx()
 	return os.RemoveAll(venvHeadroom)
 }
@@ -334,6 +421,13 @@ func pastikanHeadroom(u *userInfo) {
 		// tetap membuat tombol extras gagal — penyembuhannya di jalur yang
 		// dilewati tiap pemasangan, bukan cuma di jalur instalasi baru.
 		serahkanVenvHeadroom(u)
+		// Alasan yang sama untuk service-nya: mesin yang memasang Headroom
+		// sebelum rilis ini punya venv lengkap TANPA unit systemd, jadi
+		// Token Saver melaporkan "Stopped" selamanya sampai ada yang menekan
+		// Start manual. Unit menyusul di sini, bukan hanya saat venv baru.
+		if err := pasangUnitHeadroom(u); err != nil {
+			log.Printf("9router: unit headroom gagal dipasang: %v", err)
+		}
 		return
 	}
 	if err := installHeadroom(u); err != nil {

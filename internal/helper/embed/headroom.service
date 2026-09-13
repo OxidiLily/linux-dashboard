@@ -1,0 +1,31 @@
+[Unit]
+Description=Headroom proxy — lapisan kompresi konteks untuk Token Saver 9router
+Documentation=https://github.com/headroomlabs-ai/headroom
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Port 8787 adalah nilai bawaan yang dicari 9router (HEADROOM_URL default
+# http://localhost:8787). Host dikunci ke 127.0.0.1: proxy ini hanya dipanggil
+# 9router di mesin yang sama, dan mengeksposnya ke LAN berarti membuka jalur
+# yang meneruskan permintaan ke penyedia model beserta kredensialnya.
+ExecStart=/opt/headroom/bin/headroom proxy --host 127.0.0.1 --port 8787
+Restart=on-failure
+RestartSec=5
+# Proxy memuat kompresor (tree-sitter, dan ONNX/torch kalau extra [ml]
+# terpasang) saat start — di mesin lambat itu puluhan detik. Batas bawaan
+# systemd 90 detik terlalu ketat begitu [ml] ikut terpasang.
+TimeoutStartSec=300
+TimeoutStopSec=30
+# Panel MENIMPA kedua baris ini lewat drop-in 10-user.conf, dengan identitas
+# user panel yang sama dengan yang dipakai 9router — lihat pasangUnitHeadroom
+# di internal/helper/aitools.go. HOME wajib: headroom menyimpan cache CCR dan
+# statistiknya di $HOME, dan sebagai root itu mendarat di /root yang tidak
+# pernah dibaca siapa pun.
+Environment=HOME=/root
+Environment=HEADROOM_TELEMETRY=off
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
