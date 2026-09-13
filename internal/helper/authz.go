@@ -146,6 +146,7 @@ var sudoRequired = map[string]bool{
 	helperproto.CmdWGPeerDelete: true,
 	helperproto.CmdUpdateStatus: true,
 	helperproto.CmdUpdateStart:  true,
+	helperproto.CmdReboot:       true,
 	// Mengubah daftar printer berarti mengubah konfigurasi cupsd untuk semua
 	// user mesin, jadi jelas sudo. Yang TIDAK ada di daftar ini disengaja:
 	// CmdPrinterList, CmdPrintJobs, CmdPrintCancel, dan CmdPrintFile harus bisa

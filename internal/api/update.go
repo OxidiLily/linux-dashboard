@@ -65,3 +65,18 @@ func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 		map[string]any{"mode": body.Mode}, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// Reboot mesin dari menu profil. Helper menegakkan sudo lagi lewat tabel
+// sudoRequired, jadi requireSudo di sini cuma menghemat satu perjalanan ke helper.
+func (s *Server) handleReboot(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	if err := s.helper.Call(helperproto.CmdReboot, sess.Username, nil, nil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	s.store.LogActivity(sess.Username, "system_reboot", "reboot server dari panel", nil, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}

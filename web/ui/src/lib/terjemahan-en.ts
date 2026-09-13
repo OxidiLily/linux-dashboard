@@ -861,6 +861,12 @@ daftarkanTerjemahan({
   "Buka": "Open",
   "Sesi di server mungkin masih aktif — periksa koneksi lalu muat ulang halaman.":
     "The session on the server may still be active — check your connection and reload the page.",
+  "Reboot server?": "Reboot the server?",
+  "Semua service di mesin ini akan berhenti sampai server menyala kembali. Panel menyambung ulang otomatis.":
+    "Every service on this machine stops until the server comes back up. The panel reconnects automatically.",
+  "Reboot": "Reboot",
+  "Server sedang reboot — panel menyambung kembali otomatis.": "Server is rebooting — the panel reconnects automatically.",
+  "Gagal reboot: {0}": "Reboot failed: {0}",
   "Buka antarmuka {0} di tab baru": "Open the {0} interface in a new tab",
   "Tidak bisa membuka {0}: {1}": "Could not open {0}: {1}",
 
