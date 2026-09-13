@@ -278,6 +278,15 @@ daftarkanTerjemahan({
   "Cache build seluruhnya hasil turunan — tidak ada data yang hilang. Yang dibayar cuma build image berikutnya yang mulai dari nol.":
     "The build cache is entirely derived data — nothing is lost. The only cost is that the next image build starts from scratch.",
   "Bersihkan": "Clean up",
+  "Cari stack / container / image / port...": "Search stacks / containers / images / ports...",
+  "Tidak ada yang cocok dengan pencarian.": "Nothing matches your search.",
+  "Semua container stack ini sudah berjalan.": "Every container in this stack is already running.",
+  "Bersihkan semua sumber daya Docker yang tidak terpakai?": "Clean up every unused Docker resource?",
+  "Dibuang: SETIAP image yang tidak dipakai container mana pun (termasuk image stack yang sedang Down — harus diunduh ulang), volume yang tidak dipakai container mana pun BESERTA seluruh isinya, network yang tidak terpakai, dan seluruh cache build. Container tidak disentuh.":
+    "Removed: EVERY image no container uses (including images of stacks that are Down — they must be pulled again), every volume no container uses AND all of its contents, unused networks, and the entire build cache. Containers are left untouched.",
+  "Buang image, volume, network, dan cache build yang tidak terpakai": "Remove unused images, volumes, networks and build cache",
+  "Membersihkan sumber daya Docker…": "Cleaning up Docker resources…",
+  "Pembersihan selesai.": "Clean-up finished.",
   "Repository": "Repository",
   "Dibuat": "Created",
   "bawaan": "built-in",
