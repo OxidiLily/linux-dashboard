@@ -59,6 +59,8 @@ daftarkanTerjemahan({
     "The sudoer who installed Docker is added to the `docker` group so they can run docker from their own shell. Group membership only takes effect in the NEXT login session — log out and back in (or run `newgrp docker`) before trying `docker ps`.",
   "Login Studio memakai basic auth. Username dan passwordnya ada di DASHBOARD_USERNAME dan DASHBOARD_PASSWORD pada berkas .env stack — buka lewat System → Docker → supabase → tombol .env (di disk: /opt/supabase/supabase-project/.env).":
     "Studio sign-in uses basic auth. The username and password live in DASHBOARD_USERNAME and DASHBOARD_PASSWORD in the stack's .env file — open it from System → Docker → supabase → the .env button (on disk: /opt/supabase/supabase-project/.env).",
+  "Akun admin pertama dibangkitkan saat pemasangan. Email dan passwordnya ada di DEFAULT_ADMIN_EMAIL dan DEFAULT_ADMIN_PASSWORD pada berkas .env.docker stack — buka lewat System → Docker → arkon → tombol .env (di disk: /opt/arkon/arkon/.env.docker). Portal admin ada di port 3119, endpoint MCP di port 5055/mcp.":
+    "The first admin account is generated during installation. Its email and password live in DEFAULT_ADMIN_EMAIL and DEFAULT_ADMIN_PASSWORD in the stack's .env.docker file — open it from System → Docker → arkon → the .env button (on disk: /opt/arkon/arkon/.env.docker). The admin portal is on port 3119, the MCP endpoint on port 5055/mcp.",
   "Hanya yang belum terpasang": "Only not installed",
   "Memasang": "Installing",
   "Memproses": "Working",
@@ -88,6 +90,8 @@ daftarkanTerjemahan({
   "Gateway API AI lokal (butuh Node.js).": "Local AI API gateway (requires Node.js).",
   "Backend self-hosted lengkap (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) di atas Docker Compose, dipasang lewat setup.sh resmi Supabase ke /opt/supabase.":
     "A complete self-hosted backend (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) on Docker Compose, installed into /opt/supabase by Supabase's official setup.sh.",
+  "Knowledge hub self-hosted + server MCP (FastAPI, Postgres/pgvector, Redis, MinIO, Next.js) di atas Docker Compose. Terpasang, ia otomatis didaftarkan sebagai sumber pengetahuan di setiap sesi AI Agent.":
+    "Self-hosted knowledge hub + MCP server (FastAPI, Postgres/pgvector, Redis, MinIO, Next.js) on Docker Compose. Once installed, it is registered automatically as a knowledge source in every AI Agent session.",
   "Server DNS lengkap (blocklist, DoH/DoT, cache) — web console di port 5380, login awal admin/admin. Pemasangannya mematikan systemd-resolved.":
     "Full DNS server (blocklists, DoH/DoT, caching) — web console on port 5380, first login admin/admin. Installing it disables systemd-resolved.",
   "Server file sharing SMB/CIFS. Halaman File manager → Samba butuh ini.":

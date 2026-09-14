@@ -38,7 +38,8 @@ func (s *Server) handleHostname(w http.ResponseWriter, r *http.Request) {
 
 // handleOpenURL adalah endpoint diagnostik yang mengembalikan URL absolut
 // untuk komponen yang punya antarmuka web sendiri — 9router (:20128),
-// Technitium DNS (:5380), dan Supabase Studio (:8000). Dipakai tombol "Buka"
+// Technitium DNS (:5380), Supabase Studio (:8000), dan portal Arkon (:3119).
+// Dipakai tombol "Buka"
 // di halaman Components — tanpa ini user harus mengingat port dan mengetik
 // manual, yang sering salah di WSL/lxc yang tidak punya hostname tetap.
 func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +57,13 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 		// dibangkitkan setup.sh dan bisa dibaca di penyunting .env stack pada
 		// halaman System → Docker.
 		port = 8000
+	case "arkon":
+		// Portal admin Next.js Arkon. BUKAN 5055 — itu API-nya, tempat
+		// endpoint /mcp yang dipakai agent, dan membukanya di browser hanya
+		// menampilkan JSON. Login memakai DEFAULT_ADMIN_EMAIL/PASSWORD yang
+		// dibangkitkan panel saat memasang dan bisa dibaca di penyunting
+		// .env.docker pada halaman System → Docker.
+		port = 3119
 	default:
 		writeErr(w, http.StatusNotFound, "tidak ada URL langsung untuk komponen "+component)
 		return
