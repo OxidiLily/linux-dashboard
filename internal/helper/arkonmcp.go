@@ -222,6 +222,15 @@ var kunciTokenArkon sync.Mutex
 // app/services/mcp_auth_service.py), jadi tidak ada jalan membacanya kembali.
 // Tanpa cache ini, tiap sesi agent akan merotasi token tier-nya dan
 // membatalkan token yang sudah tertulis di config sesi-sesi sebelumnya.
+//
+// ponytail: cache yang ada dipercaya tanpa dicek ke Arkon. Token yang
+// dirotasi atau dicabut admin dari portal Arkon tetap disodorkan ke setiap
+// sesi baru sampai berkas cache-nya dihapus dengan tangan — pemeriksaan
+// hidup-matinya butuh login admin + satu panggilan lagi tiap sesi, tepat
+// sebelum PTY dibuka, dan itu jeda yang baru saja dipangkas. Jalan naiknya:
+// tombol "Segarkan token Arkon" di kartu komponen yang menghapus
+// dirTokenArkon, atau probe ringan ke /mcp dengan token cache yang memicu
+// penerbitan ulang saat dijawab 401. Purge sudah membersihkannya sendiri.
 func tokenTierArkon(t tierArkon) (string, error) {
 	kunciTokenArkon.Lock()
 	defer kunciTokenArkon.Unlock()
