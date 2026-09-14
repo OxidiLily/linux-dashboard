@@ -371,5 +371,14 @@ func purgeArkon() error {
 		namaProyekArkon+"_postgres_data",
 		namaProyekArkon+"_redis_data",
 		namaProyekArkon+"_minio_data")
+	// Cache token tier ikut dibuang, dan ini WAJIB — bukan sekadar kerapian.
+	// Token di dalamnya adalah identitas employee di database yang baru saja
+	// dihapus bersama volumenya. Dibiarkan, pemasangan berikutnya lahir dengan
+	// database kosong sementara cache masih menyodorkan token lama yang
+	// bentuknya sah: setiap sesi agent menerima token mati, tidak ada jalur
+	// yang menyembuhkannya sendiri, dan tidak satu pun pesan menyebut cache
+	// sebagai sebabnya. Sengaja hanya di purge, bukan uninstall: uninstall
+	// menyimpan volume database, jadi token di cache tetap berlaku.
+	_ = os.RemoveAll(dirTokenArkon)
 	return os.RemoveAll(dirArkon)
 }
