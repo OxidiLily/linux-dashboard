@@ -92,8 +92,15 @@ func arkonTerpasang() bool {
 // Supabase, dan tidak punya tag rilis yang dipakai installer-nya. Yang
 // benar-benar menentukan versi deployment ini adalah commit yang di-clone,
 // jadi itu yang dibaca — lewat git, bukan dengan menebak dari nama folder.
+//
+// safe.directory WAJIB: folder proyek diserahkan ke user panel saat pemasangan
+// (milikiProyekArkon), sementara pembacaan ini dijalankan daemon sebagai root.
+// git ≥ 2.35.2 menolak membuka repo milik user lain — termasuk untuk root —
+// dengan "detected dubious ownership", dan tanpa ini kartu komponen diam-diam
+// tidak pernah menampilkan versi.
 func versiArkon() string {
-	res, err := runIn(proyekArkon, nil, "git", "describe", "--tags", "--always", "--dirty")
+	res, err := runIn(proyekArkon, nil, "git", "-c", "safe.directory="+proyekArkon,
+		"describe", "--tags", "--always", "--dirty")
 	if err != nil {
 		return ""
 	}

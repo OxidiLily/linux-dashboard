@@ -63,7 +63,16 @@ const (
 	// mereka menerimanya lewat config agent masing-masing.
 	dirTokenArkon = "/var/lib/linux-dashboard/arkon"
 
-	batasAPIArkon = 30 * time.Second
+	// batasAPIArkon sengaja pendek. Seluruh pendaftaran ini berjalan SEBELUM
+	// PTY dibuka (lihat handleTerminal), dan sesi pertama sebuah tier memanggil
+	// API sampai empat kali berurutan — login, cari employee, buat employee,
+	// terbitkan token. Dengan 30 detik per panggilan, API yang menerima koneksi
+	// tapi lambat menjawab (jendela startup compose) menahan terminal sampai dua
+	// menit tanpa satu pun tanda kehidupan di browser. API-nya loopback dan
+	// jawaban normalnya milidetik; lima detik sudah sangat longgar, dan kasus
+	// terburuk turun ke dua puluh detik. Arkon yang benar-benar mati ditolak
+	// seketika (connection refused), tidak menunggu batas ini.
+	batasAPIArkon = 5 * time.Second
 )
 
 // tierArkon adalah tingkat kewenangan yang dipetakan dari grup Linux.
@@ -436,6 +445,22 @@ var penulisMCPAgent = map[string]func(*userInfo, string) error{
 // headerOtorisasiArkon menyusun nilai header yang dipakai semua agent.
 func headerOtorisasiArkon(token string) string { return "Bearer " + token }
 
+// tulisBerkasRahasiaUser adalah tulisBerkasUser untuk berkas yang sesudah
+// ditulis memuat token MCP.
+//
+// tulisBerkasUser sengaja mempertahankan mode berkas yang sudah ada, supaya
+// panel tidak pernah MELONGGARKAN berkas kredensial milik user. Di sini
+// arahnya sebaliknya: ~/.claude.json lahir 0644 dari CLI-nya sendiri, dan
+// sesudah token disisipkan ia harus jadi 0600 — memperketat tidak pernah
+// merusak apa pun, dan tanpa ini token terbaca akun lain di mesin yang
+// direktori home-nya bisa dilalui.
+func tulisBerkasRahasiaUser(path, isi string, u *userInfo) error {
+	if err := tulisBerkasUser(path, isi, u, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
 // tulisMCPClaude mendaftarkan Arkon di ~/.claude.json.
 //
 // Ditulis sebagai JSON langsung, bukan lewat `claude mcp add`, karena dua hal
@@ -510,8 +535,7 @@ func sisipkanJSONMCP(path string, u *userInfo, kunci []string, nilai map[string]
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	// 0600: berkas ini sekarang memuat token MCP.
-	return tulisBerkasUser(path, string(baru), u, 0o600)
+	return tulisBerkasRahasiaUser(path, string(baru), u)
 }
 
 // gabungJSONMCP menyisipkan nilai pada jalur kunci di dalam dokumen JSON,
@@ -576,15 +600,99 @@ func gabungJSONMCP(isi []byte, kunci []string, nilai map[string]any) ([]byte, bo
 // OPENAI_API_KEY: config.yaml adalah berkas yang wajar disalin antar mesin,
 // .env di sebelahnya tidak. Hermes memuat ~/.hermes/.env sebelum membaca env
 // proses, jadi nilainya pasti terbaca.
-var blokMCPHermes = strings.Join([]string{
-	"mcp_servers:",
-	"  " + namaServerMCPArkon + ":",
-	"    url: " + urlMCPArkon,
-	"    headers:",
-	`      Authorization: "Bearer ${ARKON_MCP_TOKEN}"`,
-	"    enabled: true",
-	"",
-}, "\n")
+func entriMCPHermes(indent string) []string {
+	return []string{
+		indent + namaServerMCPArkon + ":",
+		indent + "  url: " + urlMCPArkon,
+		indent + "  headers:",
+		indent + `    Authorization: "Bearer ${ARKON_MCP_TOKEN}"`,
+		indent + "  enabled: true",
+	}
+}
+
+var blokMCPHermes = "mcp_servers:\n" + strings.Join(entriMCPHermes("  "), "\n") + "\n"
+
+// sisipkanMCPHermes menyisipkan entri Arkon ke config.yaml Hermes,
+// mengembalikan isi baru dan apakah ada yang berubah.
+//
+// Dua jalur, dan keduanya perlu. Kalau mcp_servers belum ada, bloknya
+// ditaruh di DEPAN — alasan sama dengan blokModelHermes: config yang sudah
+// ada bisa berakhir di tengah blok bersarang, dan menempel di sana mengubah
+// arti kunci yang sama sekali lain. Kalau mcp_servers SUDAH ada, entri Arkon
+// disisipkan tepat di bawah barisnya dengan indentasi yang dipakai entri
+// lain di blok itu. Meniru pola singleton `model:` di sini — hanya menulis
+// kalau kuncinya belum ada — berarti user yang sudah mendaftarkan satu server
+// MCP lain tidak akan pernah mendapat Arkon, tanpa satu pun pesan.
+//
+// Fungsi murni, dipisah dari penulisannya supaya bisa diuji tanpa HOME.
+func sisipkanMCPHermes(isi string) (string, bool, error) {
+	if !punyaKunciYAML(isi, "mcp_servers") {
+		return blokMCPHermes + isi, true, nil
+	}
+	baris := strings.Split(isi, "\n")
+	for i, b := range baris {
+		if !strings.HasPrefix(b, "mcp_servers:") {
+			continue
+		}
+		// `mcp_servers: {}` atau `mcp_servers: !!null` — nilai gaya flow di
+		// baris yang sama. Menyisipkan anak berindentasi di bawahnya
+		// menghasilkan YAML yang tidak valid, dan tidak ada cara menyunting
+		// bentuk itu dengan aman tanpa parser sungguhan.
+		if sisa := strings.TrimSpace(strings.TrimPrefix(b, "mcp_servers:")); sisa != "" && !strings.HasPrefix(sisa, "#") {
+			return isi, false, fmt.Errorf("mcp_servers memakai nilai satu baris (%q), dilewati", sisa)
+		}
+		indent := indentAnakYAML(baris[i+1:])
+		if punyaAnakYAML(baris[i+1:], indent, namaServerMCPArkon) {
+			return isi, false, nil
+		}
+		entri := entriMCPHermes(indent)
+		baru := make([]string, 0, len(baris)+len(entri))
+		baru = append(baru, baris[:i+1]...)
+		baru = append(baru, entri...)
+		baru = append(baru, baris[i+1:]...)
+		return strings.Join(baru, "\n"), true, nil
+	}
+	return isi, false, nil
+}
+
+// indentAnakYAML membaca indentasi anak pertama sebuah blok mapping dari
+// baris-baris setelah kuncinya. Blok kosong (baris berikutnya kunci tingkat
+// atas lain, atau akhir berkas) memakai dua spasi, bawaan yang ditulis
+// blokMCPHermes.
+func indentAnakYAML(setelah []string) string {
+	for _, b := range setelah {
+		t := strings.TrimSpace(b)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		n := len(b) - len(strings.TrimLeft(b, " "))
+		if n == 0 {
+			break
+		}
+		return strings.Repeat(" ", n)
+	}
+	return "  "
+}
+
+// punyaAnakYAML menjawab apakah blok mapping sudah memuat anak bernama nama
+// pada indentasi yang diberikan. Pencarian berhenti di baris pertama yang
+// indentasinya lebih dangkal — di sanalah blok itu berakhir.
+func punyaAnakYAML(setelah []string, indent, nama string) bool {
+	for _, b := range setelah {
+		t := strings.TrimSpace(b)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		n := len(b) - len(strings.TrimLeft(b, " "))
+		if n < len(indent) {
+			return false
+		}
+		if b == indent+nama+":" {
+			return true
+		}
+	}
+	return false
+}
 
 // tulisMCPHermes mendaftarkan Arkon di ~/.hermes/config.yaml + .env.
 func tulisMCPHermes(u *userInfo, token string) error {
@@ -592,11 +700,12 @@ func tulisMCPHermes(u *userInfo, token string) error {
 	cfg := filepath.Join(dir, "config.yaml")
 
 	isi, _ := os.ReadFile(cfg)
-	if !punyaKunciYAML(string(isi), "mcp_servers") {
-		// Di DEPAN, alasan sama dengan blokModelHermes: config yang sudah ada
-		// bisa berakhir di tengah blok bersarang, dan menempel di sana mengubah
-		// arti kunci yang sama sekali lain.
-		if err := tulisBerkasUser(cfg, blokMCPHermes+string(isi), u, 0o600); err != nil {
+	baru, berubah, err := sisipkanMCPHermes(string(isi))
+	if err != nil {
+		return fmt.Errorf("%s: %w", cfg, err)
+	}
+	if berubah {
+		if err := tulisBerkasUser(cfg, baru, u, 0o600); err != nil {
 			return err
 		}
 	}
@@ -609,7 +718,7 @@ func tulisMCPHermes(u *userInfo, token string) error {
 	if lama, ada := nilaiVarEnv(string(isiEnv), "ARKON_MCP_TOKEN"); ada && lama == token {
 		return nil
 	}
-	return tulisBerkasUser(env, gantiVarEnv(string(isiEnv), "ARKON_MCP_TOKEN", token), u, 0o600)
+	return tulisBerkasRahasiaUser(env, gantiVarEnv(string(isiEnv), "ARKON_MCP_TOKEN", token), u)
 }
 
 // penandaMCPCodex menandai awal blok yang ditulis panel di config.toml.
@@ -654,7 +763,7 @@ func tulisMCPCodex(u *userInfo, token string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return tulisBerkasUser(path, isi+blok, u, 0o600)
+	return tulisBerkasRahasiaUser(path, isi+blok, u)
 }
 
 // akhirBlokTOML mencari akhir blok yang dimulai di posisi mulai: baris tabel
