@@ -174,6 +174,29 @@ var components = map[string]*component{
 		terpasang:   supabaseTerpasang,
 		version:     versiSupabase,
 	}, portKomponen{portGatewaySupabase, "tcp", "API gateway & Studio"}),
+	// Arkon sejenis Supabase dalam bentuk — stack docker compose di /opt — tapi
+	// masuk kategori AI, bukan Database & backend, karena yang dipakai panel
+	// darinya adalah endpoint MCP-nya: ia menjadi sumber pengetahuan untuk
+	// kelima CLI agent, bukan backend untuk aplikasi user. Pendaftarannya ke
+	// tiap agent ada di arkonmcp.go.
+	//
+	// installUser, bukan install: pemasangannya menyeret Docker ikut terpasang,
+	// dan user yang menekan Pasang harus masuk grup docker supaya halaman
+	// System → Docker bisa mengelola stack-nya.
+	//
+	// Port MinIO (9002/9003) sengaja tidak ikut didaftarkan — lihat arkon.go.
+	"arkon": denganPort(&component{
+		Name: "arkon", Category: katAI,
+		Description: "Knowledge hub self-hosted + server MCP (FastAPI, Postgres/pgvector, Redis, MinIO, Next.js) di atas Docker Compose. Terpasang, ia otomatis didaftarkan sebagai sumber pengetahuan di setiap sesi AI Agent.",
+		RequiredFor: "AI → AI Agent",
+		KelolaDi:    "System → Docker",
+		installUser: installArkon,
+		uninstall:   uninstallArkon,
+		purge:       purgeArkon,
+		terpasang:   arkonTerpasang,
+		version:     versiArkon,
+	}, portKomponen{portAPIArkon, "tcp", "API & endpoint MCP"},
+		portKomponen{portWebArkon, "tcp", "portal admin"}),
 	"wireguard": {
 		Name: "wireguard", Binary: "wg", Service: "wg-quick@wg0",
 		Category: katRuntime, Description: "VPN peer-to-peer, dikonfigurasi di Settings → Network.",
@@ -383,7 +406,7 @@ func ComponentNames() []string {
 	return []string{
 		"docker", "nodejs", "tailscale", "cloudflared", "wireguard", "9router", "headroom",
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
-		"rtk", "graphify", "ponytail", "browser-use",
+		"rtk", "graphify", "ponytail", "browser-use", "arkon",
 		"supabase",
 		"samba", "nfs-server", "nfs-client", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs",
 		"ufw", "fail2ban",
@@ -437,6 +460,9 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	}
 	if st.Installed && name == "supabase" {
 		st.Note = catatanSupabase
+	}
+	if st.Installed && name == "arkon" {
+		st.Note = catatanArkon
 	}
 	return st
 }
