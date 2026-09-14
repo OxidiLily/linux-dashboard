@@ -62,7 +62,7 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 		// endpoint /mcp yang dipakai agent, dan membukanya di browser hanya
 		// menampilkan JSON. Login memakai DEFAULT_ADMIN_EMAIL/PASSWORD yang
 		// dibangkitkan panel saat memasang dan bisa dibaca di penyunting
-		// .env.docker pada halaman System → Docker.
+		// .env stack pada halaman System → Docker.
 		port = 3119
 	default:
 		writeErr(w, http.StatusNotFound, "tidak ada URL langsung untuk komponen "+component)

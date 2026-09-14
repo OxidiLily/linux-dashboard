@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -231,12 +232,35 @@ func argsCompose(st store.Stack, pemegang map[string]string) []string {
 	if lama := pemegang[filepath.Clean(st.ComposePath)]; lama != "" {
 		proyek = lama
 	}
-	if proyek == "" {
-		// Nama stack tidak menyisakan satu pun karakter yang sah (mis. hanya
-		// simbol). Biarkan compose menentukan sendiri, jangan kirim -p kosong.
-		return []string{"compose", "-f", st.ComposePath}
+	args := []string{"compose"}
+	if proyek != "" {
+		// Nama stack yang tidak menyisakan satu pun karakter sah (mis. hanya
+		// simbol) dibiarkan ditentukan compose sendiri — jangan kirim -p kosong.
+		args = append(args, "-p", proyek)
 	}
-	return []string{"compose", "-p", proyek, "-f", st.ComposePath}
+	args = append(args, "-f", st.ComposePath)
+	// `-f` eksplisit mematikan pemuatan otomatis berkas override yang
+	// dilakukan compose saat dipanggil tanpa -f. Stack yang menyimpan
+	// penyesuaiannya di docker-compose.override.yml — Arkon meletakkan sumber
+	// image MinIO di sana — akan dijalankan panel dengan konfigurasi yang
+	// BERBEDA dari `docker compose up` yang diketik user di foldernya, dan
+	// tidak ada satu pun pesan yang menyebut override sebagai bedanya.
+	if o := berkasOverride(st.ComposePath); o != "" {
+		args = append(args, "-f", o)
+	}
+	return args
+}
+
+// berkasOverride mengembalikan berkas override yang dipasangkan compose dengan
+// berkas utamanya — docker-compose.override.yml di samping docker-compose.yml,
+// compose.override.yaml di samping compose.yaml — atau "" kalau tidak ada.
+func berkasOverride(compose string) string {
+	ext := filepath.Ext(compose)
+	o := strings.TrimSuffix(compose, ext) + ".override" + ext
+	if berkasAda(o) {
+		return o
+	}
+	return ""
 }
 
 // argsStatusStack menyusun perintah pembaca status sebuah stack.
@@ -276,6 +300,11 @@ var stackKomponen = []struct{ nama, compose, ket string }{
 	{
 		"supabase",
 		"/opt/supabase/supabase-project/docker-compose.yml",
+		"Dipasang dari Settings → Components.",
+	},
+	{
+		"arkon",
+		"/opt/arkon/arkon/docker-compose.yml",
 		"Dipasang dari Settings → Components.",
 	},
 }
@@ -364,19 +393,7 @@ func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			v.Error = err.Error()
 		} else {
-			for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
-				if line == "" {
-					continue
-				}
-				var row struct{ State string }
-				if err := json.Unmarshal([]byte(line), &row); err != nil {
-					continue
-				}
-				v.Total++
-				if row.State == "running" {
-					v.Running++
-				}
-			}
+			v.Running, v.Total = hitungStack(res.Stdout)
 		}
 		out = append(out, v)
 	}
@@ -385,6 +402,65 @@ func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 	// dan user mendaftarkan ulang compose yang sama sampai bentrok.
 	out = append(out, stackLuar(lsRows, stacks)...)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// polaTugasSelesai menangkap nama service yang ditunggu service lain sampai
+// selesai — cara compose menyatakan sebuah service adalah tugas sekali jalan.
+// Hanya muncul di label com.docker.compose.depends_on, dan nama service tidak
+// pernah memuat koma atau "=", jadi mencocokkannya pada seluruh string label
+// aman meski label lain (config_files) ikut memuat koma.
+var polaTugasSelesai = regexp.MustCompile(`([A-Za-z0-9_.-]+):service_completed_successfully`)
+
+// hitungStack membaca keluaran `compose ps -a --format json` menjadi jumlah
+// container berjalan / total.
+//
+// Container yang dinyatakan compose sebagai TUGAS — service yang ditunggu
+// service lain dengan condition service_completed_successfully, seperti
+// migrator Arkon yang menjalankan `alembic upgrade head` lalu keluar — tidak
+// dihitung begitu selesai dengan exit 0. Tanpa pengecualian ini stack yang
+// sepenuhnya sehat selamanya melapor "7 / 8" berwarna peringatan, dan user
+// mencari service ke-8 yang mati padahal tidak ada. Tugas yang keluar dengan
+// kode ≠ 0 tetap dihitung: itu memang kegagalan, dan angka yang turun adalah
+// satu-satunya cara kartu stack menunjukkannya.
+//
+// Dikenali dari label depends_on container lain, bukan dari restart policy
+// atau sekadar "exited 0": service biasa tanpa `restart:` juga berpolicy "no",
+// dan service yang dihentikan user lewat docker stop pun sering keluar dengan
+// 0 — keduanya harus tetap terhitung sebagai service yang mati.
+func hitungStack(keluaran string) (running, total int) {
+	type baris struct {
+		Service  string
+		State    string
+		ExitCode int
+		Labels   string
+	}
+	var rows []baris
+	for _, line := range strings.Split(strings.TrimSpace(keluaran), "\n") {
+		if line == "" {
+			continue
+		}
+		var row baris
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	tugas := map[string]bool{}
+	for _, r := range rows {
+		for _, m := range polaTugasSelesai.FindAllStringSubmatch(r.Labels, -1) {
+			tugas[m[1]] = true
+		}
+	}
+	for _, r := range rows {
+		if tugas[r.Service] && r.State == "exited" && r.ExitCode == 0 {
+			continue
+		}
+		total++
+		if r.State == "running" {
+			running++
+		}
+	}
+	return running, total
 }
 
 // stackLuar menyaring hasil `docker compose ls` menjadi stack yang path

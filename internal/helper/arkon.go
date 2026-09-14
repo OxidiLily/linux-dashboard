@@ -31,11 +31,22 @@ import (
 // dan alternatifnya bukan "skrip resmi yang lebih tahu" melainkan placeholder
 // yang pasti salah.
 const (
-	dirArkon       = "/opt/arkon"
-	proyekArkon    = dirArkon + "/arkon"
-	composeArkon   = proyekArkon + "/docker-compose.yml"
-	envArkon       = proyekArkon + "/.env.docker"
+	dirArkon     = "/opt/arkon"
+	proyekArkon  = dirArkon + "/arkon"
+	composeArkon = proyekArkon + "/docker-compose.yml"
+	// Rahasia stack ditulis ke .env, BUKAN .env.docker seperti yang dicontohkan
+	// Arkon, dan .env.docker dibuat sebagai symlink ke sana. Dua nama untuk
+	// satu berkas, karena dua pihak memanggilnya dengan nama berbeda: compose
+	// Arkon membaca env_file .env.docker, sedangkan halaman System → Docker —
+	// tombol .env-nya, dan interpolasi ${...} pada setiap Up/Restart yang
+	// dijalankannya dengan -f — hanya mengenal .env di samping berkas compose.
+	// Dengan .env.docker sebagai berkas sungguhan, stack ini di halaman Docker
+	// tampil dengan .env kosong dan Restart menyalakan redis dengan password
+	// bawaan compose, bukan yang dibaca API.
+	envArkon       = proyekArkon + "/.env"
+	tautanEnvArkon = proyekArkon + "/.env.docker"
 	contohEnvArkon = proyekArkon + "/.env.docker.example"
+	overrideArkon  = proyekArkon + "/docker-compose.override.yml"
 	repoArkon      = "https://github.com/nduckmink/arkon.git"
 
 	// namaProyekArkon dipakai sebagai `-p` pada setiap perintah compose.
@@ -76,8 +87,8 @@ const (
 // komponen terbaca sekali pandang oleh siapa pun yang melihat layar, dan
 // halaman ini yang paling sering ikut terpotret saat user melaporkan masalah.
 const catatanArkon = "Akun admin pertama dibangkitkan saat pemasangan. Email dan passwordnya ada di " +
-	"DEFAULT_ADMIN_EMAIL dan DEFAULT_ADMIN_PASSWORD pada berkas .env.docker stack — buka lewat " +
-	"System → Docker → arkon → tombol .env (di disk: /opt/arkon/arkon/.env.docker). " +
+	"DEFAULT_ADMIN_EMAIL dan DEFAULT_ADMIN_PASSWORD pada berkas .env stack — buka lewat " +
+	"System → Docker → arkon → tombol .env (di disk: " + envArkon + "). " +
 	"Portal admin ada di port " + portWebArkon + ", endpoint MCP di port " + portAPIArkon + "/mcp."
 
 // arkonTerpasang: berkas compose ada = stack-nya sudah di-clone ke mesin ini.
@@ -120,6 +131,36 @@ func rahasiaAcak(nByte int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// isiOverrideArkon menimpa sumber image MinIO milik compose Arkon.
+//
+// docker-compose.yml Arkon memakai `minio/minio:latest` dari Docker Hub, dan
+// repositori itu SUDAH TIDAK ADA: MinIO menariknya, dan `docker pull` menjawab
+// "pull access denied for minio/minio, repository does not exist". Tanpa ini
+// pemasangan gagal di detik pertama, sebelum satu pun image lain selesai
+// ditarik — dan pesannya menyebut 'docker login' seolah masalahnya kredensial.
+// Image yang sama masih diterbitkan di quay.io, dan yang dipakai di sana tetap
+// memuat `mc`, jadi healthcheck `mc ready local` milik compose Arkon tetap
+// berjalan.
+//
+// Ditulis sebagai docker-compose.override.yml, bukan dengan menyunting
+// docker-compose.yml: berkas itu milik repo yang di-clone, dan mengubahnya
+// membuat `git describe --dirty` di versiArkon menandai setiap pemasangan
+// sebagai "-dirty" sekaligus menghalangi pembaruan lewat git pull. Berkas
+// override dibaca compose secara otomatis di samping berkas utamanya.
+//
+// ponytail: ini menambal repo hulu dari luar. Begitu Arkon memindahkan
+// image-nya sendiri, berkas ini cukup dihapus.
+const isiOverrideArkon = `# Ditulis panel: minio/minio di Docker Hub sudah ditarik MinIO,
+# image yang sama masih diterbitkan di quay.io.
+services:
+  minio:
+    image: quay.io/minio/minio:latest
+`
+
+func tulisOverrideArkon() error {
+	return os.WriteFile(overrideArkon, []byte(isiOverrideArkon), 0o644)
 }
 
 // installArkon meng-clone repo resmi lalu menyalakan stack-nya.
@@ -172,7 +213,10 @@ func installArkon(u *userInfo) error {
 
 	tahapBaru("membangkitkan rahasia Arkon")
 	if err := siapkanEnvArkon(); err != nil {
-		return errInvalid("menyiapkan .env.docker Arkon: %v", err)
+		return errInvalid("menyiapkan .env Arkon: %v", err)
+	}
+	if err := tulisOverrideArkon(); err != nil {
+		return errInvalid("menulis docker-compose.override.yml Arkon: %v", err)
 	}
 
 	// Kepemilikan diserahkan SEBELUM stack dinyalakan, selagi belum ada berkas
@@ -185,9 +229,52 @@ func installArkon(u *userInfo) error {
 		log.Printf("arkon: kepemilikan proyek: %v", err)
 	}
 
+	// Dicatat SEBELUM `up`, karena `up` yang gagal pun sudah membuat volume:
+	// batalkanPemasanganArkon perlu tahu volume mana yang lahir dari percobaan
+	// ini dan mana yang tertinggal dari pemasangan lama yang datanya dijaga.
+	volumeLama := adaVolumeArkon()
+
 	tahapBaru("membangun & menjalankan stack Arkon (build pertama bisa puluhan menit)")
-	return jalankanKeProgres(proyekArkon, "docker", "compose", "-p", namaProyekArkon,
-		"--env-file", ".env.docker", "up", "-d", "--build", "--wait", "--wait-timeout", tungguArkon)
+	if err := jalankanKeProgres(proyekArkon, "docker", "compose", "-p", namaProyekArkon, "up", "-d", "--build", "--wait", "--wait-timeout", tungguArkon); err != nil {
+		batalkanPemasanganArkon(volumeLama)
+		return err
+	}
+	return nil
+}
+
+// adaVolumeArkon: satu saja volume bernama milik stack ini sudah ada di Docker.
+func adaVolumeArkon() bool {
+	res, err := run("docker", "volume", "ls", "-q", "--filter", "name=^"+namaProyekArkon+"_")
+	return err == nil && strings.TrimSpace(res.Stdout) != ""
+}
+
+// batalkanPemasanganArkon membersihkan jejak `compose up` yang gagal.
+//
+// Tanpa ini kegagalan meninggalkan folder proyek lengkap dengan berkas
+// compose-nya — dan arkonTerpasang, yang memang hanya melihat berkas itu,
+// menjawab "terpasang" untuk stack yang tidak pernah hidup: kartu komponen
+// hijau, tiap sesi agent mencoba mendaftar ke API yang tidak ada, dan Pasang
+// berikutnya ditolak karena "folder sudah ada". Yang benar sesudah gagal
+// adalah keadaan seperti sebelum Pasang ditekan, supaya bisa ditekan lagi.
+//
+// Volume ikut dihapus HANYA kalau belum ada sebelum percobaan ini. Volume yang
+// lebih tua adalah data pemasangan lama yang dijaga uninstall, dan membuangnya
+// karena build gagal adalah kehilangan yang tidak pernah diminta user.
+func batalkanPemasanganArkon(volumeLama bool) {
+	args := []string{"compose", "-p", namaProyekArkon, "down", "--remove-orphans"}
+	if !volumeLama {
+		args = append(args, "-v")
+	}
+	if _, err := runIn(proyekArkon, nil, "docker", args...); err != nil {
+		log.Printf("arkon: membersihkan stack yang gagal: %v", err)
+	}
+	// Folder dihapus, bukan dipindahkan ke bekas-* seperti uninstall: isinya
+	// clone hulu yang bisa diunduh ulang dan .env yang dibangkitkan ulang saat
+	// Pasang berikutnya. Cache build Docker ada di luar folder ini, jadi
+	// percobaan berikutnya tidak mengulang kompilasi yang sudah selesai.
+	if err := os.RemoveAll(proyekArkon); err != nil {
+		log.Printf("arkon: menghapus folder pemasangan yang gagal: %v", err)
+	}
 }
 
 // rahasiaArkon mengumpulkan seluruh nilai acak untuk satu pemasangan.
@@ -198,6 +285,7 @@ func installArkon(u *userInfo) error {
 // berbahaya di berkas ini, karena hasilnya terlihat sudah diurus.
 type rahasiaArkon struct {
 	Postgres   string
+	Redis      string
 	SecretKey  string
 	Pepper     string
 	Admin      string
@@ -212,6 +300,7 @@ func bangkitkanRahasiaArkon() (rahasiaArkon, error) {
 		nByte  int
 	}{
 		{&r.Postgres, 24},
+		{&r.Redis, 24},
 		{&r.SecretKey, 32},
 		{&r.Pepper, 32},
 		{&r.Admin, 18},
@@ -245,7 +334,14 @@ func gantiRahasiaArkon(isi string, r rahasiaArkon, ip string) string {
 		// Postgres lahir dengan password baru, API tetap menghubunginya dengan
 		// "arkon_secret", dan yang terlihat user cuma container api yang
 		// restart terus tanpa pernah menyebut password sebagai sebabnya.
-		"DATABASE_URL":           "postgresql+asyncpg://" + pengguna + ":" + r.Postgres + "@postgres:5432/" + basisData,
+		"DATABASE_URL": "postgresql+asyncpg://" + pengguna + ":" + r.Postgres + "@postgres:5432/" + basisData,
+		// REDIS_PASSWORD di contohnya KOSONG, dan itu bukan "tanpa password":
+		// compose Arkon menjalankan redis dengan
+		// `--requirepass ${REDIS_PASSWORD:-arkon_secret}`, sedangkan API
+		// membaca nilai kosong yang sama sebagai "hubungi tanpa password".
+		// Dibiarkan begitu, redis lahir mengunci diri dengan arkon_secret dan
+		// setiap koneksi API dijawab NOAUTH. Satu nilai acak untuk keduanya.
+		"REDIS_PASSWORD":         r.Redis,
 		"SECRET_KEY":             r.SecretKey,
 		"MCP_TOKEN_PEPPER":       r.Pepper,
 		"DEFAULT_ADMIN_PASSWORD": r.Admin,
@@ -286,8 +382,8 @@ func ambilVarEnv(isi, nama string) string {
 	return v
 }
 
-// siapkanEnvArkon menyalin .env.docker.example jadi .env.docker dengan seluruh
-// placeholder-nya diganti nilai sungguhan.
+// siapkanEnvArkon menyalin .env.docker.example jadi .env dengan seluruh
+// placeholder-nya diganti nilai sungguhan, lalu menautkan .env.docker ke sana.
 func siapkanEnvArkon() error {
 	b, err := os.ReadFile(contohEnvArkon)
 	if err != nil {
@@ -303,7 +399,12 @@ func siapkanEnvArkon() error {
 	// Arkon DAN MCP_TOKEN_PEPPER — pepper yang dipakai memverifikasi setiap
 	// token MCP. Siapa pun yang bisa membacanya bisa masuk sebagai admin
 	// knowledge hub, jadi ia tidak boleh terbaca user lain di mesin yang sama.
-	return os.WriteFile(envArkon, []byte(isi), 0o600)
+	if err := os.WriteFile(envArkon, []byte(isi), 0o600); err != nil {
+		return err
+	}
+	// Relatif, bukan absolut: tautannya tetap benar kalau folder proyek
+	// dipindahkan uninstall ke bekas-*.
+	return os.Symlink(filepath.Base(envArkon), tautanEnvArkon)
 }
 
 // milikiProyekArkon menyerahkan folder proyek ke user panel.
@@ -333,7 +434,7 @@ func milikiProyekArkon(u *userInfo) error {
 func uninstallArkon() error {
 	if arkonTerpasang() {
 		if _, err := runIn(proyekArkon, nil, "docker", "compose", "-p", namaProyekArkon,
-			"--env-file", ".env.docker", "down", "--remove-orphans"); err != nil {
+			"down", "--remove-orphans"); err != nil {
 			// Container yang gagal berhenti tidak boleh menahan uninstall:
 			// foldernya tetap dipindahkan, dan sisa container terlihat di
 			// halaman System → Docker.
@@ -360,7 +461,7 @@ func purgeArkon() error {
 	// wajar dan tidak menghentikan pembersihan direktori.
 	if arkonTerpasang() {
 		if _, err := runIn(proyekArkon, nil, "docker", "compose", "-p", namaProyekArkon,
-			"--env-file", ".env.docker", "down", "-v", "--remove-orphans"); err != nil {
+			"down", "-v", "--remove-orphans"); err != nil {
 			log.Printf("arkon: `compose down -v` gagal: %v", err)
 		}
 	}
