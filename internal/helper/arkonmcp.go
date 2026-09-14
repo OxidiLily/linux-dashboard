@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -219,7 +220,7 @@ func tokenTierArkon(t tierArkon) (string, error) {
 	berkas := filepath.Join(dirTokenArkon, "tier-"+t.nama+".json")
 	if b, err := os.ReadFile(berkas); err == nil {
 		var simpan berkasTierArkon
-		if json.Unmarshal(b, &simpan) == nil && simpan.Token != "" {
+		if json.Unmarshal(b, &simpan) == nil && tokenArkonSah(simpan.Token) {
 			return simpan.Token, nil
 		}
 	}
@@ -354,10 +355,26 @@ func terbitkanTokenArkon(jwt, employeeID string) (string, error) {
 		"/api/employees/"+employeeID+"/token", jwt, nil, &jawab); err != nil {
 		return "", err
 	}
-	if jawab.Token == "" {
-		return "", fmt.Errorf("Arkon tidak mengembalikan token MCP")
+	if !tokenArkonSah(jawab.Token) {
+		return "", fmt.Errorf("Arkon mengembalikan token MCP dengan bentuk yang tidak dikenal")
 	}
 	return jawab.Token, nil
+}
+
+// bentukTokenArkon adalah bentuk token yang diterbitkan Arkon:
+// "ark_" + secrets.token_urlsafe(32) (app/services/mcp_auth_service.py).
+var bentukTokenArkon = regexp.MustCompile(`^ark_[A-Za-z0-9_-]{20,}$`)
+
+// tokenArkonSah memeriksa bentuk token SEBELUM ia disisipkan ke berkas config.
+//
+// Ini pemeriksaan di pintu masuk, bukan di tiap penulis: tiga penulis di bawah
+// menyalin nilainya ke dalam string literal TOML, deklarasi .env, dan nilai
+// JSON. Alfabet URL-safe memang tidak memuat tanda kutip atau baris baru —
+// tapi itu jaminan dari kode Arkon hari ini, dan sebuah nilai yang datang
+// lewat HTTP dari proses lain tidak boleh dipercaya begitu saja untuk
+// disambung ke dalam berkas yang dibaca agent sebagai konfigurasi.
+func tokenArkonSah(token string) bool {
+	return bentukTokenArkon.MatchString(token)
 }
 
 // panggilAPIArkon adalah satu-satunya jalur HTTP ke Arkon di berkas ini.
@@ -512,9 +529,19 @@ func gabungJSONMCP(isi []byte, kunci []string, nilai map[string]any) ([]byte, bo
 	}
 
 	// Turun sampai induk entri, membuat map perantara yang belum ada.
+	//
+	// Kunci yang SUDAH ada tapi bukan objek tidak diambil alih: "mcp": false
+	// di opencode.json adalah keputusan user, dan menggantinya diam-diam
+	// dengan objek berisi Arkon membuang keputusan itu tanpa pernah
+	// memberitahunya. Dihentikan dengan error yang masuk log, sama seperti
+	// JSON yang tidak bisa diurai.
 	induk := cfg
 	for _, k := range kunci[:len(kunci)-1] {
-		anak, ok := induk[k].(map[string]any)
+		lama, ada := induk[k]
+		anak, ok := lama.(map[string]any)
+		if ada && !ok {
+			return nil, false, fmt.Errorf("kunci %q sudah ada tapi bukan objek, dilewati", k)
+		}
 		if !ok {
 			anak = map[string]any{}
 			induk[k] = anak
