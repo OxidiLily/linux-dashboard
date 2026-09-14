@@ -279,7 +279,7 @@ func emailTierArkon(t tierArkon) string {
 // masukAdminArkon login ke API Arkon memakai akun admin bawaan yang
 // dibangkitkan panel saat memasang komponen.
 //
-// Kredensialnya dibaca dari .env.docker, bukan disimpan panel di tempat kedua:
+// Kredensialnya dibaca dari .env stack, bukan disimpan panel di tempat kedua:
 // berkas itu sudah jadi sumber kebenaran untuk stack-nya, sudah ber-mode 0600,
 // dan satu kredensial yang disimpan di dua tempat adalah satu tempat yang bisa
 // basi tanpa ketahuan.

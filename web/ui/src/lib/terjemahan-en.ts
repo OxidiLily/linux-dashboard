@@ -59,8 +59,8 @@ daftarkanTerjemahan({
     "The sudoer who installed Docker is added to the `docker` group so they can run docker from their own shell. Group membership only takes effect in the NEXT login session — log out and back in (or run `newgrp docker`) before trying `docker ps`.",
   "Login Studio memakai basic auth. Username dan passwordnya ada di DASHBOARD_USERNAME dan DASHBOARD_PASSWORD pada berkas .env stack — buka lewat System → Docker → supabase → tombol .env (di disk: /opt/supabase/supabase-project/.env).":
     "Studio sign-in uses basic auth. The username and password live in DASHBOARD_USERNAME and DASHBOARD_PASSWORD in the stack's .env file — open it from System → Docker → supabase → the .env button (on disk: /opt/supabase/supabase-project/.env).",
-  "Akun admin pertama dibangkitkan saat pemasangan. Email dan passwordnya ada di DEFAULT_ADMIN_EMAIL dan DEFAULT_ADMIN_PASSWORD pada berkas .env.docker stack — buka lewat System → Docker → arkon → tombol .env (di disk: /opt/arkon/arkon/.env.docker). Portal admin ada di port 3119, endpoint MCP di port 5055/mcp.":
-    "The first admin account is generated during installation. Its email and password live in DEFAULT_ADMIN_EMAIL and DEFAULT_ADMIN_PASSWORD in the stack's .env.docker file — open it from System → Docker → arkon → the .env button (on disk: /opt/arkon/arkon/.env.docker). The admin portal is on port 3119, the MCP endpoint on port 5055/mcp.",
+  "Akun admin pertama dibangkitkan saat pemasangan. Email dan passwordnya ada di DEFAULT_ADMIN_EMAIL dan DEFAULT_ADMIN_PASSWORD pada berkas .env stack — buka lewat System → Docker → arkon → tombol .env (di disk: /opt/arkon/arkon/.env). Portal admin ada di port 3119, endpoint MCP di port 5055/mcp.":
+    "The first admin account is generated during installation. Its email and password live in DEFAULT_ADMIN_EMAIL and DEFAULT_ADMIN_PASSWORD in the stack's .env file — open it from System → Docker → arkon → the .env button (on disk: /opt/arkon/arkon/.env). The admin portal is on port 3119, the MCP endpoint on port 5055/mcp.",
   "Hanya yang belum terpasang": "Only not installed",
   "Memasang": "Installing",
   "Memproses": "Working",
