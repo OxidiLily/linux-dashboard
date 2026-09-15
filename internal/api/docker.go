@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"linux-dashboard/OxidiLily/internal/helperclient"
 	"linux-dashboard/OxidiLily/internal/helperproto"
 	"linux-dashboard/OxidiLily/internal/store"
 )
@@ -652,15 +653,41 @@ func (s *Server) handleStackEnvGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envPath := filepath.Join(filepath.Dir(st.ComposePath), ".env")
+	w.Header().Set("Cache-Control", "no-store")
 	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.Username,
 		helperproto.PathArgs{Path: envPath})
+	if helperclient.Code(err) == helperproto.ErrDenied {
+		// Instalasi lama dapat meninggalkan .env Arkon 0600 milik root.
+		// Gunakan aturan kepemilikan yang sama dengan Simpan, tanpa membuka
+		// rahasia ke user lain atau mengambil berkas milik admin lain.
+		s.serahkanKonfigStack(sess.Username, envPath)
+		stream, err = s.helper.Stream(helperproto.CmdFileRead, sess.Username,
+			helperproto.PathArgs{Path: envPath})
+	}
 	if err != nil {
-		// .env opsional — belum ada bukan error.
-		writeJSON(w, http.StatusOK, map[string]string{"path": envPath, "content": ""})
+		// Hanya berkas yang benar-benar belum ada boleh tampil kosong.
+		if helperclient.Code(err) == helperproto.ErrNotFound {
+			writeJSON(w, http.StatusOK, map[string]string{"path": envPath, "content": ""})
+		} else {
+			writeHelperErr(w, err)
+		}
 		return
 	}
 	defer stream.Close()
-	content, _ := io.ReadAll(io.LimitReader(stream, maxEnvBytes))
+	content, err := io.ReadAll(io.LimitReader(stream, maxEnvBytes+1))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "gagal membaca .env: "+err.Error())
+		return
+	}
+	if len(content) > maxEnvBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "ukuran .env melebihi 256 KiB")
+		return
+	}
+	var entry helperproto.FileEntry
+	if err := json.Unmarshal(stream.Resp.Data, &entry); err != nil || entry.Size != int64(len(content)) {
+		writeErr(w, http.StatusInternalServerError, "pembacaan .env tidak lengkap; muat ulang sebelum menyimpan")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": envPath, "content": string(content)})
 }
 
@@ -745,23 +772,14 @@ func (s *Server) handleStackEnvSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if len(body.Content) > maxEnvBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "ukuran .env melebihi 256 KiB")
+		return
+	}
 	envPath := filepath.Join(filepath.Dir(st.ComposePath), ".env")
 	s.serahkanKonfigStack(sess.Username, filepath.Dir(st.ComposePath), envPath)
-	stream, err := s.helper.Stream(helperproto.CmdFileWrite, sess.Username,
-		helperproto.WriteArgs{Path: envPath})
-	if err != nil {
+	if err := s.tulisFile(sess.Username, envPath, body.Content); err != nil {
 		writeHelperErr(w, err)
-		return
-	}
-	_, werr := io.WriteString(stream, body.Content)
-	doneErr := stream.Selesai()
-	stream.Close()
-	if werr != nil {
-		writeErr(w, http.StatusInternalServerError, "gagal menulis .env: "+werr.Error())
-		return
-	}
-	if doneErr != nil {
-		writeHelperErr(w, doneErr)
 		return
 	}
 	s.store.LogActivity(sess.Username, "docker_stack_env", "ubah .env",
