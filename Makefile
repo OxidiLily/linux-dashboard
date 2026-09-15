@@ -28,13 +28,19 @@ ui:
 server:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server ./cmd/server
 
-helper: internal/helper/embed/9router.service
+helper: internal/helper/embed/9router.service internal/helper/embed/headroom.service
 	CGO_ENABLED=1 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-helper ./cmd/helper
 
 # Salin unit 9router ke lokasi //go:embed kalau berubah — sumber kebenaran
 # tetap deploy/9router.service, salinannya di-include ke binary helper
 # lewat internal/helper/embed/embed.go.
 internal/helper/embed/9router.service: deploy/9router.service
+	cp $< $@
+
+# Unit headroom punya jembatan pid file (ExecStartPost) yang ikut dikelola di
+# sini — kalau embed-nya basi, fix EADDRINUSE di aitools.go tidak pernah
+# masuk ke binary helper. Sumber kebenaran tetap deploy/headroom.service.
+internal/helper/embed/headroom.service: deploy/headroom.service
 	cp $< $@
 
 build: ui server helper

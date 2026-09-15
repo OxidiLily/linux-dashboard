@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 )
 
 // ---- Alat & Skill wajib untuk semua AI Agent -----------------------------
@@ -284,19 +286,17 @@ const (
 // berarti angka yang ditampilkan Token Saver bukan angka milik proxy yang
 // benar-benar melayani permintaan.
 func pasangUnitHeadroom(u *userInfo) error {
-	// Unit yang sudah ada tidak ditimpa — admin yang menyetel port atau
-	// ExecStart sendiri tidak boleh kehilangan setelannya tiap pasang ulang.
-	if _, err := os.Stat(unitDstHeadroom); err != nil {
-		if len(unitHeadroomTertanam) == 0 {
-			return fmt.Errorf("unit systemd headroom tidak tersedia di binary panel")
-		}
-		if err := os.WriteFile(unitDstHeadroom, unitHeadroomTertanam, 0o644); err != nil {
-			return fmt.Errorf("tulis %s: %w", unitDstHeadroom, err)
-		}
+	ganti, err := pastikanUnitHeadroom(u)
+	if err != nil {
+		return err
 	}
-	pastikanUserHeadroom(u)
-	if _, err := run("systemctl", "daemon-reload"); err != nil && !hasNoSystemd() {
-		return fmt.Errorf("daemon-reload: %w", err)
+	rebutHeadroomDari9router(u)
+	// Unit yang baru ditulis/diganti baru berlaku setelah restart — tanpa
+	// restart, jembatan pid file (ExecStartPost) belum terpasang pada proses
+	// yang sedang jalan dan konflik EADDRINUSE tetap ada. restart juga
+	// menghidupkan unit yang tadi belum jalan.
+	if ganti {
+		_, _ = run("systemctl", "restart", "headroom.service")
 	}
 	// Kegagalan start tidak dilaporkan sebagai kegagalan pemasangan: di
 	// WSL/LXC tanpa systemd init yang utuh systemctl selalu gagal, sementara
@@ -305,6 +305,100 @@ func pasangUnitHeadroom(u *userInfo) error {
 		log.Printf("headroom: service gagal dijalankan: %v", err)
 	}
 	return nil
+}
+
+// pastikanUnitHeadroom menulis unit systemd headroom kalau belum ada atau
+// masih versi lama, memastikan drop-in identitas user, lalu daemon-reload.
+// Mengembalikan true kalau unitnya baru ditulis/diganti — pemanggil yang
+// berencana menjalankan service harus me-restart dulu.
+func pastikanUnitHeadroom(u *userInfo) (bool, error) {
+	ganti := false
+	if b, err := os.ReadFile(unitDstHeadroom); err == nil {
+		ganti = unitHeadroomPerluGanti(string(b))
+	} else {
+		ganti = true
+	}
+	if ganti {
+		if len(unitHeadroomTertanam) == 0 {
+			return false, fmt.Errorf("unit systemd headroom tidak tersedia di binary panel")
+		}
+		if err := os.WriteFile(unitDstHeadroom, unitHeadroomTertanam, 0o644); err != nil {
+			return false, fmt.Errorf("tulis %s: %w", unitDstHeadroom, err)
+		}
+	}
+	pastikanUserHeadroom(u)
+	if _, err := run("systemctl", "daemon-reload"); err != nil && !hasNoSystemd() {
+		return false, fmt.Errorf("daemon-reload: %w", err)
+	}
+	return ganti, nil
+}
+
+// unitHeadroomPerluGanti mengenali unit headroom tulisan panel versi lama yang
+// belum punya jembatan pid file (ExecStartPost). Tanpa jembatan itu 9router
+// tidak pernah melihat proxy systemd sebagai "sudah jalan", sehingga tombol
+// Start di halaman Token Saver menelurkan proxy kedua di port 8787 dan gagal
+// "address already in use". Hanya baris ExecStart bawaan panel yang dianggap
+// milik panel: unit yang sudah diubah admin (port/host lain) tidak disentuh.
+func unitHeadroomPerluGanti(isi string) bool {
+	if strings.Contains(isi, "ExecStartPost=") {
+		return false
+	}
+	return strings.Contains(isi, "ExecStart=/opt/headroom/bin/headroom proxy --host 127.0.0.1 --port 8787")
+}
+
+// pidFileHeadroom mengembalikan path pid file yang dipakai 9router untuk
+// menentukan proxy Headroom hidup/mati. HOME mengikuti user panel yang sama
+// dengan service 9router (drop-in 20-user.conf), bukan /root — dua proses yang
+// menulis ke HOME berbeda berarti Start/Stop 9router tidak akan pernah melihat
+// proxy milik systemd.
+func pidFileHeadroom(u *userInfo) string {
+	home := homeRoot9Router
+	if u != nil && u.Home != "" {
+		home = u.Home
+	}
+	return filepath.Join(home, ".9router", "headroom", "proxy.pid")
+}
+
+// rebutHeadroomDari9router membebaskan port 8787 dari proxy lepas yang
+// dijalankan 9router sebelum panel menghidupkan headroom.service. Tanpa ini,
+// setelah proxy di-start dari halaman Token Saver (proses lepas dengan pid di
+// ~/.9router/headroom/proxy.pid), tombol Jalankan panel gagal dengan "address
+// already in use" — dua pengelola, satu port. systemd adalah pemilik yang
+// benar (memberi autostart), jadi proses lepasnya dikembalikan lebih dulu.
+func rebutHeadroomDari9router(u *userInfo) {
+	f := pidFileHeadroom(u)
+	b, err := os.ReadFile(f)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 0 {
+		_ = os.Remove(f)
+		return
+	}
+	// pid file ini ditulis ExecStartPost milik headroom.service sendiri — bukan
+	// proses lepas 9router. Tidak ada yang perlu direbut.
+	if _, err := run("systemctl", "is-active", "--quiet", "headroom.service"); err == nil {
+		return
+	}
+	if !prosesHidup(pid) {
+		_ = os.Remove(f)
+		return
+	}
+	// SIGTERM dulu, baru SIGKILL kalau masih hidup — urutan yang sama dengan
+	// cara 9router menghentikan proxynya sendiri.
+	_ = syscall.Kill(pid, syscall.SIGTERM)
+	time.Sleep(200 * time.Millisecond)
+	if prosesHidup(pid) {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+	_ = os.Remove(f)
+}
+
+// prosesHidup menjawab apakah sebuah pid masih ada. sinyal 0 tidak mengirim
+// apa pun, hanya memeriksa keberadaan prosesnya.
+func prosesHidup(pid int) bool {
+	return syscall.Kill(pid, 0) == nil
 }
 
 // pastikanUserHeadroom menulis drop-in identitas user, dan me-restart service

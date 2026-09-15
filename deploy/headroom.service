@@ -11,6 +11,18 @@ Type=simple
 # 9router di mesin yang sama, dan mengeksposnya ke LAN berarti membuka jalur
 # yang meneruskan permintaan ke penyedia model beserta kredensialnya.
 ExecStart=/opt/headroom/bin/headroom proxy --host 127.0.0.1 --port 8787
+# 9router menentukan proxy hidup/mati lewat ~/.9router/headroom/proxy.pid
+# (proses.kill terhadap pid itu), bukan lewat systemctl. Tanpa dua baris ini,
+# tombol Start di halaman Token Saver 9router tidak melihat proxy systemd
+# sebagai "sudah jalan" dan menelurkan proxy KEDUA di port 8787 yang gagal
+# "address already in use". Dengan pid file yang menunjuk MAINPID systemd,
+# Start 9router jadi no-op, dan Stop-nya mengirim SIGTERM yang oleh
+# Restart=on-failure dianggap exit bersih (SIGHUP/SIGINT/SIGTERM/SIGPIPE)
+# sehingga tidak di-restart. $HOME datang dari Environment= di bawah (atau
+# drop-in 10-user.conf yang menimpanya), jadi selalu sama dengan HOME milik
+# 9router.
+ExecStartPost=/bin/sh -c 'install -d "$HOME/.9router/headroom" && printf "%s\n" "$MAINPID" > "$HOME/.9router/headroom/proxy.pid"'
+ExecStopPost=/bin/sh -c 'rm -f "$HOME/.9router/headroom/proxy.pid"'
 Restart=on-failure
 RestartSec=5
 # Proxy memuat kompresor (tree-sitter, dan ONNX/torch kalau extra [ml]

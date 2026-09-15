@@ -846,6 +846,21 @@ func componentService(name, action string, u *userInfo) error {
 					confPath)
 			}
 		}
+		// Headroom bisa di-start dari halaman Token Saver 9router sebagai
+		// proses lepas yang memegang port 8787. Sebelum systemd menyalakannya,
+		// unit-nya dipastikan mutakhir (jembatan pid file) dan proses lepas
+		// itu direbut dulu — dua pengelola yang berebut satu port berakhir
+		// dengan "address already in use".
+		if name == "headroom" {
+			ganti, err := pastikanUnitHeadroom(u)
+			if err != nil {
+				return err
+			}
+			rebutHeadroomDari9router(u)
+			if ganti {
+				_, _ = run("systemctl", "restart", "headroom.service")
+			}
+		}
 		// qemu-guest-agent hanya berguna di dalam VM QEMU/KVM: unit-nya
 		// BindsTo perangkat virtio-serial yang dipasang hypervisor. Di mesin
 		// fisik, WSL, atau container perangkat itu tidak ada, dan systemd
