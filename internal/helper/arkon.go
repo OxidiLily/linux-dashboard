@@ -89,7 +89,8 @@ const (
 const catatanArkon = "Akun admin pertama dibangkitkan saat pemasangan. Email dan passwordnya ada di " +
 	"DEFAULT_ADMIN_EMAIL dan DEFAULT_ADMIN_PASSWORD pada berkas .env stack — buka lewat " +
 	"System → Docker → arkon → tombol .env (di disk: " + envArkon + "). " +
-	"Portal admin ada di port " + portWebArkon + ", endpoint MCP di port " + portAPIArkon + "/mcp."
+	"Portal admin ada di port " + portWebArkon + " pada IP server yang dapat dijangkau (LAN/Tailscale); " +
+	"API portal mengikuti alamat browser. Endpoint MCP di port " + portAPIArkon + "/mcp."
 
 // arkonTerpasang: berkas compose ada = stack-nya sudah di-clone ke mesin ini.
 func arkonTerpasang() bool {
@@ -133,7 +134,7 @@ func rahasiaAcak(nByte int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// isiOverrideArkon menimpa sumber image MinIO milik compose Arkon.
+// isiOverrideArkon menimpa sumber image MinIO dan jaringan frontend Arkon.
 //
 // docker-compose.yml Arkon memakai `minio/minio:latest` dari Docker Hub, dan
 // repositori itu SUDAH TIDAK ADA: MinIO menariknya, dan `docker pull` menjawab
@@ -150,16 +151,50 @@ func rahasiaAcak(nByte int) (string, error) {
 // sebagai "-dirty" sekaligus menghalangi pembaruan lewat git pull. Berkas
 // override dibaca compose secara otomatis di samping berkas utamanya.
 //
-// ponytail: ini menambal repo hulu dari luar. Begitu Arkon memindahkan
-// image-nya sendiri, berkas ini cukup dihapus.
+// ponytail: override dan Dockerfile.panel menambal hulu tanpa mengubah berkas
+// tracked. Hapus penyesuaian frontend saat hulu mendukung proxy same-origin.
 const isiOverrideArkon = `# Ditulis panel: minio/minio di Docker Hub sudah ditarik MinIO,
 # image yang sama masih diterbitkan di quay.io.
 services:
   minio:
     image: quay.io/minio/minio:latest
+  frontend:
+    build:
+      dockerfile: Dockerfile.panel
+      args:
+        NEXT_PUBLIC_API_URL: ""
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+      INTERNAL_API_URL: http://api:5055
+      HOSTNAME: 0.0.0.0
 `
 
+// Rewrite Next.js dibekukan saat build, bukan saat container mulai berjalan.
+// Patch CSV juga saat build: fallback || milik hulu menolak URL kosong.
+const buildProxyArkon = `ENV INTERNAL_API_URL=http://api:5055
+ENV NEXT_PUBLIC_API_URL=""
+RUN node -e 'const fs = require("node:fs"); const p = "src/app/(portal)/page.tsx"; const s = fs.readFileSync(p, "utf8"); const old = "process.env.NEXT_PUBLIC_API_URL ||"; const fixed = "process.env.NEXT_PUBLIC_API_URL ??"; if (!s.includes(old) && !s.includes(fixed)) throw new Error("Fallback API CSV Arkon berubah; periksa kompatibilitas panel"); fs.writeFileSync(p, s.replaceAll(old, fixed));'
+RUN npm run build`
+
+func dockerfileProxyArkon(isi string) (string, error) {
+	if strings.Count(isi, "RUN npm run build") != 1 {
+		return "", errInvalid("Dockerfile frontend Arkon berubah: tahap npm run build harus tepat satu")
+	}
+	return strings.Replace(isi, "RUN npm run build", buildProxyArkon, 1), nil
+}
+
 func tulisOverrideArkon() error {
+	b, err := os.ReadFile(filepath.Join(proyekArkon, "frontend", "Dockerfile"))
+	if err != nil {
+		return err
+	}
+	isi, err := dockerfileProxyArkon(string(b))
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(proyekArkon, "frontend", "Dockerfile.panel"), []byte(isi), 0o644); err != nil {
+		return err
+	}
 	return os.WriteFile(overrideArkon, []byte(isiOverrideArkon), 0o644)
 }
 
@@ -349,17 +384,11 @@ func gantiRahasiaArkon(isi string, r rahasiaArkon, ip string) string {
 		"MINIO_SECRET_KEY":       r.MinioSandi,
 	}
 
-	// URL publik diarahkan ke IP LAN dengan alasan yang sama persis seperti
-	// Supabase: nilai bawaannya localhost, dan itu yang dipakai BROWSER user
-	// untuk memanggil API — dibuka dari laptop mana pun, halamannya muncul lalu
-	// setiap permintaannya jatuh ke localhost laptop itu sendiri.
-	//
-	// NEXT_PUBLIC_API_URL punya jebakan tambahan yang disebut docs/SETUP.md: ia
-	// variabel BUILD-TIME milik Next.js, jadi harus sudah benar SEBELUM
-	// `--build` berjalan. Mengubahnya setelah stack hidup tidak berpengaruh apa
-	// pun sampai frontend-nya dibangun ulang.
+	// Browser memakai /api pada origin yang sedang dibuka, bukan IP LAN yang
+	// dibekukan saat build. Override memberi nilai kosong secara eksplisit agar
+	// default ${NEXT_PUBLIC_API_URL:-...} milik compose hulu tidak menang.
+	ganti["NEXT_PUBLIC_API_URL"] = ""
 	if ip != "" {
-		ganti["NEXT_PUBLIC_API_URL"] = "http://" + ip + ":" + portAPIArkon
 		ganti["MINIO_PUBLIC_ENDPOINT"] = ip + ":9002"
 		// CORS_ORIGINS bawaannya "*". Dibiarkan begitu, API Arkon menerima
 		// permintaan berkredensial dari halaman web mana pun yang kebetulan
