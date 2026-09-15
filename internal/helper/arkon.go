@@ -65,8 +65,8 @@ const (
 	// dihubungi CLI agent. 3119 adalah portal admin Next.js.
 	//
 	// MinIO (9002/9003) sengaja TIDAK didaftarkan ke firewall. Isinya berkas
-	// mentah yang sudah diunggah, dan Arkon menyajikannya lewat presigned URL
-	// yang dibangkitkan API — membuka konsol objek storage ke seluruh LAN
+	// mentah yang sudah diunggah; presigned URL disajikan melalui /storage pada
+	// portal 3119 — membuka konsol objek storage ke seluruh LAN
 	// adalah keputusan admin, bukan efek samping menekan Pasang.
 	portAPIArkon = "5055"
 	portWebArkon = "3119"
@@ -90,7 +90,7 @@ const catatanArkon = "Akun admin pertama dibangkitkan saat pemasangan. Email dan
 	"DEFAULT_ADMIN_EMAIL dan DEFAULT_ADMIN_PASSWORD pada berkas .env stack — buka lewat " +
 	"System → Docker → arkon → tombol .env (di disk: " + envArkon + "). " +
 	"Portal admin ada di port " + portWebArkon + " pada IP server yang dapat dijangkau (LAN/Tailscale); " +
-	"API portal mengikuti alamat browser. Endpoint MCP di port " + portAPIArkon + "/mcp."
+	"API dan unduhan mengikuti alamat browser. Endpoint MCP di port " + portAPIArkon + "/mcp."
 
 // arkonTerpasang: berkas compose ada = stack-nya sudah di-clone ke mesin ini.
 func arkonTerpasang() bool {
@@ -158,6 +158,25 @@ const isiOverrideArkon = `# Ditulis panel: minio/minio di Docker Hub sudah ditar
 services:
   minio:
     image: quay.io/minio/minio:latest
+  api:
+    build:
+      dockerfile: Dockerfile.panel
+    environment: &storage-panel
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      MINIO_PUBLIC_ENDPOINT: ""
+  migrator:
+    build:
+      dockerfile: Dockerfile.panel
+    environment: *storage-panel
+  worker:
+    build:
+      dockerfile: Dockerfile.panel
+    environment: *storage-panel
+  worker_skills:
+    build:
+      dockerfile: Dockerfile.panel
+    environment: *storage-panel
   frontend:
     build:
       dockerfile: Dockerfile.panel
@@ -174,7 +193,62 @@ services:
 const buildProxyArkon = `ENV INTERNAL_API_URL=http://api:5055
 ENV NEXT_PUBLIC_API_URL=""
 RUN node -e 'const fs = require("node:fs"); const p = "src/app/(portal)/page.tsx"; const s = fs.readFileSync(p, "utf8"); const old = "process.env.NEXT_PUBLIC_API_URL ||"; const fixed = "process.env.NEXT_PUBLIC_API_URL ??"; if (!s.includes(old) && !s.includes(fixed)) throw new Error("Fallback API CSV Arkon berubah; periksa kompatibilitas panel"); fs.writeFileSync(p, s.replaceAll(old, fixed));'
+RUN mkdir -p 'src/app/storage/[...path]' && cp panel-storage-route.ts 'src/app/storage/[...path]/route.ts'
 RUN npm run build`
+
+// Proxy GET saja; host tetap agar Host yang ditandatangani S3 tidak berubah.
+// Cookie/JWT portal tidak diteruskan ke MinIO, signature tetap wajib valid.
+const routeStorageArkon = `export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
+  const incoming = new URL(request.url);
+  const path = incoming.pathname.slice("/storage".length);
+  if (!path.startsWith("/") || path.startsWith("//")) {
+    return new Response(null, { status: 400 });
+  }
+  const target = new URL("http://minio:9000");
+  target.pathname = path;
+  target.search = incoming.search;
+  const headers = new Headers();
+  for (const name of ["range", "if-range"]) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  try {
+    const response = await fetch(target, { headers, redirect: "manual", cache: "no-store", signal: request.signal });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return new Response(null, { status: 502 });
+    }
+    const outgoing = new Headers({ "cache-control": "private, no-store", "x-content-type-options": "nosniff", "content-security-policy": "sandbox" });
+    for (const name of ["content-type", "content-length", "content-range", "accept-ranges", "content-disposition", "etag", "last-modified"]) {
+      const value = response.headers.get(name);
+      if (value) outgoing.set(name, value);
+    }
+    return new Response(response.body, { status: response.status, headers: outgoing });
+  } catch {
+    return new Response(null, { status: 502 });
+  }
+}
+
+export function HEAD() {
+  return new Response(null, { status: 405 });
+}
+`
+
+// ponytail: adaptasi satu fungsi hulu; berhenti saat bentuk sumber berubah.
+// URL ditandatangani untuk minio:9000, lalu hanya path/query dikirim ke browser.
+const patchStorageArkon = `from pathlib import Path
+p = Path("app/services/storage_service.py")
+s = p.read_text()
+old = "return self.presign_client.presigned_get_object("
+end = "    def delete_object(self, object_name: str):"
+assert s.count(old) == 1 and s.count(end) == 1, "Storage Arkon berubah; periksa kompatibilitas panel"
+s = s.replace(old, "url = self.client.presigned_get_object(", 1)
+s = s.replace(end, '        from urllib.parse import urlsplit\n        parts = urlsplit(url)\n        return "/storage" + parts.path + "?" + parts.query\n\n' + end, 1)
+p.write_text(s)
+`
 
 func dockerfileProxyArkon(isi string) (string, error) {
 	if strings.Count(isi, "RUN npm run build") != 1 {
@@ -191,6 +265,23 @@ func tulisOverrideArkon() error {
 	isi, err := dockerfileProxyArkon(string(b))
 	if err != nil {
 		return err
+	}
+	backend, err := os.ReadFile(filepath.Join(proyekArkon, "Dockerfile"))
+	if err != nil {
+		return err
+	}
+	if strings.Count(string(backend), "USER appuser") != 1 {
+		return errInvalid("Dockerfile backend Arkon berubah: USER appuser harus tepat satu")
+	}
+	backendPanel := strings.Replace(string(backend), "USER appuser", "COPY panel-storage.py ./panel-storage.py\nRUN python panel-storage.py\nUSER appuser", 1)
+	for path, content := range map[string]string{
+		"Dockerfile.panel":                backendPanel,
+		"panel-storage.py":                patchStorageArkon,
+		"frontend/panel-storage-route.ts": routeStorageArkon,
+	} {
+		if err := os.WriteFile(filepath.Join(proyekArkon, path), []byte(content), 0o644); err != nil {
+			return err
+		}
 	}
 	if err := os.WriteFile(filepath.Join(proyekArkon, "frontend", "Dockerfile.panel"), []byte(isi), 0o644); err != nil {
 		return err
@@ -388,8 +479,8 @@ func gantiRahasiaArkon(isi string, r rahasiaArkon, ip string) string {
 	// dibekukan saat build. Override memberi nilai kosong secara eksplisit agar
 	// default ${NEXT_PUBLIC_API_URL:-...} milik compose hulu tidak menang.
 	ganti["NEXT_PUBLIC_API_URL"] = ""
+	ganti["MINIO_PUBLIC_ENDPOINT"] = ""
 	if ip != "" {
-		ganti["MINIO_PUBLIC_ENDPOINT"] = ip + ":9002"
 		// CORS_ORIGINS bawaannya "*". Dibiarkan begitu, API Arkon menerima
 		// permintaan berkredensial dari halaman web mana pun yang kebetulan
 		// dibuka user di jaringan yang sama. Dipersempit ke dua origin yang
