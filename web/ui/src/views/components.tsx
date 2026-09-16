@@ -41,6 +41,11 @@ const ketFase: Record<string, string> = {
   pasang: "memasang paket",
 }
 
+// AGEN_AI = komponen yang benar-benar sebuah CLI agent. Dipakai di dua tempat
+// yang harus sepakat: tombol "Buka Agent", dan kalimat konfirmasi Hapus —
+// uninstall agent menyapu seluruh berkasnya, bukan cuma paketnya.
+const AGEN_AI = ["hermes", "claude-code", "codex", "opencode", "openclaw"]
+
 /** Bentuk jawaban /api/components/progress (helperproto.ComponentProgress). */
 type Progres = {
   name: string
@@ -183,25 +188,31 @@ export function ComponentsView() {
   }
 
   const handleUninstall = async (name: string, punyaData = false) => {
+    // Agent tidak punya purge tersendiri: pencopotannya selalu menyapu seluruh
+    // berkas miliknya, jadi centang "hapus data juga" tidak berlaku di sini.
+    const agen = AGEN_AI.includes(name)
     // Ditulis di luar dialog: checkbox mengirim jawabannya lewat onChange,
     // bukan lewat nilai balik promise, supaya pemanggil confirmDialog yang
     // lain tetap memakai boolean biasa.
     let hapusData = false
     const ok = await confirmDialog({
       title: trf("Hapus komponen {0} dari sistem?", name),
-      message: punyaData
-        ? tr("Paketnya dicopot. Data yang sudah dibuat komponen ini tetap disimpan, kecuali kamu memilih menghapusnya di bawah.")
-        : tr("Paket dicopot lewat apt. Konfigurasi dan data yang sudah dibuat komponen ini tidak ikut dibersihkan."),
-      checkbox: punyaData
-        ? {
-            label: tr(
-              "Hapus data komponen ini juga — termasuk kredensial, koneksi, dan riwayatnya. Tidak bisa dibatalkan.",
-            ),
-            onChange: (v) => {
-              hapusData = v
-            },
-          }
-        : undefined,
+      message: agen
+        ? tr("Biner, konfigurasi, dan data agent ini dihapus seluruhnya — termasuk riwayat sesi, daftar server MCP, dan kredensialnya. Alat yang dipakai bersama agent (rtk, graphify, ponytail, browser-use, arkon) tidak ikut terhapus. Tidak bisa dibatalkan.")
+        : punyaData
+          ? tr("Paketnya dicopot. Data yang sudah dibuat komponen ini tetap disimpan, kecuali kamu memilih menghapusnya di bawah.")
+          : tr("Paket dicopot lewat apt. Konfigurasi dan data yang sudah dibuat komponen ini tidak ikut dibersihkan."),
+      checkbox:
+        punyaData && !agen
+          ? {
+              label: tr(
+                "Hapus data komponen ini juga — termasuk kredensial, koneksi, dan riwayatnya. Tidak bisa dibatalkan.",
+              ),
+              onChange: (v) => {
+                hapusData = v
+              },
+            }
+          : undefined,
       confirmLabel: tr("Hapus"),
       danger: true,
     })
@@ -212,7 +223,9 @@ export function ComponentsView() {
         apiSend(`/api/components/${name}/uninstall${hapusData ? "?purge=1" : ""}`, "POST"),
         {
           jalan: trf("Menghapus komponen {0}…", name),
-          sukses: trf("Komponen {0} berhasil dihapus.", name),
+          sukses: agen
+            ? trf("Komponen {0} beserta seluruh berkasnya berhasil dihapus.", name)
+            : trf("Komponen {0} berhasil dihapus.", name),
           gagal: (e) => trf("Gagal menghapus {0}: {1}", name, pesanError(e)),
         },
       )
@@ -526,7 +539,7 @@ export function ComponentsView() {
                                 <ExternalLink className="mr-1 size-3.5" /> {tr("Buka")}
                               </Button>
                             )}
-                            {["hermes", "claude-code", "codex", "opencode", "openclaw"].includes(c.name) && (
+                            {AGEN_AI.includes(c.name) && (
                               <Button
                                 variant="outline"
                                 size="sm"
