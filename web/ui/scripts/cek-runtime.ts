@@ -18,6 +18,7 @@ import { ApiError } from "@/lib/api"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { DialogIsian, isiValid } from "@/components/ui/prompt"
+import { UninstallModal, konfirmasiDataSah } from "@/components/ui/uninstall-modal"
 import { pesanError } from "@/lib/pesan-error"
 import "@/lib/terjemahan-en"
 import { tr, trf } from "@/stores/i18n"
@@ -84,6 +85,25 @@ cek(rootAktif("/home/ani/DATA/MediaLama", roots), "/home/ani", "root/prefiks-mir
 cek(String(isiValid("")), "false", "prompt/kosong")
 cek(String(isiValid("   ")), "false", "prompt/spasi")
 cek(String(isiValid(" catatan.txt ")), "true", "prompt/berisi")
+
+// Uninstall: mode penghapus data akun hanya menyala setelah kata konfirmasi
+// diketik. Diuji lewat fungsi aslinya, bukan salinan — inilah satu-satunya
+// penjaga antara satu klik dan hilangnya ~/DATA di seluruh akun.
+cek(String(konfirmasiDataSah("panel", "")), "true", "uninstall/panel-tanpa-ketik")
+cek(String(konfirmasiDataSah("total-data", "")), "false", "uninstall/data-kosong")
+cek(String(konfirmasiDataSah("total-data", "hapus")), "false", "uninstall/data-sepotong")
+cek(String(konfirmasiDataSah("total-data", "HAPUS DATA ARSIP")), "false", "uninstall/data-kebanyakan")
+cek(String(konfirmasiDataSah("total-data", "HAPUS DATA")), "true", "uninstall/data-persis")
+cek(String(konfirmasiDataSah("total-data", "  hapus data  ")), "true", "uninstall/data-spasi-kapital")
+
+// Modalnya dirender sungguhan: keempat mode muncul, dan mode penghapus data
+// menyebut folder DATA supaya user tahu apa yang dipertaruhkan.
+const modalUninstall = renderToStaticMarkup(createElement(UninstallModal, { username: "ani", onClose: () => {} }))
+for (const judul of ["Hapus panel saja", "Hapus panel dan folder/file panel", "Hapus total (termasuk components)"]) {
+  cek(String(modalUninstall.includes(judul)), "true", "uninstall/mode-" + judul.slice(6, 16))
+}
+cek(String(modalUninstall.includes("data akun")), "true", "uninstall/mode-data-akun")
+cek(String(modalUninstall.includes("~/DATA")), "true", "uninstall/sebut-data")
 
 // Dialog isian dirender sungguhan (bukan snapshot yang ditulis tangan).
 const render = (req: Parameters<typeof DialogIsian>[0]["req"]) =>

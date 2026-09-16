@@ -17,6 +17,15 @@ type Mode = "panel" | "panel-data" | "total" | "total-data" // i18n-abaikan: nam
 // dokumen di ~/DATA setiap akun.
 const KONFIRMASI_DATA = "HAPUS DATA" // i18n-abaikan: kata yang harus diketik apa adanya
 
+// konfirmasiDataSah menjawab apakah tombol Uninstall boleh menyala. Fungsi
+// murni, dipisah dari komponennya supaya bisa diuji tanpa browser
+// (scripts/cek-runtime.ts) — inilah satu-satunya penjaga antara satu klik dan
+// hilangnya folder DATA di seluruh akun. Spasi tepi diabaikan dan
+// kapitalisasinya tidak dipedulikan; yang tidak boleh longgar adalah
+// kalimatnya sendiri harus lengkap.
+export const konfirmasiDataSah = (mode: string, ketik: string) =>
+  mode !== "total-data" || ketik.trim().toUpperCase() === KONFIRMASI_DATA
+
 // Isi tiap mode ditulis apa adanya di sini: uninstall tidak punya undo, jadi
 // user harus bisa membaca persis apa yang akan hilang sebelum menekan tombol.
 // Kalimatnya menyebut jalur sesungguhnya yang disentuh skrip uninstaller —
@@ -87,7 +96,7 @@ export function UninstallModal({ username, onClose }: { username?: string; onClo
   const [ketik, setKetik] = useState("")
 
   const pilihan = MODE.find((m) => m.id === mode)!
-  const konfirmasiSah = !pilihan.data || ketik.trim().toUpperCase() === KONFIRMASI_DATA
+  const konfirmasiSah = konfirmasiDataSah(mode, ketik)
 
   const pilih = (m: Mode) => {
     setMode(m)
