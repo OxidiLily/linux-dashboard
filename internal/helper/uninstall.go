@@ -28,10 +28,22 @@ const (
 	uninstallLog   = "/var/log/linux-dashboard-uninstall.log"
 )
 
+// modeUninstall adalah mode yang diterima helper, berurutan dari yang paling
+// ringan. Dipisah jadi daftar (bukan switch inline) supaya UI bisa diuji
+// terhadapnya: mode yang ditawarkan modal tapi ditolak di sini = permintaan
+// yang gagal dengan pesan "mode uninstall tidak dikenal" setelah user mengetik
+// password.
+var modeUninstall = []string{"panel", "panel-data", "total", "total-data"}
+
 func uninstallJalankan(u *userInfo, args helperproto.UninstallArgs) error {
-	switch args.Mode {
-	case "panel", "panel-data", "total":
-	default:
+	dikenal := false
+	for _, m := range modeUninstall {
+		if args.Mode == m {
+			dikenal = true
+			break
+		}
+	}
+	if !dikenal {
 		return errInvalid("mode uninstall tidak dikenal: %s", args.Mode)
 	}
 	if !u.Sudo {

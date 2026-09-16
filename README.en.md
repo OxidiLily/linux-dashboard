@@ -162,6 +162,14 @@ included — along with their data, using the same uninstallers as the Component
 page. Docker images and volumes in `/var/lib/docker` are still left alone: they
 belong to your containers, not to the panel.
 
+There are four escalating uninstall modes: `panel` (binaries, systemd units,
+PAM, source tree), `panel-data` (+ database, session key, `/etc/default`, the
+service account), `total` (+ removes components), and `total-data` (+ deletes
+every account's `~/DATA` folder and `/etc/skel/DATA`). The last one is the only
+mode that touches personal files, and it requires typing `HAPUS DATA` before
+the button activates; Linux accounts and their home directories are never
+deleted.
+
 ### Self-hosted Supabase
 
 The `supabase` component installs a full Supabase backend — Postgres, Auth

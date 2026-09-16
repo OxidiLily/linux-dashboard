@@ -159,6 +159,14 @@ dipasang panel — termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI
 Image dan volume Docker di `/var/lib/docker` tetap ditinggalkan: isinya milik
 container Anda, bukan milik panel.
 
+Empat mode uninstall bertingkat: `panel` (binary, unit systemd, PAM, sumber),
+`panel-data` (+ database, kunci sesi, `/etc/default`, akun service), `total`
+(+ copot components), dan `total-data` (+ hapus folder `~/DATA` setiap akun
+beserta isinya serta `/etc/skel/DATA`). Mode terakhir adalah satu-satunya yang
+menyentuh berkas pribadi, dan ia menuntut kata konfirmasi `HAPUS DATA` diketik
+ulang sebelum tombolnya menyala; akun Linux dan home directory-nya sendiri
+tidak pernah dihapus.
+
 ### Supabase self-hosted
 
 Komponen `supabase` memasang backend Supabase lengkap — Postgres, Auth

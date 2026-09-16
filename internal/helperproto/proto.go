@@ -888,8 +888,10 @@ type WGPeerBaru struct {
 //	panel      → binary, unit systemd, PAM, dan sumber di /usr/local/src
 //	panel-data → + data & config panel (/var/lib/linux-dashboard) + akun service
 //	total      → + copot components yang dipasang lewat halaman Components
+//	total-data → + hapus folder data akun (~/DATA) di setiap home dan /etc/skel
 //
-// Berkas pribadi user di ~/DATA/* tidak pernah ikut dihapus mode mana pun.
+// Berkas pribadi user di ~/DATA/* tidak ikut dihapus mode mana pun kecuali
+// total-data.
 type UninstallArgs struct {
 	Mode string `json:"mode"`
 	// Password akun yang sedang login (selalu sudoer), diverifikasi lewat PAM

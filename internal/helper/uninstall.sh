@@ -4,14 +4,17 @@
 #   sudo ./deploy/uninstall.sh panel        # binary, service, PAM, sumber
 #   sudo ./deploy/uninstall.sh panel-data   # + data & config panel
 #   sudo ./deploy/uninstall.sh total        # + copot components yang dipasang panel
+#   sudo ./deploy/uninstall.sh total-data   # + hapus folder data akun (~/DATA)
 #
 # Dipanggil panel lewat helper daemon (Settings → profil → Uninstall), tapi
 # tetap bisa dijalankan sendiri dari terminal.
 #
-# ATURAN YANG TIDAK PERNAH DILANGGAR MODE MANA PUN:
-# berkas pribadi user di ~/DATA/* TIDAK PERNAH dihapus. Folder itu memang
-# pernah dibuatkan panel, tapi isinya milik pemilik akun — dokumen, foto,
-# media — dan tidak ada tombol "undo" untuk penghapusan itu.
+# ATURAN:
+# berkas pribadi user di ~/DATA/* TIDAK PERNAH dihapus mode mana pun KECUALI
+# `total-data`. Folder itu dibuatkan panel, tapi isinya milik pemilik akun —
+# dokumen, foto, dan (di mesin yang dipakai mengembangkan panel ini) checkout
+# kode beserta vault catatan. Tidak ada tombol "undo" untuk penghapusan itu,
+# jadi mode tersebut harus dipilih sendiri dan diketik ulang namanya di UI.
 set -uo pipefail
 
 MODE="${1:-panel}"
@@ -24,8 +27,8 @@ ok() { echo "[✓] $*"; }
 die() { echo "[✗] $*" >&2; exit 1; }
 
 case "$MODE" in
-  panel | panel-data | total) ;;
-  *) die "Mode tidak dikenal: ${MODE} (pakai panel | panel-data | total)" ;;
+  panel | panel-data | total | total-data) ;;
+  *) die "Mode tidak dikenal: ${MODE} (pakai panel | panel-data | total | total-data)" ;;
 esac
 [[ $EUID -eq 0 ]] || die "Harus root."
 
@@ -75,7 +78,7 @@ fi
 # terpasang setelah user memilih "hapus total". Helper juga tahu hal yang
 # tidak diketahui `apt remove`: repo & keyring vendor, unit systemd cloudflared
 # beserta token tunnelnya, paket npm global, dan pipx.
-if [[ "$MODE" == "total" ]]; then
+if [[ "$MODE" == "total" || "$MODE" == "total-data" ]]; then
   if [[ -x "${PREFIX}/linux-dashboard-helper" ]]; then
     log "Mencopot components yang dipasang panel…"
     "${PREFIX}/linux-dashboard-helper" copot-components ||
@@ -124,7 +127,43 @@ fi
 rm -f "${PREFIX}/linux-dashboard-helper"
 ok "Binary helper dihapus"
 
+# ---- 4b. Folder data akun (HANYA mode total-data) ------------------------
+# Bagian yang mode lain tidak pernah sentuh. Dipisah dari bagian 3 justru
+# supaya tidak bisa terpanggil diam-diam: `panel` dan `panel-data` mengganti
+# panel, bukan isi mesin.
+#
+# Yang dihapus hanya `DATA` di dalam home, tidak pernah home-nya sendiri, dan
+# akun service (shell nologin) dilewati karena tidak pernah punya folder ini.
+# Pagar kedua di bawah ini adalah yang terakhir: kalau path-nya bukan
+# `<home>/DATA` persis, penghapusan dibatalkan.
+if [[ "$MODE" == "total-data" ]]; then
+  dihapus=0
+  while IFS=: read -r _nama _sandi _uid _gid _gecos home shell; do
+    [[ -n "$home" && "$home" != "/" ]] || continue
+    case "$shell" in ""|*/nologin|*/false|*/sync) continue ;; esac
+    target="${home%/}/DATA"
+    # Pagar terakhir: hanya path yang PERSIS <home>/DATA yang boleh dihapus.
+    if [[ "$target" == "/DATA" || "$target" != */DATA ]]; then
+      echo "[⚠] Path ${target} tidak berbentuk <home>/DATA — dilewati" >&2
+      continue
+    fi
+    if [[ -e "$target" ]]; then
+      log "Menghapus data akun ${_nama}: ${target}"
+      rm -rf --one-file-system "$target"
+      dihapus=$((dihapus + 1))
+    fi
+  done < <(getent passwd)
+  # /etc/skel: kerangka folder data untuk akun yang dibuat BELAKANGAN.
+  rm -rf --one-file-system /etc/skel/DATA
+  ok "${dihapus} folder data akun dihapus, /etc/skel/DATA dibereskan"
+  echo "[⚠] Folder di atas TIDAK bisa dikembalikan — dokumen, foto, dan kode di dalamnya hilang." >&2
+fi
+
 # ---- 5. Yang sengaja ditinggalkan ---------------------------------------
-echo "[i] Folder data akun (~/DATA/*) TIDAK dihapus — isinya milik pemilik akun."
+if [[ "$MODE" == "total-data" ]]; then
+  echo "[i] Folder data akun (~/DATA/*) sudah dihapus atas permintaan mode total-data."
+else
+  echo "[i] Folder data akun (~/DATA/*) TIDAK dihapus — isinya milik pemilik akun."
+fi
 echo "[i] Konfigurasi layanan di luar panel (Samba, NFS, WireGuard, firewall) tetap apa adanya."
 ok "Uninstall selesai (mode ${MODE})."

@@ -12,6 +12,7 @@
 #   sudo uninstall-linuxpanel panel          # hapus binary + service
 #   sudo uninstall-linuxpanel panel-data     # + database & konfigurasi
 #   sudo uninstall-linuxpanel total          # + copot components apt
+#   sudo uninstall-linuxpanel total-data     # + HAPUS folder data akun (~/DATA)
 #   sudo uninstall-linuxpanel -y panel       # lewati konfirmasi "y/n"
 #
 # Skrip uninstaller inti (internal/helper/uninstall.sh) dibaca dari
@@ -43,12 +44,15 @@ Pemakaian:
 Mode:
   panel        Hapus service, unit systemd, binary, PAM, source tree.
                Database panel & bookmark TETAP ADA.
-  panel-data   Semua di atas + database panel, kunci sesi, sertifikat TLS,
-               /etc/default/linux-dashboard, akun service linux-dashboard.
+  panel-data   Semua di atas + database panel, kunci sesi, /etc/default
+               (termasuk sertifikat TLS), akun service linux-dashboard.
   total        Semua di atas + copot SEMUA component yang dipasang panel,
                termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI,
                berikut datanya (token tunnel cloudflared, password 9router).
                Image & volume Docker di /var/lib/docker tetap ada.
+  total-data   Semua di atas + HAPUS folder DATA di setiap home akun beserta
+               isinya (dokumen, foto, unduhan, kode) dan /etc/skel/DATA.
+               TIDAK BISA DIKEMBALIKAN — konfirmasinya mengetik 'HAPUS DATA'.
 
 Dipanggil tanpa sudo: otomatis re-exec lewat sudo. Installernya hanya
 menaruh command ini di /usr/local/bin; tidak ada symlink di tempat lain.
@@ -110,11 +114,13 @@ if [[ -z "$MODE_RAW" ]]; then
   echo "  1) panel         — binary + service + PAM + unit systemd"
   echo "  2) panel-data    — + database, sertifikat TLS, /etc/default"
   echo "  3) total         — + copot SEMUA components yang dipasang panel"
-  read -r -p "Mode [1/2/3, default 1]: " pilih
+  echo "  4) total-data    — + HAPUS folder data akun (~/DATA), tidak bisa dikembalikan"
+  read -r -p "Mode [1/2/3/4, default 1]: " pilih
   case "${pilih:-1}" in
     1|"") MODE_RAW="panel" ;;
     2)    MODE_RAW="panel-data" ;;
     3)    MODE_RAW="total" ;;
+    4)    MODE_RAW="total-data" ;;
     *)    die "Pilihan tidak dikenal: $pilih" ;;
   esac
 fi
@@ -128,11 +134,12 @@ if (( ASSUME_YES == 0 )); then
   case "$MODE_RAW" in
     panel)
       echo "  — service dihentikan, binary & unit systemd dihapus"
+      echo "  — sumber di /usr/local/src dihapus"
       echo "  — database panel, akun, bookmark TETAP ADA"
       ;;
     panel-data)
       echo "  — semua mode panel"
-      echo "  — database panel, kunci sesi, sertifikat TLS dihapus"
+      echo "  — database panel, kunci sesi, /etc/default (termasuk sertifikat TLS) dihapus"
       echo "  — akun service '$SERVICE_USER' dihapus"
       ;;
     total)
@@ -142,11 +149,24 @@ if (( ASSUME_YES == 0 )); then
       echo "  — Data component ikut dihapus (token cloudflared, password 9router)"
       echo "  — Image & volume Docker di /var/lib/docker TETAP ADA"
       ;;
+    total-data)
+      echo "  — semua mode total"
+      echo "  — folder DATA di SETIAP home akun DIHAPUS BESERTA ISINYA"
+      echo "    (dokumen, foto, unduhan, kode) — TIDAK BISA DIKEMBALIKAN"
+      echo "  — /etc/skel/DATA ikut dihapus"
+      ;;
   esac
-  echo "  — ~/DATA/ setiap akun TIDAK disentuh"
-  echo
-  read -r -p "Lanjut? Ketik 'yes' untuk konfirmasi: " jawab
-  [[ "$jawab" == "yes" ]] || { log "Dibatalkan."; exit 0; }
+  if [[ "$MODE_RAW" == "total-data" ]]; then
+    echo
+    echo "  Folder data akun akan dihapus. Ketik 'HAPUS DATA' (huruf besar) untuk lanjut,"
+    read -r -p "  atau apa pun yang lain untuk membatalkan: " jawab
+    [[ "$jawab" == "HAPUS DATA" ]] || { log "Dibatalkan."; exit 0; }
+  else
+    echo "  — ~/DATA/ setiap akun TIDAK disentuh"
+    echo
+    read -r -p "Lanjut? Ketik 'yes' untuk konfirmasi: " jawab
+    [[ "$jawab" == "yes" ]] || { log "Dibatalkan."; exit 0; }
+  fi
 fi
 
 # ---- Eksekusi -------------------------------------------------------------
