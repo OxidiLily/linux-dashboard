@@ -1083,17 +1083,23 @@ daftarkanTerjemahan({
   "Pilih sejauh mana yang dihapus. Tidak ada langkah yang bisa dibatalkan setelah dimulai.":
     "Choose how much gets removed. Nothing can be undone once it starts.",
   "Hapus panel saja": "Remove the panel only",
-  "Service dihentikan, unit systemd & binary dihapus":
-    "Services stopped, systemd units and binaries removed",
-  "Konfigurasi PAM dan sumber di /usr/local/src dihapus":
-    "PAM config and the source in /usr/local/src removed",
-  "Database panel, akun panel, dan bookmark tetap ada":
-    "Panel database, panel accounts, and bookmarks are kept",
+  "Service dihentikan, unit systemd, binary web & helper, dan konfigurasi PAM dihapus":
+    "Services stopped; systemd units, the web & helper binaries, and the PAM config are removed",
+  "Sumber di /usr/local/src/go-react-linux-dashboard dihapus":
+    "The source tree at /usr/local/src/go-react-linux-dashboard is removed",
+  "Perintah CLI uninstall-linuxpanel tetap ada supaya bisa pasang ulang tanpa unduh installer":
+    "The uninstall-linuxpanel CLI command is kept so the panel can be reinstalled without downloading the installer again",
+  "Database panel, kunci sesi, dan akun panel tetap ada":
+    "Panel database, session key, and panel accounts are kept",
   "Hapus panel dan folder/file panel": "Remove the panel and its files",
   "Semua yang di atas": "Everything above",
-  "Database panel, kunci sesi, dan berkas kerja pembaruan dihapus":
-    "Panel database, session key, and update work files removed",
-  "Akun sistem linux-dashboard dihapus": "The linux-dashboard system account is removed",
+  "Perintah CLI uninstall-linuxpanel ikut dihapus": "The uninstall-linuxpanel CLI command is removed too",
+  "Database panel (akun, bookmark, threshold, log aktivitas), kunci sesi, dan berkas kerja pembaruan dihapus":
+    "Panel database (accounts, bookmarks, thresholds, activity log), session key, and update work files are removed",
+  "/etc/default/linux-dashboard dan /etc/linux-dashboard dihapus — termasuk sertifikat TLS dan setelan port":
+    "/etc/default/linux-dashboard and /etc/linux-dashboard are removed — including TLS certificates and port settings",
+  "Akun sistem linux-dashboard dihapus (hanya kalau memang akun sistem buatan installer)":
+    "The linux-dashboard system account is removed (only if it really is the installer-made system account)",
   "Hapus total (termasuk components)": "Remove everything (components included)",
   "Server DNS Technitium ikut dicopot — zona, blocklist, dan setelannya hilang; resolusi nama mesin dikembalikan ke systemd-resolved":
     "The Technitium DNS server is removed too — its zones, blocklists, and settings are gone; name resolution goes back to systemd-resolved",
@@ -1101,10 +1107,25 @@ daftarkanTerjemahan({
     "EVERY component the panel can install is removed, including Docker, Node.js, Tailscale, cloudflared, and the AI tools",
   "Token tunnel cloudflared dan data component (mis. password 9router) ikut dihapus":
     "The cloudflared tunnel token and component data (e.g. the 9router password) are deleted too",
-  "Image & volume Docker di /var/lib/docker TIDAK dihapus — isinya milik container Anda":
-    "Docker images & volumes in /var/lib/docker are NOT deleted — they belong to your containers",
-  "Berkas pribadi di ~/DATA setiap akun tidak pernah ikut dihapus, mode mana pun. Akun Linux Anda juga tidak — yang dihapus hanya akun sistem linux-dashboard milik service. Konfigurasi Samba, NFS, dan WireGuard ditinggalkan apa adanya; pada mode hapus total, izin firewall milik komponen yang dicopot ikut dicabut.":
-    "Personal files in each account's ~/DATA are never deleted, in any mode. Neither are your Linux accounts — only the linux-dashboard system account used by the service is removed. Samba, NFS and WireGuard configuration is left untouched; in full-removal mode, firewall permissions belonging to the removed components are revoked with them.",
+  "Image & volume Docker di /var/lib/docker tetap ada — panel tidak tahu isinya, dan itu bukan berkas panel":
+    "Docker images & volumes in /var/lib/docker are kept — the panel does not know what is inside them, and they are not panel files",
+  "Hapus total + data akun (~/DATA) — tidak bisa dikembalikan":
+    "Remove everything + account data (~/DATA) — cannot be undone",
+  "Folder DATA di SETIAP home akun dihapus — ~/DATA/AppData, Documents, Downloads, Gallery, Media":
+    "The DATA folder in EVERY account home is deleted — ~/DATA/AppData, Documents, Downloads, Gallery, Media",
+  "Termasuk dokumen, foto, unduhan, kode, dan catatan pribadi yang ada di dalamnya":
+    "Including the documents, photos, downloads, code, and personal notes inside them",
+  "Kerangka /etc/skel/DATA ikut dihapus supaya akun baru tidak dibuat lagi":
+    "The /etc/skel/DATA skeleton is removed too, so new accounts no longer get one",
+  "Akun Linux dan home directory-nya sendiri TIDAK dihapus — yang hilang hanya folder DATA di dalamnya":
+    "Linux accounts and their home directories are NOT deleted — only the DATA folder inside them is gone",
+  "Mode ini menghapus folder DATA di setiap akun — dokumen, foto, dan kode di dalamnya hilang permanen. Akun Linux Anda sendiri tidak dihapus, dan home directory-nya juga tidak; hanya folder DATA di dalamnya. Konfigurasi Samba, NFS, dan WireGuard tetap ditinggalkan apa adanya.":
+    "This mode deletes the DATA folder in every account — the documents, photos, and code inside are gone for good. Your Linux accounts are not deleted, nor are their home directories; only the DATA folder inside them. Samba, NFS, and WireGuard configuration is still left untouched.",
+  "Berkas pribadi di ~/DATA setiap akun tidak ikut dihapus pada mode ini. Akun Linux Anda juga tidak — yang dihapus hanya akun sistem linux-dashboard milik service. Konfigurasi Samba, NFS, dan WireGuard ditinggalkan apa adanya; pada mode hapus total, izin firewall milik komponen yang dicopot ikut dicabut.":
+    "Personal files in each account's ~/DATA are not deleted in this mode. Neither are your Linux accounts — only the linux-dashboard system account used by the service is removed. Samba, NFS, and WireGuard configuration is left untouched; in full-removal mode, firewall permissions belonging to the removed components are revoked with them.",
+  "Ketik {0} untuk menyalakan tombol Uninstall.": "Type {0} to enable the Uninstall button.",
+  "Tulisan belum sama — harus persis {0}.": "Not a match yet — it must be exactly {0}.",
+  "Ketik {0}": "Type {0}",
   "Konfirmasi uninstall": "Confirm uninstall",
   "Password root": "Root password",
   "Password akun {0}": "Password for {0}",

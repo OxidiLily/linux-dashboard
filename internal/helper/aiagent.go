@@ -419,7 +419,7 @@ func bersihkanANSI(s string) string {
 // yang diminta ikut hilang saat agent dicopot.
 //
 // Daftar ini juga yang dipakai kartu Components untuk menyebut apa saja yang
-// akan terhapus — lihat jejakAgenAda.
+// akan terhapus — lihat jejakAgenAdaDi.
 var jejakAgen = map[string][]string{
 	"claude-code": {
 		".claude",             // config, skills, plugin, riwayat proyek
@@ -428,7 +428,8 @@ var jejakAgen = map[string][]string{
 		".local/state/claude",
 		".cache/claude",
 		".cache/claude-cli-nodejs",
-		".config/linux-dashboard/tooling-claude", // penanda pendaftaran rtk/graphify
+		".local/share/applications/claude-code-url-handler.desktop", // handler tautan claude://
+		".config/linux-dashboard/tooling-claude",                    // penanda pendaftaran rtk/graphify
 	},
 	"codex": {
 		".codex", // config.toml (MCP), AGENTS.md/RTK.md, skills
@@ -454,8 +455,12 @@ var jejakAgen = map[string][]string{
 
 // dirSistemAgen adalah direktori system-wide yang dibuat installer resmi.
 //
-// Hermes di root memakai layout FHS: kodenya di sini, perintahnya symlink
-// /usr/local/bin/hermes ke dalamnya, dan datanya tetap di $HOME/.hermes.
+// Hermes di root memakai layout FHS: perintah /usr/local/bin/hermes adalah
+// symlink ke program di dalamnya, sementara datanya tetap di $HOME/.hermes.
+//
+// Agent lain dipasang per-user, dan itu bukan pilihan gaya: installer
+// resminya memasang ke $HOME dan MENOLAK berjalan sebagai root (claude) atau
+// memasang runtime Node.js miliknya sendiri ke dalam home (openclaw).
 var dirSistemAgen = map[string][]string{
 	"hermes": {"/usr/local/lib/hermes-agent"},
 }
