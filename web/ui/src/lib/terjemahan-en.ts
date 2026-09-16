@@ -484,6 +484,7 @@ daftarkanTerjemahan({
   "Kapasitas hampir penuh pada {0} — bebaskan ruang sebelum layanan gagal menulis.": "Almost out of space on {0} — free some up before services fail to write.",
   "Kelola stack docker-compose": "Manage docker-compose stacks",
   "Komponen {0} berhasil dihapus.": "Component {0} removed.",
+  "Komponen {0} beserta seluruh berkasnya berhasil dihapus.": "Component {0} and all of its files were removed.",
   "Komponen {0} berhasil dipasang.": "Component {0} installed.",
   "Koneksi terminal gagal": "Terminal connection failed",
   "Kuota sesi terminal penuh": "Terminal session quota is full",
@@ -495,6 +496,8 @@ daftarkanTerjemahan({
   "Mode simbolik: {0}. Salah set bisa membuat file tidak terbaca atau justru terbuka untuk semua user.": "Symbolic mode: {0}. Setting this wrong can make the file unreadable — or readable by everyone.",
   "Paketnya dicopot. Data yang sudah dibuat komponen ini tetap disimpan, kecuali kamu memilih menghapusnya di bawah.":
     "The package is removed. Data this component created is kept, unless you choose to delete it below.",
+  "Biner, konfigurasi, dan data agent ini dihapus seluruhnya — termasuk riwayat sesi, daftar server MCP, dan kredensialnya. Alat yang dipakai bersama agent (rtk, graphify, ponytail, browser-use, arkon) tidak ikut terhapus. Tidak bisa dibatalkan.":
+    "This agent's binary, configuration, and data are deleted entirely — including session history, MCP server entries, and its credentials. Tools shared by all agents (rtk, graphify, ponytail, browser-use, arkon) are not removed. This cannot be undone.",
   "Hapus data komponen ini juga — termasuk kredensial, koneksi, dan riwayatnya. Tidak bisa dibatalkan.":
     "Delete this component's data as well — including its credentials, connections, and history. This cannot be undone.",
   "Paket dicopot lewat apt. Konfigurasi dan data yang sudah dibuat komponen ini tidak ikut dibersihkan.": "The package is removed via apt. Configuration and data created by this component are left behind.",

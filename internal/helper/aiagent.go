@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -396,20 +397,133 @@ func bersihkanANSI(s string) string {
 	return b.String()
 }
 
+// jejakAgen memetakan komponen AI agent → berkas & direktori miliknya di dalam
+// HOME user, relatif terhadap HOME.
+//
+// Uninstall agent TIDAK berhenti di binernya. Biner yang hilang sementara
+// konfigurasi lamanya (kredensial, daftar server MCP, hook, riwayat sesi)
+// masih tinggal meninggalkan mesin setengah terpasang: memasang ulang agent
+// langsung memakai config basi itu, dan yang dilihat user adalah agent yang
+// "sudah dihapus" tapi perilakunya masih membawa setelan lama.
+//
+// Yang SENGAJA tidak ada di sini — dan tidak boleh dimasukkan:
+//
+//   - alat lintas agent (rtk, graphify, ponytail, browser-use) dan
+//   - sumber pengetahuannya (arkon),
+//
+// keduanya dipakai BERSAMA lima agent. Mencabutnya bersama satu agent
+// mematikan alat itu untuk agent lain yang masih terpasang.
+//
+// Direktori konfigurasi dihapus bulat, bukan disunting satu per satu: riwayat
+// proyek, daftar izin, dan kredensial tinggal di dalamnya, dan justru itulah
+// yang diminta ikut hilang saat agent dicopot.
+//
+// Daftar ini juga yang dipakai kartu Components untuk menyebut apa saja yang
+// akan terhapus — lihat jejakAgenAda.
+var jejakAgen = map[string][]string{
+	"claude-code": {
+		".claude",             // config, skills, plugin, riwayat proyek
+		".claude.json",        // state CLI + daftar proyek
+		".local/share/claude", // biner versi terpasang
+		".local/state/claude",
+		".cache/claude",
+		".cache/claude-cli-nodejs",
+		".config/linux-dashboard/tooling-claude", // penanda pendaftaran rtk/graphify
+	},
+	"codex": {
+		".codex", // config.toml (MCP), AGENTS.md/RTK.md, skills
+		".cache/codex",
+		".config/linux-dashboard/tooling-codex",
+	},
+	"opencode": {
+		".opencode",             // biner
+		".config/opencode",      // opencode.json, AGENTS.md, plugin rtk
+		".local/share/opencode", // auth
+		".cache/opencode",
+		".config/linux-dashboard/tooling-opencode",
+	},
+	"openclaw": {
+		".openclaw", // config, tools/node, skills
+		".config/linux-dashboard/tooling-openclaw",
+	},
+	"hermes": {
+		".hermes", // config.yaml, .env, sesi, memori, skills
+		".config/linux-dashboard/tooling-hermes",
+	},
+}
+
+// dirSistemAgen adalah direktori system-wide yang dibuat installer resmi.
+//
+// Hermes di root memakai layout FHS: kodenya di sini, perintahnya symlink
+// /usr/local/bin/hermes ke dalamnya, dan datanya tetap di $HOME/.hermes.
+var dirSistemAgen = map[string][]string{
+	"hermes": {"/usr/local/lib/hermes-agent"},
+}
+
+// rumahAgen adalah setiap HOME yang perlu diperiksa — akun login dari passwd
+// plus /root (root tidak selalu muncul di daftar akun manusia, padahal ia yang
+// memakai instalasi system-wide).
+func rumahAgen() []string {
+	return append(rumahAkunManusia(), "/root")
+}
+
+// jejakAgenAdaDi mengembalikan jejak agent yang BENAR-BENAR ada di bawah
+// daftar HOME yang diberikan — satu-satunya sumber untuk kedua arah: dipakai
+// bersihAgen sebagai daftar kerja, dan bisa diuji tanpa menyentuh HOME
+// sungguhan.
+func jejakAgenAdaDi(nama string, homes []string) []string {
+	rel, ok := jejakAgen[nama]
+	if !ok {
+		return nil
+	}
+	var ada []string
+	for _, home := range homes {
+		if home == "" {
+			continue
+		}
+		for _, r := range rel {
+			p := filepath.Join(home, r)
+			if _, err := os.Lstat(p); err == nil {
+				ada = append(ada, p)
+			}
+		}
+	}
+	for _, d := range dirSistemAgen[nama] {
+		if _, err := os.Lstat(d); err == nil {
+			ada = append(ada, d)
+		}
+	}
+	return ada
+}
+
+// bersihAgen menghapus seluruh jejak agent. Kegagalannya dicatat ke log dan
+// tidak menghentikan sisanya.
+func bersihAgen(nama string) {
+	for _, p := range bersihAgenDi(nama, rumahAgen()) {
+		log.Printf("hapus jejak %s: %s", nama, p)
+	}
+}
+
+// bersihAgenDi mengembalikan daftar path yang GAGAL dihapus — bagian yang bisa
+// diuji tanpa menyentuh HOME sungguhan.
+func bersihAgenDi(nama string, homes []string) []string {
+	var gagal []string
+	for _, p := range jejakAgenAdaDi(nama, homes) {
+		if err := os.RemoveAll(p); err != nil {
+			gagal = append(gagal, fmt.Sprintf("%s: %v", p, err))
+		}
+	}
+	return gagal
+}
+
 // uninstallAgen menghapus agent dari SETIAP rumah user yang memilikinya, lalu
-// dari jalur sistem.
+// dari jalur sistem — biner DAN seluruh jejaknya (lihat jejakAgen).
 //
 // Dijalankan lintas user karena kartu Components pun melapor lintas user:
 // menghapus milik satu user saja akan menyisakan kartu yang tetap berkata
 // "terpasang" sesudah tombol Hapus ditekan, tanpa cara apa pun dari panel
 // untuk membereskannya.
-//
-// Hanya berkas yang memang dipasang installer yang dihapus — daftar dirData
-// per agent, bukan sapuan glob atas HOME. Data konfigurasi (mis. ~/.claude)
-// TIDAK ikut: itu milik user, dan menghapusnya berarti membuang riwayat serta
-// kredensial yang tidak bisa dikembalikan.
 func uninstallAgen(nama, binary string) error {
-	dirs := dirPasangAgen[nama]
 	// npm lebih dulu: ia yang tahu symlink mana yang dibuatnya sendiri.
 	// Menghapus symlink-nya duluan hanya menyisakan paketnya di
 	// /usr/lib/node_modules, dan `npm uninstall` sesudahnya tidak lagi punya
@@ -418,30 +532,18 @@ func uninstallAgen(nama, binary string) error {
 	if pkg, ok := paketNpmAgenLama[nama]; ok {
 		_ = npmUninstallGlobal(pkg)
 	}
-	for _, home := range append(rumahAkunManusia(), "/root") {
+	for _, home := range rumahAgen() {
 		for _, d := range dirBinAgen {
 			_ = os.Remove(filepath.Join(home, d, binary))
-		}
-		for _, d := range dirs {
-			_ = os.RemoveAll(filepath.Join(home, d))
 		}
 	}
 	for _, d := range []string{"/usr/local/bin", "/usr/bin"} {
 		_ = os.Remove(filepath.Join(d, binary))
 	}
-	for _, d := range dirs {
-		_ = os.RemoveAll(filepath.Join("/usr/local/lib", filepath.Base(d)))
-	}
+	// Terakhir, seluruh jejaknya — termasuk direktori tempat biner itu
+	// tinggal, yang dihapus bulat di sini alih-alih berkas demi berkas.
+	bersihAgen(nama)
 	return nil
-}
-
-// dirPasangAgen: direktori PEMASANGAN (bukan konfigurasi) yang dibuat
-// installer di dalam HOME. Dipisah dari data supaya uninstall tidak pernah
-// menyentuh percakapan, sesi, atau kredensial milik user.
-var dirPasangAgen = map[string][]string{
-	"opencode": {".opencode/bin"},
-	"openclaw": {".openclaw/tools"},
-	"hermes":   {".hermes/hermes-agent"},
 }
 
 // paketNpmAgenLama adalah paket npm global yang dipakai panel SEBELUM pindah
