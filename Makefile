@@ -19,9 +19,10 @@ ui:
 	cd $(UI) && npm ci && npm run build
 	@# Audit setelah build: moderate dibiarkan lewat (hanya noise), high/critical
 	@# ditandai [vuln] di log supaya jelas di modal Update tanpa membatalkan build.
-	@if cd $(UI) && ! npm audit --omit=dev --audit-level=high >/tmp/lindash-audit.log 2>&1; then \
+	@audit_log="$$(mktemp)"; trap 'rm -f "$$audit_log"' EXIT; \
+	if cd $(UI) && ! npm audit --omit=dev --audit-level=high >"$$audit_log" 2>&1; then \
 		echo "[vuln] Vulnerability high+ terdeteksi:"; \
-		cat /tmp/lindash-audit.log; \
+		cat "$$audit_log"; \
 		echo "[vuln] Jalankan 'cd web/ui && npm audit fix' (atau --force untuk major bump)."; \
 	fi
 

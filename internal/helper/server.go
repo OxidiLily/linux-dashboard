@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -35,7 +36,20 @@ type Server struct {
 }
 
 // maxClockSkew adalah umur maksimum request yang masih diterima.
-const maxClockSkew = 30 * time.Second
+const (
+	maxClockSkew     = 30 * time.Second
+	batasFrameHelper = 2 << 20
+)
+
+var errFrameTerlaluBesar = errors.New("frame request helper terlalu besar")
+
+func bacaFrame(br *bufio.Reader) ([]byte, error) {
+	line, err := bufio.NewReader(io.LimitReader(br, batasFrameHelper+1)).ReadBytes('\n')
+	if len(line) > batasFrameHelper {
+		return nil, errFrameTerlaluBesar
+	}
+	return line, err
+}
 
 func NewServer(socketPath, secretPath, socketGroup string) (*Server, error) {
 	secret, err := loadOrCreateSecret(secretPath, socketGroup)
@@ -198,8 +212,11 @@ func (s *Server) handle(conn net.Conn) {
 
 	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	br := bufio.NewReader(conn)
-	line, err := br.ReadBytes('\n')
+	line, err := bacaFrame(br)
 	if err != nil {
+		if errors.Is(err, errFrameTerlaluBesar) {
+			writeResp(conn, helperproto.Response{Code: helperproto.ErrInvalid, Error: err.Error()})
+		}
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
@@ -503,6 +520,19 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 			return nil, err
 		}
 		return nil, fail2banUnban(args.Jail, args.IP)
+
+	// Cronjob: crontab MILIK AKUN YANG LOGIN. Sengaja tidak ada di
+	// sudoRequired — mengatur jadwal sendiri bukan aksi admin, dan justru
+	// itulah yang membuat pembatasannya benar: helper menurunkan privilege ke
+	// akun itu, jadi kernel yang menentukan crontab siapa yang tersentuh.
+	case helperproto.CmdCronGet:
+		return jsonOf(cronGet(u))
+	case helperproto.CmdCronPut:
+		args, err := decodeArgs[helperproto.CronArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(cronPut(u, args))
 
 	case helperproto.CmdDiskPrepare:
 		args, err := decodeArgs[helperproto.DiskPrepareArgs](req)

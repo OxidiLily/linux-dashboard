@@ -94,6 +94,12 @@ const (
 	CmdPrintCancel          = "print.cancel"
 	CmdPrintFile            = "print.file"
 
+	// Cronjob: crontab MILIK AKUN YANG LOGIN, dibaca dan ditulis sebagai
+	// identitas akun itu — bukan crontab root, bukan /etc/crontab. Satu akun
+	// panel tidak pernah bisa melihat atau menyentuh jadwal akun lain.
+	CmdCronGet = "cron.get"
+	CmdCronPut = "cron.put"
+
 	// Disk mentah: format (opsional) lalu daftarkan di fstab dan mount.
 	CmdDiskPrepare = "disk.prepare"
 	// Kebalikannya: lepas mount disk, dan (kalau diminta) buang jejaknya dari
@@ -169,6 +175,11 @@ const (
 	// perbedaan itu menentukan tindakan user: mengganti mirror, bukan mencari
 	// nama paket lain.
 	ErrMirrorGagal = "apt_mirror_failed"
+	// ErrCronConflict: crontab berubah di antara saat UI memuatnya dan saat
+	// menekan Simpan. Tanpa penjaga ini, tab yang sudah lama terbuka akan
+	// menimpa jadwal yang barusan ditulis dari tempat lain — dan cron tidak
+	// punya riwayat. UI menjawabnya dengan memuat ulang, bukan menimpa.
+	ErrCronConflict = "cron_conflict"
 )
 
 const (
@@ -481,6 +492,46 @@ type PrintFileArgs struct {
 type PrintFileHasil struct {
 	JobID   string `json:"job_id"`
 	Printer string `json:"printer"`
+}
+
+// CronMaxBytes adalah batas isi crontab yang diterima panel, dihitung dari
+// byte UTF-8 (bukan jumlah karakter).
+//
+// crontab sendiri tidak memasang plafon serendah ini — batasnya jauh lebih
+// besar. Angka 64 KiB dipilih dari sisi lain: berkas spool crontab dibaca
+// seluruhnya berkali-kali oleh setiap proses cron, dan tidak ada crontab
+// sungguhan yang perlu lebih besar. Isi di bawah plafon ini ditolak dengan
+// kalimat yang jelas, bukan dipotong diam-diam.
+const CronMaxBytes = 64 << 10
+
+// CronArgs mengubah crontab akun yang mengirim permintaan.
+type CronArgs struct {
+	// Isi adalah crontab lengkap yang akan dipasang. String kosong = hapus
+	// semua jadwal (crontab kosong, bukan "tidak ada crontab").
+	Isi string `json:"isi"`
+	// Previous adalah isi crontab yang terakhir DILIHAT UI, apa adanya.
+	//
+	// Penunjuk, bukan string: "belum pernah memuat" harus bisa dibedakan dari
+	// "memuat crontab yang memang kosong". Tanpa pembedaan itu, klien yang
+	// melewatkan field ini akan lolos sebagai penimpa bebas — persis kejadian
+	// yang penjaga ini ada untuk mencegahnya.
+	Previous *string `json:"previous"`
+}
+
+// CronHasil adalah isi crontab setelah operasi selesai — dibaca ulang dari
+// crontab, bukan dikutip dari yang dikirim klien. Penulisan yang "berhasil"
+// tapi tidak mendarat akan terlihat di sini.
+type CronHasil struct {
+	Isi string `json:"isi"`
+	// Batas ikut dikirim supaya UI memakai angka yang sama dengan server —
+	// dua angka batas yang ditulis terpisah pasti akan berbeda suatu hari.
+	Batas int `json:"batas"`
+	// Layanan & LayananAktif hanya diisi cron.get: nama unit penjadwal yang
+	// ditemukan di mesin (cron/crond) dan apakah ia benar-benar berjalan.
+	// Crontab yang tidak pernah dijalankan siapa pun adalah kegagalan diam
+	// yang paling sulit dilacak dari UI.
+	Layanan      string `json:"layanan,omitempty"`
+	LayananAktif bool   `json:"layanan_aktif,omitempty"`
 }
 
 // NFSExport adalah satu baris /etc/exports: satu folder dengan daftar klien.

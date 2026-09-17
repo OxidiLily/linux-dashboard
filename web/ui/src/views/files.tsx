@@ -36,6 +36,8 @@ import {
   Clipboard,
   ClipboardCopy,
   Edit3,
+  Search,
+  X,
 } from "lucide-react"
 
 type FileEntry = {
@@ -158,6 +160,25 @@ export function rootAktif(path: string, roots: FileRoot[]): string {
   return terpilih
 }
 
+// Saringan daftar berkas di folder yang SEDANG TERBUKA.
+//
+// Sengaja bukan pencarian rekursif: menelusuri subfolder berarti pekerjaan
+// berat di sisi server (satu penelusuran penuh untuk tiap ketikan) dan
+// hasilnya daftar path yang tidak punya tempat untuk ditindak — berkas di
+// folder lain tidak bisa dipilih, diganti nama, atau dihapus dari sini. Yang
+// dibutuhkan sehari-hari adalah "temukan berkas ini di folder yang sedang saya
+// lihat", dan itu memang saringan di sisi klien: nol permintaan jaringan,
+// hasilnya seketika walau foldernya berisi puluhan ribu berkas.
+//
+// Kapital diabaikan supaya "foto" menemukan "Foto". Kueri dipakai sebagai
+// substring apa adanya — karakter seperti `.` dan `*` diperlakukan literal,
+// bukan pola, karena orang mencari nama berkas (`*.log`), bukan regex.
+export function cariBerkas<T extends { name: string }>(entries: T[], query: string): T[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return entries
+  return entries.filter((e) => e.name.toLowerCase().includes(q))
+}
+
 export function FileManagerView() {
   const tr = useTr()
   const user = useAuth((s) => s.user)
@@ -197,6 +218,8 @@ export function FileManagerView() {
   // Seleksi disimpan sebagai path, bukan indeks: isi direktori bisa berubah
   // di antara refresh, dan indeks lama akan menunjuk berkas yang salah.
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Kueri pencarian nama di folder yang sedang terbuka.
+  const [cari, setCari] = useState("")
   // stat() pada direktori mengembalikan ukuran inode-nya sendiri, bukan
   // isinya, jadi ukuran folder dihitung terpisah lewat /api/files/usage.
   // Kunci = path, nilai < 0 = folder tidak terbaca. Hasil sengaja TIDAK
@@ -206,6 +229,8 @@ export function FileManagerView() {
   const [parsial, setParsial] = useState<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
+  const urutanDirektori = useRef(0)
+  const urutanPreview = useRef(0)
 
   const loadRoots = async () => {
     try {
@@ -215,13 +240,20 @@ export function FileManagerView() {
   }
 
   const loadDir = useCallback(async (path: string) => {
+    const nomor = ++urutanDirektori.current
     setLoading(true)
     try {
       const res = await apiGet<{ path: string; entries: FileEntry[] }>(`/api/files?path=${encodeURIComponent(path)}`)
+      if (nomor !== urutanDirektori.current) return
       setEntries(res.entries || [])
       setCurrentPath(res.path)
       setContextMenu(null)
       setSelected(new Set())
+      // Saringan dibuang saat pindah folder: kueri yang tertinggal membuat
+      // folder baru terlihat kosong tanpa sebab yang kelihatan, dan user
+      // menyimpulkan foldernya rusak, bukan bahwa filternya masih aktif.
+      // Pindah folder adalah tindakan yang jelas berbeda dari mencari.
+      setCari("")
       // Sinkronkan path ke URL supaya bookmark bisa di-share dan tombol
       // back browser bekerja.
       setSearchParams((p) => {
@@ -230,9 +262,9 @@ export function FileManagerView() {
         return p
       }, { replace: true })
     } catch (e: any) {
-      notify.err(trf("Gagal membuka direktori: {0}", pesanError(e)))
+      if (nomor === urutanDirektori.current) notify.err(trf("Gagal membuka direktori: {0}", pesanError(e)))
     } finally {
-      setLoading(false)
+      if (nomor === urutanDirektori.current) setLoading(false)
     }
   }, [setSearchParams])
 
@@ -445,6 +477,7 @@ export function FileManagerView() {
   }
 
   const handlePreview = (entry: FileEntry) => {
+    const nomor = ++urutanPreview.current
     const ext = entry.name.split(".").pop()?.toLowerCase()
     const imgExts = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
     setMediaGagal(false)
@@ -467,9 +500,9 @@ export function FileManagerView() {
         const res = await fetch(`/api/files/preview?path=${encodeURIComponent(entry.path)}`, { credentials: "include" })
         if (!res.ok) throw new Error(tr("Gagal membaca preview"))
         const text = await res.text()
-        setPreviewContent({ path: entry.path, text, isImg: false })
+        if (nomor === urutanPreview.current) setPreviewContent({ path: entry.path, text, isImg: false })
       } catch (e: any) {
-        notify.err(trf("Gagal preview file: {0}", pesanError(e)))
+        if (nomor === urutanPreview.current) notify.err(trf("Gagal preview file: {0}", pesanError(e)))
       }
     })()
   }
@@ -644,7 +677,16 @@ export function FileManagerView() {
     }
   }
 
-  const pilihan = entries.filter((e) => selected.has(e.path))
+  // Hasil saring dipakai SEMUA bagian di bawahnya — daftar, kisi, "Pilih
+  // semua", dan aksi massal. Kalau yang di bawah tetap memakai `entries`,
+  // "Pilih semua" akan memilih baris yang tidak terlihat sementara `pilihan`
+  // mengunduh atau menghapus berkas yang tidak pernah muncul di layar.
+  const terlihat = cariBerkas(entries, cari)
+
+  // Seleksi dibaca dari daftar yang TERLIHAT: hasil saring adalah satu-satunya
+  // hal yang bisa disentuh user, jadi hanya itu yang boleh ikut terpilih.
+  const pilihan = terlihat.filter((e) => selected.has(e.path))
+  const semuaTerlihatDipilih = terlihat.length > 0 && pilihan.length === terlihat.length
 
   const togglePilih = (path: string) =>
     setSelected((s) => {
@@ -655,7 +697,12 @@ export function FileManagerView() {
     })
 
   const toggleSemua = () =>
-    setSelected((s) => (s.size === entries.length ? new Set() : new Set(entries.map((e) => e.path))))
+    setSelected((s) => {
+      const n = new Set(s)
+      if (semuaTerlihatDipilih) terlihat.forEach((e) => n.delete(e.path))
+      else terlihat.forEach((e) => n.add(e.path))
+      return n
+    })
 
   // Satu berkas diunduh apa adanya; folder atau pilihan jamak dibungkus zip
   // oleh server supaya strukturnya utuh.
@@ -822,6 +869,8 @@ export function FileManagerView() {
                 size="sm"
                 className="h-8 px-2"
                 onClick={() => setViewMode("list")}
+                aria-label={tr("Tampilan daftar")}
+                title={tr("Tampilan daftar")}
               >
                 <List className="size-3.5" />
               </Button>
@@ -830,6 +879,8 @@ export function FileManagerView() {
                 size="sm"
                 className="h-8 px-2"
                 onClick={() => setViewMode("grid")}
+                aria-label={tr("Tampilan kisi")}
+                title={tr("Tampilan kisi")}
               >
                 <Grid className="size-3.5" />
               </Button>
@@ -840,6 +891,47 @@ export function FileManagerView() {
           </div>
         }
       >
+        {/* Pencarian nama di folder yang sedang terbuka. type="search" bukan
+            type="text": di HP dan di sebagian desktop, hanya bentuk itu yang
+            memberi tombol bersihkan bawaan serta tombol Enter yang berbunyi
+            "Cari" — dan tanpa itu keyboard yang muncul adalah keyboard teks
+            biasa, bukan yang punya tombol cari. */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              className="pl-8 pr-8"
+              value={cari}
+              onChange={(e) => setCari(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setCari("")
+              }}
+              placeholder={tr("Cari berkas di folder ini…")}
+              aria-label={tr("Cari berkas")}
+            />
+            {cari !== "" && (
+              <button
+                type="button"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                onClick={() => setCari("")}
+                aria-label={tr("Bersihkan pencarian")}
+                title={tr("Bersihkan pencarian")}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+          {/* Penghitung ditampilkan hanya saat ada yang disaring: "12 / 340"
+              yang selalu ada terbaca sebagai informasi tetap, padahal yang
+              penting justru saat angkanya berbeda dari totalnya. */}
+          {cari.trim() !== "" && (
+            <span className="num text-xs text-muted-foreground" aria-live="polite">
+              {trf("{0} / {1} cocok", terlihat.length, entries.length)}
+            </span>
+          )}
+        </div>
+
         <div className="mb-3 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
           <Button variant="ghost" size="sm" onClick={upDir} disabled={currentPath === "/" || loading}>
             <ArrowLeft className="size-3.5 sm:mr-1" /> <span className="sr-only sm:not-sr-only">{tr("Naik")}</span>
@@ -855,9 +947,9 @@ export function FileManagerView() {
           )}
         </div>
 
-        {selected.size > 0 && (
+        {pilihan.length > 0 && (
           <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-border bg-secondary/40 px-3 py-2">
-            <span className="text-xs font-medium">{trf("{0} item terpilih", selected.size)}</span>
+            <span className="text-xs font-medium">{trf("{0} item terpilih", pilihan.length)}</span>
             <Button variant="outline" size="sm" onClick={unduhTerpilih}>
               <Download className="size-3.5 sm:mr-1" /> <span className="sr-only sm:not-sr-only">{tr("Download")}</span>
             </Button>
@@ -886,7 +978,7 @@ export function FileManagerView() {
                       type="checkbox"
                       aria-label={tr("Pilih semua")}
                       title={tr("Pilih semua")}
-                      checked={entries.length > 0 && selected.size === entries.length}
+                      checked={semuaTerlihatDipilih}
                       onChange={toggleSemua}
                     />
                   </th>
@@ -898,7 +990,7 @@ export function FileManagerView() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {entries.map((e) => (
+                {terlihat.map((e) => (
                   <tr
                     key={e.name}
                     className="hover:bg-secondary/40"
@@ -955,10 +1047,16 @@ export function FileManagerView() {
                     </td>
                   </tr>
                 ))}
-                {entries.length === 0 && (
+                {terlihat.length === 0 && (
                   <tr>
                     <td data-label="" colSpan={6} className="py-6 text-center text-muted-foreground">
-                      {tr("Direktori kosong")}
+                      {/* Dua keadaan kosong yang berbeda tidak boleh berbunyi
+                          sama: "folder ini memang kosong" dan "tidak ada yang
+                          cocok dengan pencarian" butuh tindakan yang
+                          berbeda — yang kedua cukup hapus kata kuncinya. */}
+                      {cari.trim() !== ""
+                        ? trf("Tidak ada berkas yang cocok dengan \"{0}\".", cari.trim())
+                        : tr("Direktori kosong")}
                     </td>
                   </tr>
                 )}
@@ -967,7 +1065,7 @@ export function FileManagerView() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
-            {entries.map((e) => (
+            {terlihat.map((e) => (
               <div
                 key={e.name}
                 className="group relative flex flex-col items-center rounded-lg border border-border p-3 text-center hover:bg-secondary/40 cursor-pointer"
@@ -996,6 +1094,13 @@ export function FileManagerView() {
                 <span className="text-[10px] text-muted-foreground">{kolomUkuran(e)}</span>
               </div>
             ))}
+            {terlihat.length === 0 && (
+              <p className="col-span-full py-6 text-center text-xs text-muted-foreground">
+                {cari.trim() !== ""
+                  ? trf("Tidak ada berkas yang cocok dengan \"{0}\".", cari.trim())
+                  : tr("Direktori kosong")}
+              </p>
+            )}
           </div>
         )}
       </Panel>
@@ -1206,7 +1311,14 @@ export function FileManagerView() {
                 >
                   <ClipboardCopy className="size-3.5" />
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setPreviewContent(null)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    urutanPreview.current++
+                    setPreviewContent(null)
+                  }}
+                >
                   {tr("Tutup")}
                 </Button>
               </div>

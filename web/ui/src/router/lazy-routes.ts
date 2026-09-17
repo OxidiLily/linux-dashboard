@@ -27,6 +27,7 @@ export const pemuatRute: Record<string, () => Promise<unknown>> = {
   "/ai/agent": () => import("@/views/ai-agent"),
   "/system/processes": () => import("@/views/processes"),
   "/system/docker": () => import("@/views/docker"),
+  "/system/cron": () => import("@/views/cron"),
   "/system/terminal": () => import("@/views/terminal"),
 }
 

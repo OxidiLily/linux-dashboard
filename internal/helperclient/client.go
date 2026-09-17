@@ -97,6 +97,9 @@ func (c *Client) dial(cmd, username string, args any) (net.Conn, *bufio.Reader, 
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("helper daemon tidak dapat dihubungi: %w", err)
 	}
+	if cmd == helperproto.CmdCronGet || cmd == helperproto.CmdCronPut {
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	}
 	line := append([]byte(helperproto.Sign(c.secret, payload)+" "), payload...)
 	line = append(line, '\n')
 	if _, err := conn.Write(line); err != nil {
@@ -119,6 +122,7 @@ func (c *Client) dial(cmd, username string, args any) (net.Conn, *bufio.Reader, 
 		conn.Close()
 		return nil, nil, nil, &Error{Code: resp.Code, Msg: resp.Error, Params: resp.Params}
 	}
+	_ = conn.SetDeadline(time.Time{})
 	return conn, br, &resp, nil
 }
 
@@ -188,4 +192,3 @@ func (c *Client) Stream(cmd, username string, args any) (*Stream, error) {
 	}
 	return &Stream{Conn: conn, R: br, Resp: resp}, nil
 }
-

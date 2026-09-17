@@ -39,11 +39,11 @@ untuk menu Docker, Firewall, Fail2ban, Samba, Disk Pool, NFS, dan Components).
 | Grup | Menu |
 |---|---|
 | Home | Dashboard (CPU, RAM, Storage, GPU, Network real-time; disk kosong bisa diformat & di-mount dari sini, mount yang ada bisa dilepas) |
-| File manager | File Manager (editor teks, buat file, cetak berkas) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
+| File manager | File Manager (editor teks, buat file, cetak berkas, **pencarian nama di folder yang terbuka**) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (sesi CLI agent di dalam panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (semua alert panel) · File Operations · Activity Logs |
 | Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
-| System | Processes · Docker (aksi per container, log, editor compose & `.env`, image/volume/network, pemakaian disk) · Terminal |
+| System | Processes · Docker (aksi per container, log, editor compose & `.env`, image/volume/network, pemakaian disk) · Cronjob · Terminal |
 
 **Akun** tidak ada di sidebar: pintu masuknya adalah blok profil di kaki
 sidebar, yang membuka menu berisi identitas akun, Akun, Uninstall panel (khusus
@@ -52,6 +52,26 @@ sudoer), dan Keluar. Rutenya tetap `/settings/account`.
 Halaman yang butuh software tertentu (Samba, ufw, Docker, mergerfs, NFS,
 fail2ban) menampilkan **"Belum Terpasang"** dengan tombol ke Components, bukan
 daftar kosong atau error `command not found`.
+
+**Pencarian di File Manager** menyaring nama berkas di folder yang sedang
+terbuka — bukan penelusuran rekursif. Hasil saring itulah yang dipakai daftar,
+kisi, "Pilih semua", dan aksi massal, jadi tidak ada berkas yang ikut terunduh
+atau terhapus tanpa pernah terlihat. Kapital diabaikan dan karakter seperti `.`
+atau `*` diperlakukan literal (orang mencari nama berkas, bukan pola); kueri
+dibuang saat pindah folder supaya folder baru tidak tampak kosong tanpa sebab.
+
+**Cronjob** (System → Cronjob) mengedit crontab **milik akun yang login**, dan
+itulah satu-satunya yang tersentuh: `crontab -l` / `crontab -` dijalankan helper
+sebagai identitas akun tersebut, jadi tidak ada jalan dari halaman ini menuju
+crontab user lain atau crontab sistem. Karena itu menunya **tidak** bertanda
+sudo — mengatur jadwal sendiri bukan aksi admin. Yang dijaga di sisi server:
+isi maksimum 64 KiB, `previous` wajib (isi terakhir yang dilihat UI) dan
+ketidakcocokannya dijawab HTTP 409 ("crontab berubah; muat ulang"), serta
+pembacaan ulang setelah menulis supaya penulisan yang tidak mendarat terlihat.
+Halaman ini juga melaporkan **keadaan penjadwalnya**: crontab yang rapi tapi
+tanpa unit cron yang berjalan adalah kegagalan yang paling lama tidak
+ketahuan. `crontab -l` untuk akun tanpa crontab keluar dengan status 1 dan
+stderr `no crontab for <user>` — itu keadaan normal, bukan error.
 
 Menu **Logs** berisi tiga sudut pandang dengan masa simpan yang ditegakkan
 server, bukan sekadar dijanjikan: **Logs** (semua alert panel — berhasil,
