@@ -39,7 +39,7 @@ untuk menu Docker, Firewall, Fail2ban, Samba, Disk Pool, NFS, dan Components).
 | Grup | Menu |
 |---|---|
 | Home | Dashboard (CPU, RAM, Storage, GPU, Network real-time; disk kosong bisa diformat & di-mount dari sini, mount yang ada bisa dilepas) |
-| File manager | File Manager (editor teks, buat file, cetak berkas, **pencarian nama di folder yang terbuka**) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
+| File manager | File Manager (editor teks, buat file, cetak berkas, **pencarian nama di folder terbuka maupun sampai ke subfolder**) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (sesi CLI agent di dalam panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (semua alert panel) · File Operations · Activity Logs |
 | Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
@@ -53,12 +53,22 @@ Halaman yang butuh software tertentu (Samba, ufw, Docker, mergerfs, NFS,
 fail2ban) menampilkan **"Belum Terpasang"** dengan tombol ke Components, bukan
 daftar kosong atau error `command not found`.
 
-**Pencarian di File Manager** menyaring nama berkas di folder yang sedang
-terbuka — bukan penelusuran rekursif. Hasil saring itulah yang dipakai daftar,
-kisi, "Pilih semua", dan aksi massal, jadi tidak ada berkas yang ikut terunduh
-atau terhapus tanpa pernah terlihat. Kapital diabaikan dan karakter seperti `.`
-atau `*` diperlakukan literal (orang mencari nama berkas, bukan pola); kueri
-dibuang saat pindah folder supaya folder baru tidak tampak kosong tanpa sebab.
+**Pencarian di File Manager** punya dua mode. Secara bawaan ia menyaring nama
+berkas di folder yang sedang terbuka saja — nol permintaan jaringan, hasil
+seketika walau foldernya berisi puluhan ribu berkas. Tombol **Subfolder**
+menaikkannya menjadi penelusuran sampai ke dalam semua subfolder, setara
+`grep -r` pada NAMA berkas (isinya tidak dibaca: folder data user bisa berisi
+puluhan GB, dan membaca semuanya untuk satu kata kunci membuat pencarian tidak
+bisa dipakai). Penelusuran itu berjalan di server sebagai akun yang login, jadi
+jail home tetap berlaku untuk user non-sudo.
+
+Hasil saring dipakai daftar, kisi, "Pilih semua", dan aksi massal, jadi tidak
+ada berkas yang ikut terunduh atau terhapus tanpa pernah terlihat. Karakter
+seperti `.` dan `*` diperlakukan literal (orang mencari nama berkas, bukan
+pola); kueri dibuang saat pindah folder supaya folder baru tidak tampak kosong
+tanpa sebab. Untuk mode subfolder, tiap baris menampilkan **lokasi relatif**
+(`sub/dalam/berkas.txt`) dan halaman melaporkan berapa folder ditelusuri; hasil
+dibatasi 500 baris dan pemotongannya dinyatakan, bukan disembunyikan.
 
 **Cronjob** (System → Cronjob) mengedit crontab **milik akun yang login**, dan
 itulah satu-satunya yang tersentuh: `crontab -l` / `crontab -` dijalankan helper

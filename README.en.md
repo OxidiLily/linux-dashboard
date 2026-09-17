@@ -41,7 +41,7 @@ Components menus).
 | Group | Menu |
 |---|---|
 | Home | Dashboard (CPU, RAM, Storage, GPU, Network in real time; empty disks can be formatted & mounted from here, existing mounts can be unmounted) |
-| File manager | File Manager (text editor, file creation, printing, **name search inside the open folder**) · Samba (shares + users) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
+| File manager | File Manager (text editor, file creation, printing, **name search in the open folder or all the way down into subfolders**) · Samba (shares + users) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (agent CLI sessions inside the panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (every panel alert) · File Operations · Activity Logs |
 | Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
@@ -56,13 +56,23 @@ Pages that need specific software (Samba, ufw, Docker, mergerfs, NFS, fail2ban)
 show **"Not Installed"** with a button to Components — not an empty list or a raw
 `command not found` error.
 
-**Search in the File Manager** filters file names inside the folder you have
-open — it is not a recursive walk. That filtered list is what the table, the
-grid, "select all", and the bulk actions all use, so nothing is downloaded or
-deleted without ever being visible. Casing is ignored and characters such as `.`
-or `*` are matched literally (people search for file names, not patterns); the
-query is cleared when you change folder so a new folder never looks empty for no
-apparent reason.
+**File Manager search** has two modes. By default it filters file names in the
+currently open folder only — zero network requests, instant results even when
+the folder holds tens of thousands of files. The **Subfolder** button promotes
+it to a walk through every subfolder, the equivalent of `grep -r` over file
+NAMES (contents are never read: a user data folder can hold tens of GB, and
+reading all of it for one keyword makes search unusable). That walk runs on the
+server as the logged-in account, so the home jail still applies to non-sudo
+users.
+
+The filtered result feeds the list, the grid, "Select all", and bulk actions,
+so no file is downloaded or deleted without ever having been visible. Characters
+like `.` and `*` are treated literally (people search for a file name, not a
+pattern); the query is dropped when you change folders so a new folder never
+looks empty for no visible reason. In subfolder mode each row shows its
+**relative location** (`sub/dalam/file.txt`) and the page reports how many
+folders were walked; results are capped at 500 rows and the cut-off is stated
+rather than hidden.
 
 **Cronjobs** (System → Cronjobs) edits the **logged-in account's own** crontab,
 and that is the only one it touches: the helper runs `crontab -l` / `crontab -`

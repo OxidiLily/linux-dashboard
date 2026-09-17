@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"strconv"
+	"strings"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
@@ -45,6 +46,28 @@ func (s *Server) fileOp(u *userInfo, req helperproto.Request) (json.RawMessage, 
 			return nil, err
 		}
 		return runAsUser(u, workerOp{Op: "usage", Path: path}, nil, nil)
+
+	case helperproto.CmdFileSearch:
+		args, err := decodeArgs[helperproto.SearchArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		path, err := s.checkPath(u, args.Path)
+		if err != nil {
+			return nil, err
+		}
+		// Kueri kosong ditolak di sini, bukan dikembalikan sebagai "semua
+		// berkas": menyapu seluruh pohon untuk kueri kosong berarti membaca
+		// puluhan ribu entri untuk jawaban yang tidak dipakai siapa pun.
+		// Komentar pada carifile.go menjelaskan pilihan ini.
+		if strings.TrimSpace(args.Query) == "" {
+			return nil, errInvalid("kata kunci pencarian kosong")
+		}
+		op := workerOp{Op: "search", Path: path, Query: args.Query, Maks: args.Maks}
+		// Aturan yang sama dengan daftar: user biasa hanya melihat yang bisa
+		// dibukanya sendiri, sudoer melihat apa adanya.
+		op.SaringAkses = !u.Sudo
+		return runAsUser(u, op, nil, nil)
 
 	case helperproto.CmdFileMkdir:
 		args, err := decodeArgs[helperproto.PathArgs](req)

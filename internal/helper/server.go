@@ -374,7 +374,7 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return nil, ufwToggle(args.Enable)
 
-	case helperproto.CmdFileList, helperproto.CmdFileUsage, helperproto.CmdFileMkdir,
+	case helperproto.CmdFileList, helperproto.CmdFileSearch, helperproto.CmdFileUsage, helperproto.CmdFileMkdir,
 		helperproto.CmdFileRemove, helperproto.CmdFileRename, helperproto.CmdFileCopy,
 		helperproto.CmdFileMove, helperproto.CmdFileChmod, helperproto.CmdFileChown:
 		return s.fileOp(u, req)

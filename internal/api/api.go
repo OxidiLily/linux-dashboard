@@ -84,6 +84,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/services/{name}/{action}", s.handleServiceAction)
 
 			r.Get("/files", s.handleFileList)
+			r.Get("/files/search", s.handleFileSearch)
 			r.Post("/files/upload", s.handleUpload)
 			r.Get("/files/download", s.handleDownload)
 			r.Get("/files/archive", s.handleArchive)

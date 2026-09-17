@@ -1342,7 +1342,26 @@ daftarkanTerjemahan({
   // ---- file manager: pencarian ----
   "Cari berkas di folder ini…": "Search files in this folder…",
   "Cari berkas": "Search files",
+  "Cari": "Search",
   "Bersihkan pencarian": "Clear the search",
+  // Pencarian sampai ke dalam subfolder.
+  "Cari sampai ke subfolder…": "Search inside subfolders…",
+  "Cari juga di dalam semua subfolder": "Also search inside every subfolder",
+  "Mencari…": "Searching…",
+  "Menelusuri subfolder…": "Walking subfolders…",
+  "{0} hasil di dalam {1}": "{0} results inside {1}",
+  "({0} folder ditelusuri)": "({0} folders walked)",
+  "Hasil dipotong — persempit kata kuncinya.": "Results were cut off — narrow your keyword.",
+  "Penelusuran dihentikan karena terlalu lama — hasilnya belum tentu lengkap.":
+    "The walk was stopped because it took too long — these results may be incomplete.",
+  "Terlalu banyak folder — hasilnya belum tentu lengkap.":
+    "Too many folders — these results may be incomplete.",
+  "di sini": "here",
+  "Tulis kata kunci dulu untuk menelusuri subfolder.":
+    "Type a keyword first to search inside subfolders.",
+  "Tidak ada berkas yang memuat \"{0}\" sampai ke subfolder.":
+    "No file contains \"{0}\" down to the subfolders.",
+  "Gagal mencari: {0}": "Search failed: {0}",
   "Tampilan daftar": "List view",
   "Tampilan kisi": "Grid view",
   "{0} / {1} cocok": "{0} / {1} match",
