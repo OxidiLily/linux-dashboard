@@ -29,6 +29,7 @@ import {
   Power,
   ChevronsUpDown,
   Bot,
+  CalendarClock,
 } from "lucide-react"
 import { apiGet, apiSend } from "@/lib/api"
 import { pesanError } from "@/lib/pesan-error"
@@ -111,6 +112,10 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/system/processes", label: "nav.processes", icon: Cpu },
       { to: "/system/docker", label: "nav.docker", icon: Container, sudo: true },
+      // Cronjob tidak bertanda sudo: yang dikelola crontab akun yang login,
+      // bukan crontab sistem. Menandainya sudo akan menyembunyikannya dari
+      // user biasa yang justru berhak mengatur jadwalnya sendiri.
+      { to: "/system/cron", label: "nav.cron", icon: CalendarClock },
       { to: "/system/terminal", label: "nav.terminal", icon: SquareTerminal },
     ],
   },

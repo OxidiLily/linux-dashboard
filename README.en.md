@@ -41,11 +41,11 @@ Components menus).
 | Group | Menu |
 |---|---|
 | Home | Dashboard (CPU, RAM, Storage, GPU, Network in real time; empty disks can be formatted & mounted from here, existing mounts can be unmounted) |
-| File manager | File Manager (text editor, file creation, printing) · Samba (shares + users) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
+| File manager | File Manager (text editor, file creation, printing, **name search inside the open folder**) · Samba (shares + users) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (agent CLI sessions inside the panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (every panel alert) · File Operations · Activity Logs |
 | Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
-| System | Processes · Docker (per-container actions, logs, compose & `.env` editors, images/volumes/networks, disk usage) · Terminal |
+| System | Processes · Docker (per-container actions, logs, compose & `.env` editors, images/volumes/networks, disk usage) · Cronjobs · Terminal |
 
 **Account** is not in the sidebar: its entry point is the profile block at the
 foot of the sidebar, which opens a menu holding the account identity, Account,
@@ -55,6 +55,27 @@ Uninstall panel (sudoers only), and Sign out. The route is still
 Pages that need specific software (Samba, ufw, Docker, mergerfs, NFS, fail2ban)
 show **"Not Installed"** with a button to Components — not an empty list or a raw
 `command not found` error.
+
+**Search in the File Manager** filters file names inside the folder you have
+open — it is not a recursive walk. That filtered list is what the table, the
+grid, "select all", and the bulk actions all use, so nothing is downloaded or
+deleted without ever being visible. Casing is ignored and characters such as `.`
+or `*` are matched literally (people search for file names, not patterns); the
+query is cleared when you change folder so a new folder never looks empty for no
+apparent reason.
+
+**Cronjobs** (System → Cronjobs) edits the **logged-in account's own** crontab,
+and that is the only one it touches: the helper runs `crontab -l` / `crontab -`
+as that account's identity, so there is no path from this page to another user's
+or to the system crontab. That is why the menu item carries **no** sudo badge —
+managing your own schedule is not an admin action. The server enforces a 64 KiB
+size limit, a mandatory `previous` (the contents the UI last saw) with a
+mismatch answered as HTTP 409 ("crontab changed; reload"), and a read-back after
+writing so a write that never landed is visible. The page also reports **the
+state of the scheduler itself**: a tidy crontab with no running cron unit is the
+failure that stays hidden longest. `crontab -l` on an account without a crontab
+exits 1 with stderr `no crontab for <user>` — that is a normal state, not an
+error.
 
 The **Logs** menu holds three views whose retention the server actually
 enforces rather than merely promising: **Logs** (every panel alert — success,

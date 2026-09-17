@@ -23,7 +23,8 @@ import { pesanError } from "@/lib/pesan-error"
 import "@/lib/terjemahan-en"
 import { tr, trf } from "@/stores/i18n"
 import { simpanBahasaPralogin, usePrefs } from "@/stores/prefs"
-import { rootAktif } from "@/views/files"
+import { cariBerkas, rootAktif } from "@/views/files"
+import { bacaCrontab, cariJadwal, ukuranByte, ukuranCrontabTersimpan } from "@/views/cron"
 
 const gagal: string[] = []
 let jumlah = 0
@@ -80,6 +81,88 @@ cek(rootAktif("/etc", roots), "/", "root/di-luar-root-lain")
 cek(rootAktif("/", roots), "/", "root/akar")
 // Tetangga dengan awalan sama tidak boleh ikut aktif.
 cek(rootAktif("/home/ani/DATA/MediaLama", roots), "/home/ani", "root/prefiks-mirip")
+
+// File Manager: pencarian nama di folder yang sedang terbuka. Yang diuji di
+// sini adalah hal-hal yang mudah salah dan tidak kelihatan dari layar: kueri
+// kosong harus mengembalikan SEMUA (bukan saringan yang membuang semuanya),
+// kapital diabaikan, dan karakter pola diperlakukan literal.
+const berkas = [
+  { name: "Laporan.pdf" },
+  { name: "laporan-lama.pdf" },
+  { name: "foto.jpg" },
+  { name: "catatan.tar.gz" },
+  { name: "arsip.2024.zip" },
+]
+cek(String(cariBerkas(berkas, "").length), "5", "cari/kosong-semua")
+cek(String(cariBerkas(berkas, "   ").length), "5", "cari/spasi-semua")
+cek(String(cariBerkas(berkas, "LAPORAN").length), "2", "cari/kapital-diabaikan")
+cek(cariBerkas(berkas, "fotO")[0].name, "foto.jpg", "cari/kapital-campur")
+cek(String(cariBerkas(berkas, "tidak-ada").length), "0", "cari/tanpa-hasil")
+// Titik adalah karakter LITERAL, bukan "apa saja": mencari ".pdf" harus
+// menemukan Laporan.pdf dan bukan ikut menarik "pdf" tanpa titik.
+cek(String(cariBerkas(berkas, ".pdf").length), "2", "cari/titik-literal")
+// Bintang juga literal — orang mencari nama berkas seperti "*.tar.gz", bukan
+// regex. Kalau ini diperlakukan sebagai pola, setiap berkas akan cocok.
+cek(String(cariBerkas(berkas, "*").length), "0", "cari/bintang-literal")
+cek(String(cariBerkas(berkas, "2024").length), "1", "cari/angka")
+
+// Cronjob: pembacaan crontab. Bagian yang paling halus adalah memecah lima
+// kolom jadwal dari perintahnya — jadwal yang salah pecah tetap tampil rapi —
+// dan bentuk @daily yang hanya satu kata.
+const crontab = [
+  "SHELL=/bin/bash",
+  "PATH=/usr/local/bin:/usr/bin:/bin",
+  "",
+  "# komentar biasa",
+  "*/5  *  * * *   /usr/bin/echo spasi-banyak",
+  "@daily /usr/bin/rsync -a /data /backup",
+  "0 3 * * 1 echo dua-kata",
+  "bukan jadwal",
+  "",
+].join("\n")
+const barisCron = bacaCrontab(crontab)
+// Delapan baris, bukan sembilan: newline terakhir hanya menutup baris
+// kedelapan, dan potongan kosong sisa split-nya memang dibuang. Baris kosong
+// di TENGAH (baris 3) tetap dihitung — itu baris yang benar-benar ada.
+cek(String(barisCron.length), "8", "cron/jumlah-baris")
+cek(String(barisCron[barisCron.length - 1].kind), "other", "cron/baris-akhir")
+cek(String(barisCron[2].kind), "blank", "cron/baris-kosong-tengah")
+cek(String(barisCron[2].line), "3", "cron/nomor-baris-kosong")
+cek(JSON.stringify(barisCron[0]), '{"kind":"variable","line":1,"name":"SHELL","value":"/bin/bash"}', "cron/variabel")
+cek(String(barisCron[1].line), "2", "cron/nomor-baris")
+cek(JSON.stringify(barisCron[3]), '{"kind":"comment","line":4,"text":"komentar biasa"}', "cron/komentar")
+// Spasi berlebih antar kolom tidak boleh menggeser batas jadwal/perintah.
+cek(
+  JSON.stringify(barisCron[4]),
+  '{"kind":"schedule","line":5,"spec":"*/5 * * * *","command":"/usr/bin/echo spasi-banyak"}',
+  "cron/spasi-berlebih",
+)
+// @daily hanya satu kata jadwal; perintahnya utuh termasuk argumennya.
+cek(
+  JSON.stringify(barisCron[5]),
+  '{"kind":"schedule","line":6,"spec":"@daily","command":"/usr/bin/rsync -a /data /backup"}',
+  "cron/at-daily",
+)
+cek(JSON.stringify(barisCron[6]), '{"kind":"schedule","line":7,"spec":"0 3 * * 1","command":"echo dua-kata"}', "cron/lima-kolom")
+// Baris yang tidak dikenali tetap muncul, bukan dibuang diam-diam.
+cek(JSON.stringify(barisCron[7]), '{"kind":"other","line":8,"text":"bukan jadwal"}', "cron/baris-asing")
+cek(String(bacaCrontab("").length), "0", "cron/kosong")
+
+// Saringan daftar jadwal harus mencocokkan jadwal DAN perintahnya.
+cek(String(cariJadwal(barisCron, "rsync").length), "1", "cron/cari-perintah")
+cek(String(cariJadwal(barisCron, "0 3").length), "1", "cron/cari-jadwal")
+cek(String(cariJadwal(barisCron, "").length), "8", "cron/cari-kosong")
+cek(String(cariJadwal(barisCron, "komentar").length), "1", "cron/cari-komentar")
+cek(String(cariJadwal(barisCron, "PATH").length), "1", "cron/cari-variabel-nama")
+cek(String(cariJadwal(barisCron, "/usr/local/bin").length), "1", "cron/cari-variabel-nilai")
+
+// Batas ukuran dihitung dalam BYTE, bukan jumlah karakter: versi yang memakai
+// .length akan meloloskan isi ber-aksen/emoji yang ditolak server.
+cek(String(ukuranByte("abc")), "3", "cron/byte-ascii")
+cek(String(ukuranByte("é")), "2", "cron/byte-aksen")
+cek(String(ukuranByte("🇮🇩")), "8", "cron/byte-emoji")
+cek(String(ukuranCrontabTersimpan("abc")), "4", "cron/byte-termasuk-newline-otomatis")
+cek(String(ukuranCrontabTersimpan("abc\n")), "4", "cron/byte-newline-tidak-dobel")
 
 // Dialog isian: tombol simpan mati untuk isian kosong/spasi saja.
 cek(String(isiValid("")), "false", "prompt/kosong")

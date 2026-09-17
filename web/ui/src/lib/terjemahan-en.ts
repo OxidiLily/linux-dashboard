@@ -1338,4 +1338,66 @@ daftarkanTerjemahan({
   "Dikirim ke {0} — antrean {1}": "Sent to {0} — job {1}",
   "{0} dikirim ke printer": "{0} sent to the printer",
   "Aksi untuk {0}": "Actions for {0}",
+
+  // ---- file manager: pencarian ----
+  "Cari berkas di folder ini…": "Search files in this folder…",
+  "Cari berkas": "Search files",
+  "Bersihkan pencarian": "Clear the search",
+  "Tampilan daftar": "List view",
+  "Tampilan kisi": "Grid view",
+  "{0} / {1} cocok": "{0} / {1} match",
+  // Kunci yang memuat tanda kutip harus di-escape seperti ini; kalau tidak,
+  // kuncinya tidak pernah cocok dengan kalimat yang benar-benar dirender.
+  "Tidak ada berkas yang cocok dengan \"{0}\".": "No file matches \"{0}\".",
+
+  // ---- cronjob ----
+  "Cronjob": "Cronjobs",
+  "Jadwal berkala milik akun Anda sendiri (crontab), dijalankan oleh penjadwal sistem. Ditulis sebagai akun Anda — tidak pernah menyentuh crontab user lain atau crontab sistem.":
+    "Recurring schedules owned by your own account (crontab), run by the system scheduler. It is written as your account — it never touches another user's crontab or the system crontab.",
+  "Belum ada jadwal. Tulis satu di bawah, lalu Simpan.":
+    "No schedule yet. Write one below, then Save.",
+  "Jadwal": "Schedule",
+  "Perintah": "Command",
+  "Tidak ada jadwal yang cocok dengan pencarian.": "No schedule matches the search.",
+  "Cari di jadwal…": "Search the schedules…",
+  "Cari di jadwal": "Search the schedules",
+  "{0} baris": "{0} lines",
+  "{0} jadwal aktif": "{0} active schedules",
+  "Komentar (baris diawali #) tidak dijalankan — di sini hanya ditampilkan.":
+    "Comments (lines starting with #) are not run — they are only shown here.",
+  "Isi crontab": "Crontab contents",
+  "Tulis jadwal dengan format cron: menit jam tanggal bulan hari, lalu perintahnya. Contoh: 0 3 * * * /usr/bin/rsync -a /data /backup":
+    "Write the schedule in cron format: minute hour day-of-month month day-of-week, then the command. Example: 0 3 * * * /usr/bin/rsync -a /data /backup",
+  "{0} / {1} KiB": "{0} / {1} KiB",
+  "Isi crontab melebihi batas {0} KiB — rapikan dulu sebelum menyimpan.":
+    "The crontab contents exceed the {0} KiB limit — trim them before saving.",
+  "Ada perubahan yang belum disimpan.": "There are unsaved changes.",
+  "Tersimpan — isi di bawah sudah dibaca ulang dari crontab.":
+    "Saved — the contents below were read back from the crontab.",
+  "Cronjob disimpan.": "Cronjob saved.",
+  "Isi di bawah sudah dibaca ulang dari crontab.":
+    "The contents below were read back from the crontab.",
+  "Penjadwal tidak terdeteksi di mesin ini": "No scheduler detected on this machine",
+  "Crontab tersimpan, tapi perintah cron tidak ada yang menjalankannya — pasang paket cron (Components) atau nyalakan unit-nya, kalau tidak seluruh jadwal di halaman ini tidak akan pernah berbunyi.":
+    "The crontab is stored, but nothing is running the cron daemon — install the cron package (Components) or start its unit, otherwise none of the schedules on this page will ever fire.",
+  "Muat ulang dulu": "Reload first",
+  "Isi kotak editor akan hilang bila meninggalkan halaman ini.":
+    "The editor contents will be lost if you leave this page.",
+  "Tinggalkan halaman": "Leave page",
+  "Tekan Muat ulang supaya isi terbaru terbaca. Simpan dinonaktifkan agar perubahan eksternal tidak tertimpa.":
+    "Reload to read the latest contents. Save is disabled to protect the external changes.",
+  "Crontab berubah di tempat lain sejak halaman ini dimuat. Muat ulang supaya isi terbaru terbaca; Simpan dinonaktifkan untuk melindungi perubahan tersebut.":
+    "The crontab changed elsewhere since this page loaded. Reload to read the latest contents; Save is disabled to protect those changes.",
+  "Crontab tersimpan, tapi perintah cron tidak ada yang menjalankannya — pasang paket cron lewat terminal atau nyalakan unit-nya, kalau tidak seluruh jadwal di halaman ini tidak akan pernah berbunyi.":
+    "The crontab is stored, but nothing is running the cron daemon — install the cron package from a terminal or start its unit, otherwise none of the schedules on this page will ever fire.",
+  "Tekan Muat ulang supaya isi terbaru terbaca — menyimpan sekarang akan menimpa perubahan itu.":
+    "Press Reload so the latest contents are read — saving now would overwrite those changes.",
+  "Crontab berubah di tempat lain.": "The crontab changed elsewhere.",
+  "Crontab berubah di tempat lain sejak halaman ini dimuat. Muat ulang supaya isi terbaru terbaca — menyimpan sekarang akan menimpa perubahan itu.":
+    "The crontab changed elsewhere since this page was loaded. Reload so the latest contents are read — saving now would overwrite those changes.",
+  "Gagal memuat crontab: {0}": "Failed to load the crontab: {0}",
+  "Gagal menyimpan crontab: {0}": "Failed to save the crontab: {0}",
+  "Buang perubahan yang belum disimpan?": "Discard the unsaved changes?",
+  "Isi kotak editor kembali ke versi yang tersimpan di server.":
+    "The editor goes back to the version stored on the server.",
 })

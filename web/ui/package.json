@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "bash scripts/cek-runtime.sh",
     "audit": "npm audit --omit=dev --audit-level=high || true",
     "preview": "vite preview"
   },

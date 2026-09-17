@@ -34,6 +34,7 @@ const kamus: Kamus = {
   "nav.system": { id: "System", en: "System" },
   "nav.processes": { id: "Processes", en: "Processes" },
   "nav.docker": { id: "Docker", en: "Docker" },
+  "nav.cron": { id: "Cronjob", en: "Cronjobs" },
   "nav.terminal": { id: "Terminal", en: "Terminal" },
   "nav.notFound": { id: "Tidak ditemukan", en: "Not found" },
 

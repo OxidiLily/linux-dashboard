@@ -224,6 +224,12 @@ func (s *Server) Routes() http.Handler {
 			r.Delete("/docker/{daya}/{id}", s.handleDockerDayaDelete)
 			r.Post("/docker/{daya}/prune", s.handleDockerDayaPrune)
 
+			// Cronjob akun yang login: tanpa requireSudo, dan itu disengaja —
+			// yang dijaga bukan hak akses, melainkan identitas: helper
+			// menjalankan crontab sebagai akun itu sendiri.
+			r.Get("/cron", s.handleCronGet)
+			r.Put("/cron", s.handleCronSave)
+
 			r.Get("/terminal/capacity", s.handleTerminalCapacity)
 			r.Post("/terminal/sessions/reset", s.handleTerminalReset)
 		})
@@ -290,6 +296,11 @@ func writeHelperErr(w http.ResponseWriter, err error) {
 	case helperproto.ErrNotFound, helperproto.ErrFolderTidakAda, helperproto.ErrKomponenTidakAda:
 		status = http.StatusNotFound
 	case helperproto.ErrSudahAda, helperproto.ErrMasihTersambung, helperproto.ErrDikelolaLuar:
+		status = http.StatusConflict
+	// Crontab yang berubah di antara muat dan simpan: 409 supaya UI bisa
+	// membedakannya dari penolakan isi dan menjawabnya dengan "muat ulang",
+	// bukan dengan "perbaiki tulisan Anda".
+	case helperproto.ErrCronConflict:
 		status = http.StatusConflict
 	case helperproto.ErrInvalid, helperproto.ErrPathTidakValid, helperproto.ErrNilaiTidakValid,
 		helperproto.ErrPasswordPendek, helperproto.ErrGuestOKKonflik, helperproto.ErrBelumTerpasang,

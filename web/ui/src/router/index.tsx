@@ -46,6 +46,7 @@ const PrintServerView = rute("/settings/print", "PrintServerView")
 const AIAgentView = rute("/ai/agent", "AIAgentView")
 const ProcessesView = rute("/system/processes", "ProcessesView")
 const DockerView = rute("/system/docker", "DockerView")
+const CronView = rute("/system/cron", "CronView")
 const TerminalView = rute("/system/terminal", "TerminalView")
 const NotFoundView = lazyNamed(() => import("@/views/error"), "NotFoundView")
 const RouteErrorView = lazyNamed(() => import("@/views/error"), "RouteErrorView")
@@ -136,6 +137,11 @@ export const router = createBrowserRouter([
       { path: "ai/agent", element: <Lazy><AIAgentView /></Lazy> },
       { path: "system/processes", element: <Lazy><ProcessesView /></Lazy> },
       { path: "system/docker", element: <Dijaga name="docker" label="Docker"><DockerView /></Dijaga> },
+      // Cronjob TIDAK dijaga ComponentGuard: crontab tetap bisa dibaca dan
+      // ditulis walau paket cron belum terpasang, dan justru di keadaan itu
+      // halamannya paling berguna — ia yang memberi tahu bahwa penjadwalnya
+      // belum jalan, alih-alih menyembunyikan seluruh halaman.
+      { path: "system/cron", element: <Lazy><CronView /></Lazy> },
       { path: "system/terminal", element: <Lazy><TerminalView /></Lazy> },
       // Rute tak dikenal sebelumnya dilempar diam-diam ke "/" — salah ketik URL
       // jadi terlihat seperti dashboard biasa, tanpa petunjuk apa pun.
