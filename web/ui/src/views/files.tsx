@@ -19,6 +19,7 @@ import {
   Upload,
   FolderUp,
   FolderPlus,
+  FolderTree,
   FilePlus,
   RefreshCw,
   Trash2,
@@ -179,6 +180,18 @@ export function cariBerkas<T extends { name: string }>(entries: T[], query: stri
   return entries.filter((e) => e.name.toLowerCase().includes(q))
 }
 
+// Hasil pencarian rekursif dari server. Bentuknya sengaja tidak sama dengan
+// FileEntry: yang dibutuhkan baris hasil hanyalah nama, lokasi, dan ukuran,
+// dan `rel` (lokasi relatif ke folder awal) hanya ada di sini.
+export type HasilCari = {
+  name: string
+  path: string
+  rel: string
+  is_dir: boolean
+  size: number
+  mod_time: number
+}
+
 export function FileManagerView() {
   const tr = useTr()
   const user = useAuth((s) => s.user)
@@ -220,6 +233,26 @@ export function FileManagerView() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // Kueri pencarian nama di folder yang sedang terbuka.
   const [cari, setCari] = useState("")
+  // Pencarian sampai ke dalam subfolder. Saat aktif, saringan cepat di klien
+  // TIDAK dipakai: hasilnya datang dari server yang menelusuri pohon, dan
+  // mencampur keduanya membuat daftar berisi berkas dari dua sumber berbeda
+  // yang saling bertentangan.
+  const [cariDalam, setCariDalam] = useState(false)
+  // Saat berpindah ke mode subfolder, hasil penelusuran yang lama dibuang.
+  // Membawa seleksi dari daftar folder biasa ke mode pencarian akan
+  // memunculkan toolbar "N item terpilih" untuk berkas yang tidak terlihat
+  // di daftar hasil — dan aksi massalnya akan menghapus yang tak terlihat itu.
+  useEffect(() => {
+    if (!cariDalam) return
+    setSelected(new Set())
+  }, [cariDalam])
+  const [hasilCari, setHasilCari] = useState<HasilCari[]>([])
+  const [cariProses, setCariProses] = useState(false)
+  const [cariTerpotong, setCariTerpotong] = useState(false)
+  const [cariAlasan, setCariAlasan] = useState("")
+  const [cariDirs, setCariDirs] = useState(0)
+  // Hasil pencarian lama tidak boleh mengganti hasil yang lebih baru.
+  const urutanCari = useRef(0)
   // stat() pada direktori mengembalikan ukuran inode-nya sendiri, bukan
   // isinya, jadi ukuran folder dihitung terpisah lewat /api/files/usage.
   // Kunci = path, nilai < 0 = folder tidak terbaca. Hasil sengaja TIDAK
@@ -254,6 +287,12 @@ export function FileManagerView() {
       // menyimpulkan foldernya rusak, bukan bahwa filternya masih aktif.
       // Pindah folder adalah tindakan yang jelas berbeda dari mencari.
       setCari("")
+      // Hasil penelusuran lama tidak berlaku lagi untuk folder yang baru.
+      setHasilCari([])
+      setCariTerpotong(false)
+      setCariAlasan("")
+      setCariDirs(0)
+      urutanCari.current++
       // Sinkronkan path ke URL supaya bookmark bisa di-share dan tombol
       // back browser bekerja.
       setSearchParams((p) => {
@@ -425,6 +464,7 @@ export function FileManagerView() {
   }
 
   const handleDelete = async (entry: FileEntry) => {
+    // placeholder-hapus
     const ok = await confirmDialog({
       title: trf("Hapus {0} {1}?", entry.is_dir ? tr("folder") : tr("file"), entry.name),
       message: entry.is_dir
@@ -447,6 +487,63 @@ export function FileManagerView() {
     } catch {
       // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
+  }
+
+  /**
+   * Pencarian sampai ke dalam subfolder.
+   *
+   * Dipanggil HANYA saat user menekan Enter atau tombol Cari, bukan pada
+   * setiap ketikan: satu permintaan berarti satu penelusuran pohon penuh di
+   * server, dan melakukannya per huruf membuat folder berisi puluhan ribu
+   * berkas terasa menggantung. Saringan cepat di klien tetap bekerja sambil
+   * user mengetik.
+   */
+  const cariSampaiDalam = async () => {
+    const q = cari.trim()
+    if (!q) {
+      setHasilCari([])
+      setCariTerpotong(false)
+      setCariAlasan("")
+      setCariDirs(0)
+      return
+    }
+    const nomor = ++urutanCari.current
+    setCariProses(true)
+    try {
+      const res = await apiGet<{
+        hits: HasilCari[]
+        truncated: boolean
+        alasan?: string
+        dirs: number
+      }>(`/api/files/search?path=${encodeURIComponent(currentPath)}&q=${encodeURIComponent(q)}`)
+      if (nomor !== urutanCari.current) return
+      setHasilCari(res.hits || [])
+      setCariTerpotong(res.truncated)
+      setCariAlasan(res.alasan || "")
+      setCariDirs(res.dirs)
+    } catch (e: any) {
+      if (nomor === urutanCari.current) {
+        notify.err(trf("Gagal mencari: {0}", pesanError(e)))
+        setHasilCari([])
+      }
+    } finally {
+      if (nomor === urutanCari.current) setCariProses(false)
+    }
+  }
+
+  /** Buang mode pencarian dalam dan kembali ke daftar folder biasa. */
+  const keluarCariDalam = () => {
+    urutanCari.current++
+    setCariDalam(false)
+    setHasilCari([])
+    setCariTerpotong(false)
+    setCariAlasan("")
+    setCariDirs(0)
+    // Seleksi dibuang bersama hasilnya: `selected` menyimpan path hasil
+    // pencarian, dan toolbar "N item terpilih" yang masih menyala di daftar
+    // folder biasa akan menawarkan hapus/unduh untuk berkas yang tidak
+    // terlihat di layar.
+    setSelected(new Set())
   }
 
   const handleAddBookmark = async () => {
@@ -893,9 +990,12 @@ export function FileManagerView() {
       >
         {/* Pencarian nama di folder yang sedang terbuka. type="search" bukan
             type="text": di HP dan di sebagian desktop, hanya bentuk itu yang
-            memberi tombol bersihkan bawaan serta tombol Enter yang berbunyi
-            "Cari" — dan tanpa itu keyboard yang muncul adalah keyboard teks
-            biasa, bukan yang punya tombol cari. */}
+            memberi tombol Enter yang berbunyi "Cari" — dan tanpa itu keyboard
+            yang muncul adalah keyboard teks biasa, bukan yang punya tombol
+            cari. Tombol bersihkan bawaan browser DIMATIKAN lewat CSS
+            (index.css), karena panel sudah punya tombol bersihkan sendiri
+            yang punya label bahasa dan bisa dijangkau pembaca layar; tanpa
+            itu keduanya tampil berdampingan sebagai dua tanda silang. */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -905,16 +1005,26 @@ export function FileManagerView() {
               value={cari}
               onChange={(e) => setCari(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Escape") setCari("")
+                if (e.key === "Escape") {
+                  setCari("")
+                  if (cariDalam) keluarCariDalam()
+                }
+                // Enter menjalankan pencarian ke dalam subfolder. Saringan
+                // cepat sudah berjalan sambil mengetik; tombol Enter adalah
+                // cara user meminta penelusuran yang lebih mahal.
+                if (e.key === "Enter" && cariDalam) void cariSampaiDalam()
               }}
-              placeholder={tr("Cari berkas di folder ini…")}
+              placeholder={cariDalam ? tr("Cari sampai ke subfolder…") : tr("Cari berkas di folder ini…")}
               aria-label={tr("Cari berkas")}
             />
             {cari !== "" && (
               <button
                 type="button"
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                onClick={() => setCari("")}
+                onClick={() => {
+                  setCari("")
+                  if (cariDalam) keluarCariDalam()
+                }}
                 aria-label={tr("Bersihkan pencarian")}
                 title={tr("Bersihkan pencarian")}
               >
@@ -922,10 +1032,38 @@ export function FileManagerView() {
               </button>
             )}
           </div>
+          {/* Sakelar mode. Dinyalakan = pencarian menelusuri seluruh
+              subfolder (setara `grep -r` pada nama berkas), dimatikan =
+              saringan cepat pada folder yang sedang terbuka saja. */}
+          <Button
+            variant={cariDalam ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              if (cariDalam) {
+                keluarCariDalam()
+              } else {
+                setCariDalam(true)
+                void cariSampaiDalam()
+              }
+            }}
+            title={tr("Cari juga di dalam semua subfolder")}
+            aria-pressed={cariDalam}
+          >
+            <FolderTree className="size-3.5 sm:mr-1" />
+            <span className="sr-only sm:not-sr-only">{tr("Subfolder")}</span>
+          </Button>
+          {cariDalam && (
+            <Button size="sm" onClick={() => void cariSampaiDalam()} disabled={cariProses || cari.trim() === ""}>
+              <Search className="size-3.5 sm:mr-1" />
+              <span className="sr-only sm:not-sr-only">
+                {cariProses ? tr("Mencari…") : tr("Cari")}
+              </span>
+            </Button>
+          )}
           {/* Penghitung ditampilkan hanya saat ada yang disaring: "12 / 340"
               yang selalu ada terbaca sebagai informasi tetap, padahal yang
               penting justru saat angkanya berbeda dari totalnya. */}
-          {cari.trim() !== "" && (
+          {!cariDalam && cari.trim() !== "" && (
             <span className="num text-xs text-muted-foreground" aria-live="polite">
               {trf("{0} / {1} cocok", terlihat.length, entries.length)}
             </span>
@@ -968,7 +1106,110 @@ export function FileManagerView() {
           </div>
         )}
 
-        {viewMode === "list" ? (
+        {cariDalam ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="num" aria-live="polite">
+                {cariProses
+                  ? tr("Menelusuri subfolder…")
+                  : trf("{0} hasil di dalam {1}", hasilCari.length, currentPath)}
+              </span>
+              {!cariProses && (
+                <span className="num">
+                  {trf("({0} folder ditelusuri)", cariDirs)}
+                </span>
+              )}
+              {cariTerpotong && (
+                <span className="text-warn">
+                  {cariAlasan === "time"
+                    ? tr("Penelusuran dihentikan karena terlalu lama — hasilnya belum tentu lengkap.")
+                    : cariAlasan === "folders"
+                      ? tr("Terlalu banyak folder — hasilnya belum tentu lengkap.")
+                      : tr("Hasil dipotong — persempit kata kuncinya.")}
+                </span>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="tabel-kartu w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="pb-2 font-medium">{tr("Nama")}</th>
+                    <th className="pb-2 font-medium">{tr("Lokasi")}</th>
+                    <th className="pb-2 font-medium">{tr("Ukuran")}</th>
+                    <th className="pb-2 font-medium">{tr("Modifikasi")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {hasilCari.map((h) => (
+                    <tr
+                      key={h.path}
+                      className="cursor-pointer hover:bg-secondary/40"
+                      onClick={() => {
+                        if (h.is_dir) {
+                          void loadDir(h.path)
+                          return
+                        }
+                        // Kolom yang dibutuhkan preview hanya nama dan path;
+                        // sisa field FileEntry diisi kosong supaya baris hasil
+                        // bisa dibuka tanpa permintaan tambahan.
+                        handlePreview({
+                          name: h.name,
+                          path: h.path,
+                          size: h.size,
+                          mode: "",
+                          mode_octal: 0,
+                          is_dir: false,
+                          mod_time: h.mod_time,
+                          owner: "",
+                          group: "",
+                        })
+                      }}
+                      title={h.path}
+                    >
+                      <td data-label="" className="py-2">
+                        <div className="flex items-center gap-2 font-medium">
+                          {h.is_dir ? (
+                            <Folder className="size-4 text-amber-500 fill-amber-500/20" />
+                          ) : (
+                            <File className="size-4 text-muted-foreground" />
+                          )}
+                          <span className="truncate max-w-xs">{h.name}</span>
+                        </div>
+                      </td>
+                      {/* Lokasi relatif, bukan path penuh: yang dicari user
+                          dalam hasil rekursif adalah "berkas ini ada di mana
+                          relatif terhadap folder yang saya cari" — path penuh
+                          yang panjang justru menyembunyikan bagian itu. */}
+                      <td data-label={tr("Lokasi")} className="num break-all py-2 text-muted-foreground">
+                        {h.rel.includes("/") ? h.rel.slice(0, h.rel.lastIndexOf("/")) : tr("di sini")}
+                      </td>
+                      <td data-label={tr("Ukuran")} className="num py-2 text-muted-foreground">
+                        {/* Folder tidak punya "ukuran isi" di sini: menghitungnya
+                            berarti menelusuri pohonnya lagi. Tanda pisah sama
+                            dengan yang dipakai daftar folder untuk keadaan
+                            yang belum diketahui — bukan kata "folder" yang
+                            menyamar sebagai nilai ukuran. */}
+                        {h.is_dir ? "—" : formatBytes(h.size)}
+                      </td>
+                      <td data-label={tr("Modifikasi")} className="py-2 text-muted-foreground">
+                        {formatWaktu(h.mod_time * 1000)}
+                      </td>
+                    </tr>
+                  ))}
+                  {!cariProses && hasilCari.length === 0 && (
+                    <tr>
+                      <td data-label="" colSpan={4} className="py-6 text-center text-muted-foreground">
+                        {cari.trim() === ""
+                          ? tr("Tulis kata kunci dulu untuk menelusuri subfolder.")
+                          : trf('Tidak ada berkas yang memuat "{0}" sampai ke subfolder.', cari.trim())}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : viewMode === "list" ? (
           <div className="overflow-x-auto">
             <table className="tabel-kartu w-full text-left text-xs">
               <thead>

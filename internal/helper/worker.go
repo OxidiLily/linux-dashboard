@@ -36,9 +36,13 @@ type workerOp struct {
 	// atau home yang izinnya longgar): nama file milik orang lain bukan
 	// urusan yang membukanya.
 	SaringAkses bool `json:"saring_akses,omitempty"`
-	Append      bool `json:"append,omitempty"`
-	PID         int  `json:"pid,omitempty"`
-	Signal      int  `json:"signal,omitempty"`
+	// Query adalah kata kunci op "search" (pencarian nama, rekursif).
+	Query string `json:"query,omitempty"`
+	// Maks adalah batas jumlah hasil op "search"; 0 = batas bawaan.
+	Maks   int  `json:"maks,omitempty"`
+	Append bool `json:"append,omitempty"`
+	PID    int  `json:"pid,omitempty"`
+	Signal int  `json:"signal,omitempty"`
 	// Offset/Length dipakai op "read" untuk melayani HTTP Range. Length 0 =
 	// sampai akhir berkas.
 	Offset int64 `json:"offset,omitempty"`
@@ -114,6 +118,9 @@ func execWorkerOp(op workerOp, res *os.File) (json.RawMessage, error) {
 			return nil, err
 		}
 		return json.Marshal(entries)
+	case "search":
+		// Truncated sudah diisi cariRekursif bersama Alasannya.
+		return jsonOf(cariRekursif(op.Path, op.Query, op.SaringAkses, op.Maks), nil)
 	case "usage":
 		return json.Marshal(hitungUsage(op.Path))
 	// Dipakai handleFileRead sebelum streaming: ukuran + apakah direktori.

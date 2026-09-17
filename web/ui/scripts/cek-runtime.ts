@@ -44,6 +44,17 @@ cek(trf("Hapus {0} {1}?", tr("folder"), "foto"), "Delete folder foto?", "en/trf"
 cek(trf("{0} total proses", 12), "12 processes total", "en/trf-angka")
 cek(tr("Warning (Amber %)"), "Warning (Amber %)", "en/tr-sama")
 
+// Pencarian ke dalam subfolder: kalimat statusnya harus ikut bahasa aktif.
+// Diletakkan di blok `en` karena pemeriksaan bahasa memakai state bahasa yang
+// sedang aktif — menaruhnya setelah blok `id` membuatnya selalu gagal.
+cek(tr("Cari sampai ke subfolder…"), "Search inside subfolders…", "en/cari/subfolder-tempat")
+cek(tr("Subfolder"), "Subfolder", "en/cari/subfolder-label")
+cek(trf("{0} hasil di dalam {1}", 3, "/home/pc/DATA"), "3 results inside /home/pc/DATA", "en/cari/hasil")
+cek(trf("({0} folder ditelusuri)", 12), "(12 folders walked)", "en/cari/ditelusuri")
+cek(tr("Hasil dipotong — persempit kata kuncinya."), "Results were cut off — narrow your keyword.", "en/cari/dipotong")
+cek(tr("Cari juga di dalam semua subfolder"), "Also search inside every subfolder", "en/cari/sakelar")
+cek(tr("Tulis kata kunci dulu untuk menelusuri subfolder."), "Type a keyword first to search inside subfolders.", "en/cari/kueri-kosong")
+
 // Error backend: lewat kode, lewat kalimat tetap, dan lewat pola berparameter.
 const res = { status: 400 } as Response
 cek(pesanError(new ApiError(res, "Folder /x tidak ada.", "folder_missing", ["/x"])),

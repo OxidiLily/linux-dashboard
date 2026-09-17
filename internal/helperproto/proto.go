@@ -39,6 +39,7 @@ const (
 	CmdUfwToggle = "ufw.toggle"
 
 	CmdFileList   = "file.list"
+	CmdFileSearch = "file.search"
 	CmdFileUsage  = "file.usage"
 	CmdFileMkdir  = "file.mkdir"
 	CmdFileRemove = "file.remove"
@@ -254,6 +255,47 @@ type FileEntry struct {
 	Group   string `json:"group"`
 	ModTime int64  `json:"mod_time"`
 	Symlink string `json:"symlink,omitempty"`
+}
+
+// SearchArgs adalah permintaan pencarian nama berkas secara rekursif —
+// setara `grep -r` pada nama, bukan isi. Isi berkas sengaja tidak dibaca:
+// folder data user bisa berisi puluhan GB, dan membaca semuanya untuk satu
+// kata kunci membuat pencarian mustahil dipakai.
+type SearchArgs struct {
+	// Path adalah folder awal; pencarian menelusuri seluruh subfoldernya.
+	Path string `json:"path"`
+	// Query adalah potongan nama yang dicari, kapital diabaikan.
+	Query string `json:"query"`
+	// Maks membatasi jumlah hasil. 0 = pakai batas bawaan helper.
+	Maks int `json:"maks,omitempty"`
+}
+
+// SearchHit adalah satu berkas atau folder yang cocok.
+type SearchHit struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	// Rel adalah lokasi relatif terhadap folder awal pencarian, supaya UI
+	// bisa menuliskan "sub/dalam/berkas.txt" tanpa menghitung sendiri.
+	Rel     string `json:"rel"`
+	IsDir   bool   `json:"is_dir"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"mod_time"`
+}
+
+// SearchHasil adalah jawaban pencarian beserta batas yang tercapai.
+type SearchHasil struct {
+	Hits []SearchHit `json:"hits"`
+	// Truncated menandai hasil berhenti di batas, bukan karena pohonnya habis.
+	// Tanpa ini, daftar yang terpotong terlihat seperti daftar lengkap.
+	Truncated bool `json:"truncated"`
+	// Alasan menyebut KENAPA berhenti: "hasil", "folder", atau "waktu".
+	// Dipisah dari Truncated karena kalimat yang benar berbeda untuk tiap
+	// sebab — "persempit kata kunci" tidak menolong saat yang habis waktunya.
+	// Kosong = penelusuran selesai menyeluruh.
+	Alasan string `json:"alasan,omitempty"`
+	// Dirs adalah jumlah folder yang benar-benar dikunjungi — dipakai UI untuk
+	// menjelaskan bahwa pencariannya memang masuk ke dalam subfolder.
+	Dirs int `json:"dirs"`
 }
 
 // UsageHasil adalah ringkasan penelusuran isi satu direktori — setara `du -x`.

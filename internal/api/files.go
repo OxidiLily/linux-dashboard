@@ -180,6 +180,47 @@ type pathBody struct {
 	Path string `json:"path"`
 }
 
+// handleFileSearch: pencarian nama berkas sampai ke dalam subfolder.
+//
+// Ini BUKAN pengganti saringan cepat di klien: saringan itu tetap dipakai
+// saat user mengetik (nol permintaan jaringan, hasil seketika), sedangkan
+// endpoint ini hanya dipanggil saat user memintanya secara eksplisit —
+// menelusuri seluruh pohon untuk setiap huruf yang diketik akan membuat
+// folder berisi puluhan ribu berkas terasa menggantung.
+func (s *Server) handleFileSearch(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	path := r.URL.Query().Get("path")
+	kueri := r.URL.Query().Get("q")
+	if path == "" {
+		path = sess.Home
+	}
+	if strings.TrimSpace(kueri) == "" {
+		writeErrKode(w, http.StatusBadRequest, helperproto.ErrNilaiTidakValid,
+			"kata kunci pencarian kosong", "cari")
+		return
+	}
+	var hasil helperproto.SearchHasil
+	if err := s.helper.Call(helperproto.CmdFileSearch, sess.Username,
+		helperproto.SearchArgs{Path: path, Query: kueri}, &hasil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	if hasil.Hits == nil {
+		hasil.Hits = []helperproto.SearchHit{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":      filepath.Clean(path),
+		"query":     strings.TrimSpace(kueri),
+		"hits":      hasil.Hits,
+		"truncated": hasil.Truncated,
+		// Alasan ikut dikirim: UI memilih kalimatnya sendiri per sebab, dan
+		// "persempit kata kunci" adalah nasihat yang salah saat yang habis
+		// adalah waktunya.
+		"alasan": hasil.Alasan,
+		"dirs":   hasil.Dirs,
+	})
+}
+
 type twoPathBody struct {
 	Source string `json:"source"`
 	Dest   string `json:"dest"`
