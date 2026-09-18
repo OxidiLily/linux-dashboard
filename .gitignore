@@ -28,3 +28,4 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/api/helpertiruan_test.go
 !internal/helper/carifile_test.go
 !internal/api/carifile_api_test.go
+!internal/helper/uninstall_purge_test.go

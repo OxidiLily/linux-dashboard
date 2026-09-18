@@ -193,9 +193,8 @@ the uninstall.
 
 The panel uninstaller's **"Full removal"** mode now removes every component the
 panel can install — Docker, Node.js, Tailscale, cloudflared and the AI tools
-included — along with their data, using the same uninstallers as the Components
-page. Docker images and volumes in `/var/lib/docker` are still left alone: they
-belong to your containers, not to the panel.
+included — along with all their data, Docker containers/volumes/images, and caches,
+using the same uninstallers as the Components page.
 
 There are four escalating uninstall modes: `panel` (binaries, systemd units,
 PAM, source tree), `panel-data` (+ database, session key, `/etc/default`, the

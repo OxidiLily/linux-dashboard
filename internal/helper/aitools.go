@@ -123,6 +123,17 @@ func installRTK() error {
 func uninstallRTK() error {
 	_ = os.Remove("/usr/local/bin/rtk")
 	_ = os.Remove("/root/.local/bin/rtk")
+	return purgeRTK()
+}
+
+func purgeRTK() error {
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, ".config", "rtk"))
+		_ = os.RemoveAll(filepath.Join(home, ".local", "share", "rtk"))
+	}
 	return nil
 }
 
@@ -164,7 +175,18 @@ func installGraphify() error {
 
 func uninstallGraphify() error {
 	_, err := runIn("", envPipx(), "pipx", "uninstall", "graphifyy")
+	_ = purgeGraphify()
 	return err
+}
+
+func purgeGraphify() error {
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, ".config", "graphify"))
+	}
+	return nil
 }
 
 // installBrowserUse memasang CLI Browser Use — kendali browser lewat CDP yang
@@ -202,7 +224,21 @@ func installBrowserUse() error {
 
 func uninstallBrowserUse() error {
 	_, err := runIn("", envPipx(), "pipx", "uninstall", "browser-use")
+	_ = purgeBrowserUse()
 	return err
+}
+
+func purgeBrowserUse() error {
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, ".cua-driver"))
+		_ = os.RemoveAll(filepath.Join(home, ".config", "browser-harness"))
+		_ = os.RemoveAll(filepath.Join(home, ".config", "google-chrome-for-testing"))
+		_ = os.RemoveAll(filepath.Join(home, ".cache", "ms-playwright"))
+	}
+	return nil
 }
 
 // ---- Headroom (dipakai Token Saver 9router) -------------------------------
@@ -564,7 +600,22 @@ func uninstallHeadroom() error {
 	_ = os.Remove(unitDstHeadroom)
 	_, _ = run("systemctl", "daemon-reload")
 	bersihkanHeadroomPipx()
-	return os.RemoveAll(venvHeadroom)
+	_ = os.RemoveAll(venvHeadroom)
+	return purgeHeadroom()
+}
+
+func purgeHeadroom() error {
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, ".headroom"))
+		_ = os.RemoveAll(filepath.Join(home, ".9router", "headroom"))
+	}
+	_ = os.RemoveAll("/var/lib/headroom")
+	_ = os.RemoveAll("/etc/headroom")
+	_ = os.RemoveAll(venvHeadroom)
+	return nil
 }
 
 // versiHeadroom membaca versi dari metadata dist-info di dalam venv, bukan
@@ -694,7 +745,52 @@ func installPonytail() error {
 }
 
 func uninstallPonytail() error {
-	return os.Remove(penandaPonytail)
+	_ = os.Remove(penandaPonytail)
+	return purgePonytail()
+}
+
+func purgePonytail() error {
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, ".config", "ponytail"))
+	}
+	_ = os.Remove(penandaPonytail)
+	return nil
+}
+
+func bersihkanPipxLengkap() {
+	_ = os.RemoveAll(pipxHome)
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, ".local", "pipx"))
+		_ = os.RemoveAll(filepath.Join(home, ".local", "state", "pipx"))
+	}
+}
+
+func bersihkanGoLengkap() {
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, "go"))
+		_ = os.RemoveAll(filepath.Join(home, ".cache", "go-build"))
+		_ = os.RemoveAll(filepath.Join(home, ".cache", "goimports"))
+		_ = os.RemoveAll(filepath.Join(home, ".cache", "gopls"))
+		_ = os.RemoveAll(filepath.Join(home, ".config", "go"))
+	}
+}
+
+func bersihkanConfigPanelPerUser() {
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, ".config", "linux-dashboard"))
+	}
 }
 
 func ponytailTerpasang() bool {

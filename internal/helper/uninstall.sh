@@ -87,6 +87,93 @@ if [[ "$MODE" == "total" || "$MODE" == "total-data" ]]; then
   else
     echo "[⚠] Binary helper tidak ada — components dilewati, copot manual lewat apt" >&2
   fi
+
+  # Pembersihan sapu jagat Docker (container, volume, network, image, config)
+  log "Membersihkan sisa container, volume, network, dan image Docker…"
+  if command -v docker >/dev/null 2>&1; then
+    running_c=$(docker ps -q 2>/dev/null || true)
+    if [[ -n "$running_c" ]]; then
+      # shellcheck disable=SC2086
+      docker stop -t 5 $running_c >/dev/null 2>&1 || true
+    fi
+    all_c=$(docker ps -aq 2>/dev/null || true)
+    if [[ -n "$all_c" ]]; then
+      # shellcheck disable=SC2086
+      docker rm -f $all_c >/dev/null 2>&1 || true
+    fi
+    docker volume prune -a -f >/dev/null 2>&1 || true
+    docker network prune -f >/dev/null 2>&1 || true
+    docker system prune -a --volumes -f >/dev/null 2>&1 || true
+  fi
+  for unit in docker docker.socket containerd 9router headroom; do
+    systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
+  done
+  rm -rf /var/lib/docker /var/lib/containerd /etc/docker /var/run/docker.sock /var/run/docker
+  rm -rf /opt/supabase /opt/arkon /opt/headroom /opt/pipx /opt/dotnet
+  rm -f /usr/local/bin/9router /usr/bin/9router /usr/local/bin/headroom /usr/local/bin/rtk /usr/local/bin/graphify /usr/local/bin/browser-use*
+  rm -rf /usr/local/lib/hermes-agent /usr/lib/node_modules/9router /usr/local/lib/node_modules/9router
+  rm -f /etc/systemd/system/9router.service /etc/systemd/system/headroom.service
+  rm -rf /etc/systemd/system/9router.service.d /etc/systemd/system/headroom.service.d
+  systemctl daemon-reload >/dev/null 2>&1 || true
+
+  # Hapus paket build/runtime yang dipasang installer jika ada
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get remove -y -qq golang-go nodejs npm >/dev/null 2>&1 || true
+    apt-get autoremove -y -qq >/dev/null 2>&1 || true
+  fi
+
+  # Sapu bersih file dan folder komponen di SELURUH home akun manusia dan /root
+  log "Membersihkan jejak direktori dan cache komponen di seluruh akun…"
+  user_homes=("/root")
+  while IFS=: read -r _nama _sandi _uid _gid _gecos home shell; do
+    [[ -n "$home" && "$home" != "/" ]] || continue
+    case "$shell" in ""|*/nologin|*/false|*/sync) continue ;; esac
+    user_homes+=("${home%/}")
+  done < <(getent passwd)
+
+  for uh in "${user_homes[@]}"; do
+    [[ -d "$uh" ]] || continue
+    rm -rf "$uh/.9router" \
+           "$uh/.docker" \
+           "$uh/.headroom" \
+           "$uh/.hermes" \
+           "$uh/.cua-driver" \
+           "$uh/.npm" \
+           "$uh/.npm-global" \
+           "$uh/go" \
+           "$uh/.claude" "$uh/.claude.json" \
+           "$uh/.codex" \
+           "$uh/.opencode" \
+           "$uh/.openclaw" \
+           "$uh/.config/linux-dashboard" \
+           "$uh/.config/rtk" \
+           "$uh/.config/graphify" \
+           "$uh/.config/ponytail" \
+           "$uh/.config/browser-harness" \
+           "$uh/.config/google-chrome-for-testing" \
+           "$uh/.config/go" \
+           "$uh/.local/share/rtk" \
+           "$uh/.local/share/claude" \
+           "$uh/.local/share/opencode" \
+           "$uh/.local/share/hermes" \
+           "$uh/.local/state/hermes" \
+           "$uh/.local/pipx" \
+           "$uh/.local/state/pipx" \
+           "$uh/.cache/ms-playwright" \
+           "$uh/.cache/go-build" \
+           "$uh/.cache/goimports" \
+           "$uh/.cache/gopls" \
+           "$uh/.cache/claude" \
+           "$uh/.cache/claude-cli-nodejs" \
+           "$uh/.cache/codex" \
+           "$uh/.cache/opencode" \
+           "$uh/.cache/hermes" \
+           "$uh/.cache/node" \
+           "$uh/.cache/npm"
+    rm -f "$uh/.local/bin/hermes" "$uh/.local/bin/claude" "$uh/.local/bin/codex" "$uh/.local/bin/rtk" "$uh/.local/bin/opencode"
+  done
+  ok "Pembersihan komponen dan jejak akun selesai"
 fi
 
 # ---- 3. Data & config panel ---------------------------------------------
@@ -100,6 +187,12 @@ if [[ "$MODE" != "panel" ]]; then
   # sertifikat pilihan pemilik mesin harus masih ada saat itu.
   rm -f /etc/default/linux-dashboard
   rm -rf /etc/linux-dashboard
+  # Hapus juga config panel per-user di .config/linux-dashboard
+  while IFS=: read -r _nama _sandi _uid _gid _gecos home shell; do
+    [[ -n "$home" && "$home" != "/" && -d "$home" ]] || continue
+    rm -rf "${home%/}/.config/linux-dashboard"
+  done < <(getent passwd)
+  rm -rf /root/.config/linux-dashboard
   ok "Data & config panel dihapus"
 
   # Akun service dihapus belakangan: selama /var/lib masih ada, folder itu
