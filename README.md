@@ -53,22 +53,27 @@ Halaman yang butuh software tertentu (Samba, ufw, Docker, mergerfs, NFS,
 fail2ban) menampilkan **"Belum Terpasang"** dengan tombol ke Components, bukan
 daftar kosong atau error `command not found`.
 
-**Pencarian di File Manager** punya dua mode. Secara bawaan ia menyaring nama
-berkas di folder yang sedang terbuka saja — nol permintaan jaringan, hasil
-seketika walau foldernya berisi puluhan ribu berkas. Tombol **Subfolder**
-menaikkannya menjadi penelusuran sampai ke dalam semua subfolder, setara
-`grep -r` pada NAMA berkas (isinya tidak dibaca: folder data user bisa berisi
-puluhan GB, dan membaca semuanya untuk satu kata kunci membuat pencarian tidak
-bisa dipakai). Penelusuran itu berjalan di server sebagai akun yang login, jadi
-jail home tetap berlaku untuk user non-sudo.
+**Pencarian di File Manager** bekerja seperti `grep -r` pada NAMA berkas:
+tulis kata kunci, lalu tekan **Enter** atau tombol **Cari**, dan penelusuran
+menembus seluruh subfolder dari folder yang sedang dibuka — tanpa mode yang
+perlu dinyalakan lebih dulu. Isi berkas tidak dibaca: folder data user bisa
+berisi puluhan GB, dan membaca semuanya untuk satu kata kunci membuat
+pencarian tidak bisa dipakai. Penelusuran berjalan di server sebagai akun yang
+login, jadi jail home tetap berlaku untuk user non-sudo.
 
-Hasil saring dipakai daftar, kisi, "Pilih semua", dan aksi massal, jadi tidak
-ada berkas yang ikut terunduh atau terhapus tanpa pernah terlihat. Karakter
-seperti `.` dan `*` diperlakukan literal (orang mencari nama berkas, bukan
-pola); kueri dibuang saat pindah folder supaya folder baru tidak tampak kosong
-tanpa sebab. Untuk mode subfolder, tiap baris menampilkan **lokasi relatif**
-(`sub/dalam/berkas.txt`) dan halaman melaporkan berapa folder ditelusuri; hasil
-dibatasi 500 baris dan pemotongannya dinyatakan, bukan disembunyikan.
+Sambil mengetik (sebelum Enter ditekan), daftar disaring cepat di klien — nol
+permintaan jaringan, hasil seketika walau foldernya berisi puluhan ribu
+berkas. Begitu kueri berubah setelah hasil muncul, daftar kembali ke saringan
+cepat, sehingga hasil untuk kata kunci lama tidak pernah tertinggal di layar
+seolah-olah hasil yang baru.
+
+Karakter seperti `.` dan `*` diperlakukan literal (orang mencari nama berkas,
+bukan pola). Tiap baris hasil menampilkan **lokasi relatif**
+(`sub/dalam/berkas.txt`) dan halaman melaporkan berapa folder ditelusuri.
+Hasil dibatasi 500 baris dan penelusuran dihentikan setelah 20 detik; keduanya
+dinyatakan di layar beserta sebabnya, bukan disembunyikan. `/proc`, `/sys`, dan
+direktori perangkat tidak ditelusuri — isinya dibangkitkan kernel dan membuat
+hasil penuh kecocokan yang tidak berarti.
 
 **Cronjob** (System → Cronjob) mengedit crontab **milik akun yang login**, dan
 itulah satu-satunya yang tersentuh: `crontab -l` / `crontab -` dijalankan helper

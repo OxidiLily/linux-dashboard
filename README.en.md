@@ -56,23 +56,27 @@ Pages that need specific software (Samba, ufw, Docker, mergerfs, NFS, fail2ban)
 show **"Not Installed"** with a button to Components — not an empty list or a raw
 `command not found` error.
 
-**File Manager search** has two modes. By default it filters file names in the
-currently open folder only — zero network requests, instant results even when
-the folder holds tens of thousands of files. The **Subfolder** button promotes
-it to a walk through every subfolder, the equivalent of `grep -r` over file
-NAMES (contents are never read: a user data folder can hold tens of GB, and
-reading all of it for one keyword makes search unusable). That walk runs on the
+**File Manager search** works like `grep -r` over file NAMES: type a keyword,
+then press **Enter** or click **Search**, and the walk goes through every
+subfolder under the folder you have open — there is no mode to enable first.
+File contents are never read: a user data folder can hold tens of GB, and
+reading all of it for one keyword makes search unusable. The walk runs on the
 server as the logged-in account, so the home jail still applies to non-sudo
 users.
 
-The filtered result feeds the list, the grid, "Select all", and bulk actions,
-so no file is downloaded or deleted without ever having been visible. Characters
-like `.` and `*` are treated literally (people search for a file name, not a
-pattern); the query is dropped when you change folders so a new folder never
-looks empty for no visible reason. In subfolder mode each row shows its
-**relative location** (`sub/dalam/file.txt`) and the page reports how many
-folders were walked; results are capped at 500 rows and the cut-off is stated
-rather than hidden.
+While you type (before pressing Enter) the list is filtered quickly in the
+client — zero network requests, instant results even when the folder holds tens
+of thousands of files. As soon as the query changes after results are showing,
+the list returns to the quick filter, so results for an old keyword never stay
+on screen looking like the current ones.
+
+Characters like `.` and `*` are treated literally (people search for a file
+name, not a pattern). Each result row shows its **relative location**
+(`sub/dalam/file.txt`) and the page reports how many folders were walked.
+Results are capped at 500 rows and the walk stops after 20 seconds; both are
+stated on screen along with the reason, never hidden. `/proc`, `/sys`, and
+device directories are not walked — their contents are kernel-generated and
+would fill the results with meaningless matches.
 
 **Cronjobs** (System → Cronjobs) edits the **logged-in account's own** crontab,
 and that is the only one it touches: the helper runs `crontab -l` / `crontab -`

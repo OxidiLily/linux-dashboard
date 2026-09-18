@@ -19,7 +19,6 @@ import {
   Upload,
   FolderUp,
   FolderPlus,
-  FolderTree,
   FilePlus,
   RefreshCw,
   Trash2,
@@ -231,21 +230,23 @@ export function FileManagerView() {
   // Seleksi disimpan sebagai path, bukan indeks: isi direktori bisa berubah
   // di antara refresh, dan indeks lama akan menunjuk berkas yang salah.
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  // Kueri pencarian nama di folder yang sedang terbuka.
+  // Kueri yang sedang ditulis di kotak pencarian.
   const [cari, setCari] = useState("")
-  // Pencarian sampai ke dalam subfolder. Saat aktif, saringan cepat di klien
-  // TIDAK dipakai: hasilnya datang dari server yang menelusuri pohon, dan
-  // mencampur keduanya membuat daftar berisi berkas dari dua sumber berbeda
-  // yang saling bertentangan.
-  const [cariDalam, setCariDalam] = useState(false)
-  // Saat berpindah ke mode subfolder, hasil penelusuran yang lama dibuang.
-  // Membawa seleksi dari daftar folder biasa ke mode pencarian akan
-  // memunculkan toolbar "N item terpilih" untuk berkas yang tidak terlihat
-  // di daftar hasil — dan aksi massalnya akan menghapus yang tak terlihat itu.
+  // Kueri yang TERAKHIR DIKIRIM ke server — lewat Enter atau tombol Cari.
+  //
+  // Mode hasil diturunkan dari kesamaan keduanya, bukan disimpan sebagai flag
+  // terpisah. Kalau user mengetik lagi setelah menekan Cari, teksnya tidak
+  // lagi sama dengan yang dicari, dan daftar otomatis kembali ke saringan
+  // cepat — bukan menyisakan hasil untuk kueri yang sudah tidak ada di kotak.
+  // Hasil basi yang terlihat seperti hasil baru adalah kebohongan yang mahal.
+  const [kueriTerkirim, setKueriTerkirim] = useState("")
+  const tampilHasil = kueriTerkirim !== "" && kueriTerkirim === cari.trim()
+  // Saat masuk mode hasil, seleksi dibuang: `selected` menyimpan path daftar
+  // folder, dan toolbar "N item terpilih" yang masih menyala akan menawarkan
+  // hapus/unduh untuk berkas yang tidak terlihat di daftar hasil.
   useEffect(() => {
-    if (!cariDalam) return
-    setSelected(new Set())
-  }, [cariDalam])
+    if (tampilHasil) setSelected(new Set())
+  }, [tampilHasil])
   const [hasilCari, setHasilCari] = useState<HasilCari[]>([])
   const [cariProses, setCariProses] = useState(false)
   const [cariTerpotong, setCariTerpotong] = useState(false)
@@ -490,17 +491,18 @@ export function FileManagerView() {
   }
 
   /**
-   * Pencarian sampai ke dalam subfolder.
+   * Pencarian nama berkas/folder sampai ke dalam semua subfolder — setara
+   * `grep -r` pada NAMA berkas, dijalankan di server sebagai akun yang login.
    *
-   * Dipanggil HANYA saat user menekan Enter atau tombol Cari, bukan pada
-   * setiap ketikan: satu permintaan berarti satu penelusuran pohon penuh di
-   * server, dan melakukannya per huruf membuat folder berisi puluhan ribu
-   * berkas terasa menggantung. Saringan cepat di klien tetap bekerja sambil
-   * user mengetik.
+   * Dipanggil saat user menekan Enter atau tombol Cari, bukan pada setiap
+   * ketikan: satu permintaan berarti satu penelusuran pohon penuh di server,
+   * dan melakukannya per huruf membuat folder berisi puluhan ribu berkas
+   * terasa menggantung. Saringan cepat di klien tetap bekerja sambil mengetik.
    */
   const cariSampaiDalam = async () => {
     const q = cari.trim()
     if (!q) {
+      setKueriTerkirim("")
       setHasilCari([])
       setCariTerpotong(false)
       setCariAlasan("")
@@ -509,6 +511,10 @@ export function FileManagerView() {
     }
     const nomor = ++urutanCari.current
     setCariProses(true)
+    // Kueri dicatat sebagai "terkirim" hanya setelah permintaannya berhasil:
+    // mencatatnya lebih dulu membuat daftar berubah ke mode hasil untuk
+    // pencarian yang gagal, dan yang terlihat adalah daftar kosong tanpa
+    // sebab alih-alih pesan errornya.
     try {
       const res = await apiGet<{
         hits: HasilCari[]
@@ -521,9 +527,11 @@ export function FileManagerView() {
       setCariTerpotong(res.truncated)
       setCariAlasan(res.alasan || "")
       setCariDirs(res.dirs)
+      setKueriTerkirim(q)
     } catch (e: any) {
       if (nomor === urutanCari.current) {
         notify.err(trf("Gagal mencari: {0}", pesanError(e)))
+        setKueriTerkirim("")
         setHasilCari([])
       }
     } finally {
@@ -531,10 +539,11 @@ export function FileManagerView() {
     }
   }
 
-  /** Buang mode pencarian dalam dan kembali ke daftar folder biasa. */
+  /** Kosongkan pencarian dan kembali ke daftar folder biasa. */
   const keluarCariDalam = () => {
     urutanCari.current++
-    setCariDalam(false)
+    setCari("")
+    setKueriTerkirim("")
     setHasilCari([])
     setCariTerpotong(false)
     setCariAlasan("")
@@ -988,14 +997,14 @@ export function FileManagerView() {
           </div>
         }
       >
-        {/* Pencarian nama di folder yang sedang terbuka. type="search" bukan
-            type="text": di HP dan di sebagian desktop, hanya bentuk itu yang
-            memberi tombol Enter yang berbunyi "Cari" — dan tanpa itu keyboard
-            yang muncul adalah keyboard teks biasa, bukan yang punya tombol
-            cari. Tombol bersihkan bawaan browser DIMATIKAN lewat CSS
-            (index.css), karena panel sudah punya tombol bersihkan sendiri
-            yang punya label bahasa dan bisa dijangkau pembaca layar; tanpa
-            itu keduanya tampil berdampingan sebagai dua tanda silang. */}
+        {/* Pencarian nama berkas/folder. type="search" bukan type="text": di HP
+            dan di sebagian desktop, hanya bentuk itu yang memberi tombol Enter
+            yang berbunyi "Cari" — dan tanpa itu keyboard yang muncul adalah
+            keyboard teks biasa, bukan yang punya tombol cari. Tombol bersihkan
+            bawaan browser DIMATIKAN lewat CSS (index.css), karena panel sudah
+            punya tombol bersihkan sendiri yang punya label bahasa dan bisa
+            dijangkau pembaca layar; tanpa itu keduanya tampil berdampingan
+            sebagai dua tanda silang. */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -1006,25 +1015,26 @@ export function FileManagerView() {
               onChange={(e) => setCari(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
-                  setCari("")
-                  if (cariDalam) keluarCariDalam()
+                  keluarCariDalam()
+                  return
                 }
-                // Enter menjalankan pencarian ke dalam subfolder. Saringan
-                // cepat sudah berjalan sambil mengetik; tombol Enter adalah
-                // cara user meminta penelusuran yang lebih mahal.
-                if (e.key === "Enter" && cariDalam) void cariSampaiDalam()
+                // Enter menjalankan grep — menelusuri seluruh subfolder dari
+                // folder yang sedang dibuka. Tidak ada mode yang perlu
+                // dinyalakan dulu: menulis kata kunci lalu menekan Enter
+                // adalah satu-satunya cara kerjanya.
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  void cariSampaiDalam()
+                }
               }}
-              placeholder={cariDalam ? tr("Cari sampai ke subfolder…") : tr("Cari berkas di folder ini…")}
+              placeholder={tr("Cari berkas di folder ini dan subfoldernya…")}
               aria-label={tr("Cari berkas")}
             />
             {cari !== "" && (
               <button
                 type="button"
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                onClick={() => {
-                  setCari("")
-                  if (cariDalam) keluarCariDalam()
-                }}
+                onClick={keluarCariDalam}
                 aria-label={tr("Bersihkan pencarian")}
                 title={tr("Bersihkan pencarian")}
               >
@@ -1032,38 +1042,17 @@ export function FileManagerView() {
               </button>
             )}
           </div>
-          {/* Sakelar mode. Dinyalakan = pencarian menelusuri seluruh
-              subfolder (setara `grep -r` pada nama berkas), dimatikan =
-              saringan cepat pada folder yang sedang terbuka saja. */}
-          <Button
-            variant={cariDalam ? "default" : "outline"}
-            size="sm"
-            onClick={() => {
-              if (cariDalam) {
-                keluarCariDalam()
-              } else {
-                setCariDalam(true)
-                void cariSampaiDalam()
-              }
-            }}
-            title={tr("Cari juga di dalam semua subfolder")}
-            aria-pressed={cariDalam}
-          >
-            <FolderTree className="size-3.5 sm:mr-1" />
-            <span className="sr-only sm:not-sr-only">{tr("Subfolder")}</span>
+          <Button size="sm" onClick={() => void cariSampaiDalam()} disabled={cariProses || cari.trim() === ""}>
+            <Search className="size-3.5 sm:mr-1" />
+            <span className="sr-only sm:not-sr-only">
+              {cariProses ? tr("Mencari…") : tr("Cari")}
+            </span>
           </Button>
-          {cariDalam && (
-            <Button size="sm" onClick={() => void cariSampaiDalam()} disabled={cariProses || cari.trim() === ""}>
-              <Search className="size-3.5 sm:mr-1" />
-              <span className="sr-only sm:not-sr-only">
-                {cariProses ? tr("Mencari…") : tr("Cari")}
-              </span>
-            </Button>
-          )}
-          {/* Penghitung ditampilkan hanya saat ada yang disaring: "12 / 340"
-              yang selalu ada terbaca sebagai informasi tetap, padahal yang
-              penting justru saat angkanya berbeda dari totalnya. */}
-          {!cariDalam && cari.trim() !== "" && (
+          {/* Dua penghitung yang berbeda, dan yang tampil hanya satu:
+              di mode hasil angkanya "N hasil di dalam <folder>", di saringan
+              cepat "N / M cocok". Yang selalu ada terbaca sebagai informasi
+              tetap, padahal yang penting justru saat angkanya berbeda. */}
+          {!tampilHasil && cari.trim() !== "" && (
             <span className="num text-xs text-muted-foreground" aria-live="polite">
               {trf("{0} / {1} cocok", terlihat.length, entries.length)}
             </span>
@@ -1106,7 +1095,7 @@ export function FileManagerView() {
           </div>
         )}
 
-        {cariDalam ? (
+        {tampilHasil ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span className="num" aria-live="polite">
@@ -1199,9 +1188,10 @@ export function FileManagerView() {
                   {!cariProses && hasilCari.length === 0 && (
                     <tr>
                       <td data-label="" colSpan={4} className="py-6 text-center text-muted-foreground">
-                        {cari.trim() === ""
-                          ? tr("Tulis kata kunci dulu untuk menelusuri subfolder.")
-                          : trf('Tidak ada berkas yang memuat "{0}" sampai ke subfolder.', cari.trim())}
+                        {/* Di mode ini kueri selalu terisi — mode hasil hanya
+                            menyala untuk kueri yang benar-benar dikirim — jadi
+                            satu kalimat sudah cukup. */}
+                        {trf('Tidak ada berkas atau folder yang memuat "{0}" sampai ke subfolder.', kueriTerkirim)}
                       </td>
                     </tr>
                   )}
