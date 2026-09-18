@@ -65,7 +65,7 @@ const MODE: { id: Mode; judul: string; rincian: string[]; data: boolean }[] = [
       "SEMUA components yang bisa dipasang panel dicopot, termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI",
       "Token tunnel cloudflared dan data component (mis. password 9router) ikut dihapus",
       "Server DNS Technitium ikut dicopot — zona, blocklist, dan setelannya hilang; resolusi nama mesin dikembalikan ke systemd-resolved",
-      "Image & volume Docker di /var/lib/docker tetap ada — panel tidak tahu isinya, dan itu bukan berkas panel",
+      "Semua container, volume, network, dan data Docker dibersihkan",
     ],
     data: false,
   },

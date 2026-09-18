@@ -126,6 +126,7 @@ func komponenAgen(nama, binary, deskripsi string) *component {
 		Description:   deskripsi,
 		installUser:   func(u *userInfo) error { return installAgenResmi(nama, binary, u) },
 		uninstall:     func() error { return uninstallAgen(nama, binary) },
+		purge:         func() error { return purgeAgen(nama, binary) },
 		terpasang:     func() bool { _, ok := agenTerpasangDiMesin(binary); return ok },
 		terpasangUser: func(u *userInfo) bool { return agenSehatUntuk(binary, u) },
 		version:       versiAgen(binary),
@@ -149,6 +150,7 @@ var components = map[string]*component{
 		Description: "Container runtime + Compose v2. Dipakai halaman System → Docker.",
 		install:     installDocker,
 		uninstall:   uninstallDocker,
+		purge:       purgeDocker,
 		version:     func() string { return firstLine(tryRun("docker", "--version")) },
 	},
 	// Supabase bukan paket dan bukan service systemd — ia stack docker compose
@@ -261,6 +263,7 @@ var components = map[string]*component{
 		Description: "Rust Token Killer — proxy CLI yang memangkas keluaran perintah sebelum masuk konteks AI Agent.",
 		install:     installRTK,
 		uninstall:   uninstallRTK,
+		purge:       purgeRTK,
 		version:     func() string { return firstLine(tryRun("rtk", "--version")) },
 	},
 	"graphify": {
@@ -269,6 +272,7 @@ var components = map[string]*component{
 		Description: "Knowledge graph kode lewat parsing AST lokal — dipakai AI Agent untuk memetakan repo tanpa membaca berkas satu per satu.",
 		install:     installGraphify,
 		uninstall:   uninstallGraphify,
+		purge:       purgeGraphify,
 		version:     func() string { return firstLine(tryRun("graphify", "--version")) },
 	},
 	"ponytail": {
@@ -277,6 +281,7 @@ var components = map[string]*component{
 		Description: "Harness \"lazy senior dev\" level ultra + bundle skill ponytail-audit/review/debt.",
 		install:     installPonytail,
 		uninstall:   uninstallPonytail,
+		purge:       purgePonytail,
 		terpasang:   ponytailTerpasang,
 	},
 	// Headroom bukan alat agent seperti keempat di atas: ia dipakai 9router
@@ -293,6 +298,7 @@ var components = map[string]*component{
 		// bisa menulis ke dalamnya — lihat serahkanVenvHeadroom.
 		installUser: installHeadroom,
 		uninstall:   uninstallHeadroom,
+		purge:       purgeHeadroom,
 		terpasang:   headroomTerpasang,
 		version:     versiHeadroom,
 	},
@@ -302,6 +308,7 @@ var components = map[string]*component{
 		Description: "Browser Use — kendali browser lewat CDP untuk AI Agent (buka halaman, klik, isi form, ambil data dari halaman ber-JavaScript). Skill-nya didaftarkan ke tiap agent saat sesinya dibuka; butuh Chrome/Chromium di mesin yang dipakai.",
 		install:     installBrowserUse,
 		uninstall:   uninstallBrowserUse,
+		purge:       purgeBrowserUse,
 		version:     versiPipx("browser-use"),
 	},
 
@@ -392,6 +399,7 @@ var components = map[string]*component{
 		Category: katRuntime, Description: "Runtime JavaScript + npm. Dibutuhkan komponen 9router.",
 		install:   installNode,
 		uninstall: uninstallNode,
+		purge:     purgeNode,
 		version:   func() string { return firstLine(tryRun("node", "--version")) },
 	},
 	"mergerfs": aptComponent("mergerfs", "mergerfs", "", katBerbagi,
@@ -705,19 +713,32 @@ func uninstallComponent(name string, purge bool) (helperproto.ComponentStatus, e
 		return helperproto.ComponentStatus{}, err
 	}
 	defer selesaiProgres()
-	if err := c.uninstall(); err != nil {
-		return helperproto.ComponentStatus{}, err
+
+	// Jika purge aktif, jalankan pembersihan awal sebelum biner dicopot
+	// (khusus docker: container/volume butuh biner docker untuk compose down/prune).
+	if purge && c.purge != nil {
+		if err := c.purge(); err != nil {
+			log.Printf("uninstall %s: hapus data awal: %v", name, err)
+		}
+	}
+
+	var uninstErr error
+	if c.uninstall != nil {
+		uninstErr = c.uninstall()
 	}
 	// Izin firewall dicabut setelah paketnya hilang: membiarkannya berarti
 	// menyisakan port terbuka untuk layanan yang sudah tidak ada.
 	hapusPortKomponen(c)
+
 	// Data dihapus SETELAH paketnya dicopot, dan kegagalannya tidak
-	// membatalkan uninstall: paketnya sudah hilang, melaporkan komponen
-	// "gagal dihapus" hanya akan membuat user mencoba lagi tanpa hasil.
+	// membatalkan uninstall. Wajib tetap jalan meski c.uninstall() gagal.
 	if purge && c.purge != nil {
 		if err := c.purge(); err != nil {
-			log.Printf("uninstall %s: hapus data: %v", name, err)
+			log.Printf("uninstall %s: hapus data akhir: %v", name, err)
 		}
+	}
+	if uninstErr != nil {
+		return helperproto.ComponentStatus{}, uninstErr
 	}
 	return componentStatus(name), nil
 }
@@ -749,16 +770,30 @@ func CopotSemuaKomponen() int {
 	nama := ComponentNames()
 	for i := len(nama) - 1; i >= 0; i-- {
 		n := nama[i]
-		if !componentStatus(n).Installed {
+		c, ok := components[n]
+		if !ok {
 			continue
 		}
-		fmt.Printf("[i] Mencopot component %s…\n", n)
-		if _, err := uninstallComponent(n, true); err != nil {
-			fmt.Fprintf(os.Stderr, "[⚠] %s gagal dicopot: %v\n", n, err)
-			continue
+		installed := componentStatus(n).Installed
+		if installed {
+			fmt.Printf("[i] Mencopot component %s…\n", n)
+			if _, err := uninstallComponent(n, true); err != nil {
+				fmt.Fprintf(os.Stderr, "[⚠] %s gagal dicopot: %v\n", n, err)
+			} else {
+				fmt.Printf("[✓] %s dicopot\n", n)
+			}
+		} else if c.purge != nil {
+			fmt.Printf("[i] Membersihkan sisa data component %s…\n", n)
+			if err := c.purge(); err != nil {
+				fmt.Fprintf(os.Stderr, "[⚠] purge %s gagal: %v\n", n, err)
+			} else {
+				fmt.Printf("[✓] %s data dibersihkan\n", n)
+			}
 		}
-		fmt.Printf("[✓] %s dicopot\n", n)
 	}
+	bersihkanPipxLengkap()
+	bersihkanGoLengkap()
+	bersihkanConfigPanelPerUser()
 	return 0
 }
 
@@ -1301,6 +1336,48 @@ func uninstallDocker() error {
 	return nil
 }
 
+func purgeDocker() error {
+	bersihkanDockerLengkap()
+	_, _ = run("systemctl", "stop", "docker.service", "docker.socket", "containerd.service")
+	_ = os.RemoveAll("/var/lib/docker")
+	_ = os.RemoveAll("/var/lib/containerd")
+	_ = os.RemoveAll("/etc/docker")
+	_ = os.Remove("/var/run/docker.sock")
+	_ = os.RemoveAll("/var/run/docker")
+	for _, home := range rumahAgen() {
+		if home != "" {
+			_ = os.RemoveAll(filepath.Join(home, ".docker"))
+		}
+	}
+	return nil
+}
+
+func bersihkanDockerLengkap() {
+	for _, dir := range []string{"/opt/supabase/supabase-project", "/opt/arkon/arkon"} {
+		if _, err := os.Stat(dir); err == nil {
+			_, _ = runIn(dir, nil, "docker", "compose", "down", "-v", "--remove-orphans")
+		}
+	}
+	if out, err := exec.Command("docker", "ps", "-q").Output(); err == nil {
+		ids := strings.Fields(string(out))
+		if len(ids) > 0 {
+			args := append([]string{"stop", "-t", "5"}, ids...)
+			_, _ = run("docker", args...)
+		}
+	}
+	if out, err := exec.Command("docker", "ps", "-aq").Output(); err == nil {
+		ids := strings.Fields(string(out))
+		if len(ids) > 0 {
+			args := append([]string{"rm", "-f"}, ids...)
+			_, _ = run("docker", args...)
+		}
+	}
+	_, _ = run("docker", "volume", "prune", "-a", "-f")
+	_, _ = run("docker", "network", "prune", "-f")
+	_, _ = run("docker", "image", "prune", "-a", "-f")
+	_, _ = run("docker", "system", "prune", "-a", "--volumes", "-f")
+}
+
 // catatanGrupDocker ditampilkan halaman Components selama Docker terpasang.
 // Kalimat "logout dulu" adalah bagian terpentingnya: usermod TIDAK menyentuh
 // sesi yang sedang berjalan, jadi tanpa keterangan ini user mencoba
@@ -1408,6 +1485,22 @@ func uninstallNode() error {
 		"/etc/apt/sources.list.d/nodesource.sources /etc/apt/sources.list.d/nodesource.list",
 		"/usr/share/keyrings/nodesource.gpg",
 	)
+	return purgeNode()
+}
+
+func purgeNode() error {
+	for _, home := range rumahAgen() {
+		if home == "" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(home, ".npm"))
+		_ = os.RemoveAll(filepath.Join(home, ".npm-global"))
+		_ = os.RemoveAll(filepath.Join(home, ".cache", "node"))
+		_ = os.RemoveAll(filepath.Join(home, ".cache", "npm"))
+	}
+	_ = os.RemoveAll("/usr/lib/node_modules")
+	_ = os.RemoveAll("/usr/local/lib/node_modules")
+	_ = os.RemoveAll("/etc/npmrc")
 	return nil
 }
 
@@ -1631,27 +1724,22 @@ func uninstall9Router() error {
 	_, _ = run("systemctl", "disable", "--now", "9router.service")
 
 	// HOME service dibaca SEBELUM drop-in-nya dihapus, lalu diingat untuk
-	// purge9Router. Tanpa ini, "hapus data juga" tidak pernah menyentuh
-	// ~/.9router milik user panel: purge berjalan SETELAH uninstall (lihat
-	// uninstallComponent), dan pada saat itu satu-satunya berkas yang tahu di
-	// mana data itu berada sudah ikut terhapus di bawah. Gejalanya persis
-	// seperti data yang "nyangkut": 9router dipasang ulang lalu seluruh
-	// provider, API key, dan sesi login lama muncul kembali.
-	//
-	// Drop-in itu tetap bukan satu-satunya sumber — lihat purge9Router, yang
-	// juga menyapu home setiap akun manusia. Ini yang menangani kasus
-	// sebaliknya: HOME kustom yang tidak sesuai dengan akun mana pun.
+	// purge9Router.
 	ingatHome9Router()
 
 	if _, err := run("npm", "uninstall", "-g", "9router"); err != nil {
-		return err
+		log.Printf("9router: npm uninstall gagal (dilewati): %v", err)
 	}
 
 	_ = os.RemoveAll(dropDir9Router)
 	_ = os.Remove(passFile9Router)
 	_ = os.Remove(unitDst9Router)
+	_ = os.Remove("/usr/local/bin/9router")
+	_ = os.Remove("/usr/bin/9router")
+	_ = os.RemoveAll("/usr/lib/node_modules/9router")
+	_ = os.RemoveAll("/usr/local/lib/node_modules/9router")
 	_, _ = run("systemctl", "daemon-reload")
-	return nil
+	return purge9Router()
 }
 
 // homeTerakhir9Router menyimpan HOME service yang terbaca sebelum drop-in-nya
@@ -1702,6 +1790,11 @@ func purge9Router() error {
 			log.Printf("9router: hapus data di %s: %v", home, err)
 		}
 	}
+	_ = os.Remove("/usr/local/bin/9router")
+	_ = os.Remove("/usr/bin/9router")
+	_ = os.RemoveAll("/usr/lib/node_modules/9router")
+	_ = os.RemoveAll("/usr/local/lib/node_modules/9router")
+	_ = os.Remove(passFile9Router)
 	// StateDirectory milik unit panel generasi lama.
 	return os.RemoveAll("/var/lib/9router")
 }

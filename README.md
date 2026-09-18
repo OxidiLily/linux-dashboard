@@ -190,9 +190,8 @@ langkah ini kunci tunnel lama tetap tertinggal di mesin setelah uninstall.
 
 Uninstall panel mode **"Hapus total"** mencopot seluruh komponen yang bisa
 dipasang panel — termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI
-— berikut datanya, memakai uninstaller yang sama dengan halaman Components.
-Image dan volume Docker di `/var/lib/docker` tetap ditinggalkan: isinya milik
-container Anda, bukan milik panel.
+— berikut seluruh datanya, container/volume/image Docker, dan cache, memakai
+uninstaller yang sama dengan halaman Components.
 
 Empat mode uninstall bertingkat: `panel` (binary, unit systemd, PAM, sumber),
 `panel-data` (+ database, kunci sesi, `/etc/default`, akun service), `total`

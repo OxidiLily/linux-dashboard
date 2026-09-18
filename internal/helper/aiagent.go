@@ -449,6 +449,9 @@ var jejakAgen = map[string][]string{
 	},
 	"hermes": {
 		".hermes", // config.yaml, .env, sesi, memori, skills
+		".cache/hermes",
+		".local/share/hermes",
+		".local/state/hermes",
 		".config/linux-dashboard/tooling-hermes",
 	},
 }
@@ -549,6 +552,10 @@ func uninstallAgen(nama, binary string) error {
 	// tinggal, yang dihapus bulat di sini alih-alih berkas demi berkas.
 	bersihAgen(nama)
 	return nil
+}
+
+func purgeAgen(nama, binary string) error {
+	return uninstallAgen(nama, binary)
 }
 
 // paketNpmAgenLama adalah paket npm global yang dipakai panel SEBELUM pindah

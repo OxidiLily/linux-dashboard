@@ -251,9 +251,7 @@ fi
 # (yang dipasang terpisah dari source tree via Update) bisa menemukan
 # unit ketika user memilih "Pasang 9router" dari halaman Components.
 install -d -m 0755 /usr/local/share/linux-dashboard
-if [[ -f /usr/local/share/linux-dashboard/9router.service ]]; then
-  ok "Unit 9router di share direktori dipertahankan"
-elif [[ -f deploy/9router.service ]]; then
+if [[ -f deploy/9router.service ]]; then
   install -m 0644 deploy/9router.service /usr/local/share/linux-dashboard/9router.service
 fi
 # Skrip uninstaller inti — dipasang di share direktori agar command
@@ -263,10 +261,9 @@ fi
 # yang di-embed ke binary helper — satu sumber, dua representasi, sama
 # isinya. Installer menyalin keduanya agar update sistem tidak kehilangan
 # command CLI ini.
-if [[ -f /usr/local/share/linux-dashboard/uninstall.sh ]]; then
-  ok "Skrip uninstall.sh di share direktori dipertahankan"
-else
+if [[ -f internal/helper/uninstall.sh ]]; then
   install -m 0644 internal/helper/uninstall.sh /usr/local/share/linux-dashboard/uninstall.sh
+  ok "Skrip uninstall.sh dipasang ke share direktori"
 fi
 
 # Setelan per-device. Hanya dibuat kalau belum ada — isinya milik pemilik mesin,

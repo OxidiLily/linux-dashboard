@@ -21,8 +21,7 @@
 # jelas; ini terjadi kalau linux-dashboard dipasang dari paket yang tidak
 # menyertakan skrip uninstall.
 #
-# TIDAK menghapus: ~/DATA/* user, konfigurasi Samba/NFS/WireGuard/firewall,
-# serta image & volume Docker di /var/lib/docker.
+# TIDAK menghapus: ~/DATA/* user (kecuali mode total-data) dan konfigurasi layanan di luar panel (Samba/NFS/WireGuard).
 set -uo pipefail
 
 PREFIX="${PREFIX:-/usr/local/bin}"
@@ -48,8 +47,7 @@ Mode:
                (termasuk sertifikat TLS), akun service linux-dashboard.
   total        Semua di atas + copot SEMUA component yang dipasang panel,
                termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI,
-               berikut datanya (token tunnel cloudflared, password 9router).
-               Image & volume Docker di /var/lib/docker tetap ada.
+               berikut seluruh datanya, container/volume/image Docker, dan cache.
   total-data   Semua di atas + HAPUS folder DATA di setiap home akun beserta
                isinya (dokumen, foto, unduhan, kode) dan /etc/skel/DATA.
                TIDAK BISA DIKEMBALIKAN — konfirmasinya mengetik 'HAPUS DATA'.
@@ -78,7 +76,7 @@ for arg in "$@"; do
   case "$arg" in
     -h|--help) usage; exit 0 ;;
     -y|--yes)  ASSUME_YES=1 ;;
-    panel|panel-data|total) MODE_RAW="$arg" ;;
+    panel|panel-data|total|total-data) MODE_RAW="$arg" ;;
     *) die "Argumen tidak dikenal: '$arg'. Coba --help." ;;
   esac
 done
