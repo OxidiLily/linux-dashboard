@@ -333,17 +333,53 @@ func pastikanUnitHeadroom(u *userInfo) (bool, error) {
 	return ganti, nil
 }
 
-// unitHeadroomPerluGanti mengenali unit headroom tulisan panel versi lama yang
-// belum punya jembatan pid file (ExecStartPost). Tanpa jembatan itu 9router
-// tidak pernah melihat proxy systemd sebagai "sudah jalan", sehingga tombol
-// Start di halaman Token Saver menelurkan proxy kedua di port 8787 dan gagal
-// "address already in use". Hanya baris ExecStart bawaan panel yang dianggap
-// milik panel: unit yang sudah diubah admin (port/host lain) tidak disentuh.
+// jembatanPidHeadroom adalah isi baris ExecStartPost yang dipakai unit headroom.
+//
+// 9router menentukan proxy hidup/mati lewat ~/.9router/headroom/proxy.pid
+// (proses.kill terhadap pid itu), bukan lewat systemctl. Tanpa jembatan ini
+// halaman Token Saver menelurkan proxy KEDUA di port 8787 dan gagal "address
+// already in use". Bentuknya HARUS persis seperti di deploy/headroom.service —
+// unitHeadroomPerluGanti membandingkannya apa adanya, dan perbedaan satu
+// karakter pun berarti unit lama akan ditimpa terus-menerus.
+//
+// Kenapa bentuknya begini:
+//   - "%s" TIDAK boleh dipakai di dalam ExecStartPost. Ia bukan placeholder
+//     printf melainkan specifier systemd: systemd menggantinya dengan shell
+//     milik manager ("/bin/bash") SEBELUM shell dijalankan. Itu bug yang
+//     membuat baris ini harus ditulis ulang — terlihat di `systemctl show -p
+//     ExecStartPost --value headroom`, argv-nya memuat "/bin/bash" di tengah
+//     format string. Cetakan yang bebas persen: printf "$MAINPID\n".
+//   - "install -d" wajib disertai "-m": tanpa itu install menyalin mode berkas
+//     sumber ke tujuan, dan proxy.pid bekas rilis lama yang 0600 milik user
+//     lain membuat user panel gagal membukanya.
+const jembatanPidHeadroom = `/bin/sh -c 'install -d -m 0755 "$HOME/.9router/headroom" && printf "$MAINPID\n" > "$HOME/.9router/headroom/proxy.pid"'`
+
+// unitHeadroomPerluGanti mengenali unit headroom tulisan panel yang tidak akan
+// pernah membuat 9router melihat proxy-nya sebagai "sudah jalan".
+//
+// Ada DUA generasi yang salah, dan keduanya berakhir sama: proxy.pid berisi pid
+// yang bukan pid proxy.
+//
+//   - Generasi pertama belum punya ExecStartPost sama sekali.
+//   - Generasi kedua punya ExecStartPost, tapi memakai specifier "%s" yang
+//     disuntik systemd menjadi "/bin/bash" (lihat jembatanPidHeadroom).
+//
+// Keduanya dideteksi lewat jembatanPidHeadroomUtuh(), bukan lewat "ada
+// ExecStartPost atau tidak": unit generasi kedua lolos dari pengecekan lama
+// dan akan tetap salah selamanya.
+//
+// Hanya baris ExecStart bawaan panel yang dianggap milik panel: unit yang sudah
+// diubah admin (port/host lain) tidak disentuh.
 func unitHeadroomPerluGanti(isi string) bool {
-	if strings.Contains(isi, "ExecStartPost=") {
-		return false
-	}
-	return strings.Contains(isi, "ExecStart=/opt/headroom/bin/headroom proxy --host 127.0.0.1 --port 8787")
+	return strings.Contains(isi, "ExecStart=/opt/headroom/bin/headroom proxy --host 127.0.0.1 --port 8787") &&
+		!jembatanPidHeadroomUtuh(isi)
+}
+
+// jembatanPidHeadroomUtuh menjawab apakah unit sudah memakai jembatan pid file
+// yang benar. Bentuknya harus persis: spesifier "%s" tidak boleh muncul di
+// dalamnya karena systemd akan menggantinya sebelum shell melihatnya.
+func jembatanPidHeadroomUtuh(isi string) bool {
+	return strings.Contains(isi, "ExecStartPost="+jembatanPidHeadroom)
 }
 
 // pidFileHeadroom mengembalikan path pid file yang dipakai 9router untuk
@@ -365,6 +401,12 @@ func pidFileHeadroom(u *userInfo) string {
 // ~/.9router/headroom/proxy.pid), tombol Jalankan panel gagal dengan "address
 // already in use" — dua pengelola, satu port. systemd adalah pemilik yang
 // benar (memberi autostart), jadi proses lepasnya dikembalikan lebih dulu.
+//
+// pid dari berkas itu TIDAK dipercaya begitu saja: berkas yang tertinggal dari
+// rilis yang rusak bisa memuat apa saja — "/bin/bash" (lihat
+// jembatanPidHeadroom) atau pid yang sudah didaur ulang kernel untuk proses
+// lain. Keduanya berujung pada panel yang membunuh proses tak berdosa. Jadi
+// identitas prosesnya diperiksa dari /proc sebelum sinyal apa pun dikirim.
 func rebutHeadroomDari9router(u *userInfo) {
 	f := pidFileHeadroom(u)
 	b, err := os.ReadFile(f)
@@ -385,6 +427,13 @@ func rebutHeadroomDari9router(u *userInfo) {
 		_ = os.Remove(f)
 		return
 	}
+	// Bukan headroom → berkasnya basi/asing, dan membunuh berdasarkan isinya
+	// jauh lebih berbahaya daripada membiarkannya. Buang berkasnya saja; port
+	// 8787 tidak dipegang proses ini, jadi tidak ada yang menghalangi systemd.
+	if !prosesHeadroom(pid) {
+		_ = os.Remove(f)
+		return
+	}
 	// SIGTERM dulu, baru SIGKILL kalau masih hidup — urutan yang sama dengan
 	// cara 9router menghentikan proxynya sendiri.
 	_ = syscall.Kill(pid, syscall.SIGTERM)
@@ -399,6 +448,39 @@ func rebutHeadroomDari9router(u *userInfo) {
 // apa pun, hanya memeriksa keberadaan prosesnya.
 func prosesHidup(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
+}
+
+// prosesHeadroom memastikan pid yang tercatat di proxy.pid benar-benar proses
+// headroom, bukan pid lain yang kebetulan memakai nomor yang sama. Nama proses
+// dibaca dari /proc/<pid>/comm — 15 karakter pertama, sebagaimana kernel
+// menamainya dari binary yang dieksekusi. Isi yang tidak terbaca dianggap BUKAN
+// headroom: dalam keraguan, jangan kirim sinyal.
+func prosesHeadroom(pid int) bool {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
+	if err != nil {
+		return false
+	}
+	nama := strings.ToLower(strings.TrimSpace(string(b)))
+	// Kedua bentuk diterima karena keduanya memang terjadi di mesin ini:
+	// launcher ExecStart menjalankan "/opt/headroom/bin/python3 …/headroom",
+	// jadi comm-nya "python3"; proses lepas yang di-spawn 9router langsung
+	// memakai entri console_script, jadi comm-nya "headroom".
+	if strings.HasPrefix(nama, "headroom") {
+		return true
+	}
+	if !strings.HasPrefix(nama, "python") {
+		return false
+	}
+	// "python" saja terlalu umum — nama itu akan cocok untuk proses apa pun
+	// yang menamai dirinya begitu (skrip user, mis. ganti_python.sh). Jadi
+	// jalur eksekusinya dibaca dari /proc/<pid>/cmdline.
+	cmd, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil {
+		return false
+	}
+	// Kernel memisahkan argumen dengan NUL; slash tidak bisa muncul di dalam
+	// satu argumen kecuali sebagai bagian dari path.
+	return strings.Contains(strings.ReplaceAll(string(cmd), "\x00", " "), "/headroom")
 }
 
 // pastikanUserHeadroom menulis drop-in identitas user, dan me-restart service
