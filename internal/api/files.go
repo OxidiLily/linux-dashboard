@@ -901,6 +901,12 @@ func (s *Server) streamFile(w http.ResponseWriter, r *http.Request, asAttachment
 		ct := tipeKonten(path)
 		if ct == "application/pdf" {
 			w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-same-origin")
+			// Middleware securityHeaders menyetel X-Frame-Options: DENY
+			// untuk semua response. PDF di-render lewat <iframe> di halaman
+			// panel — DENY membuat browser menolak menampilkannya. Ganti
+			// dengan SAMEORIGIN supaya hanya halaman panel sendiri yang
+			// boleh mem-frame-nya; situs lain tetap ditolak.
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		} else {
 			w.Header().Set("Content-Security-Policy", "sandbox")
 		}
