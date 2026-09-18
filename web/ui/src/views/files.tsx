@@ -266,6 +266,11 @@ export function FileManagerView() {
   const folderInputRef = useRef<HTMLInputElement>(null)
   const urutanDirektori = useRef(0)
   const urutanPreview = useRef(0)
+  // Drag-and-drop: counter menghitung enter/leave bersarang, visual cuma muncul
+  // saat > 0. Boolean sederhana salah karena enter pada anak memicu leave di
+  // induk sebelum enter berikutnya tiba.
+  const [sedangDrop, setSedangDrop] = useState(false)
+  const dragCounter = useRef(0)
 
   const loadRoots = async () => {
     try {
@@ -374,15 +379,12 @@ export function FileManagerView() {
     return () => ac.abort()
   }, [entries])
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return
-    const files = Array.from(e.target.files)
+  // Inti upload: menerima daftar File, mengirim ke server, dan memuat ulang
+  // direktori sesudahnya. Dipakai oleh input file DAN drag-and-drop.
+  const uploadBerkas = async (files: File[]) => {
+    if (files.length === 0) return
     const formData = new FormData()
-    // webkitRelativePath berisi "folder/sub/berkas.txt" saat user memilih
-    // folder. Dikirim sebagai nama part supaya server bisa membentuk ulang
-    // strukturnya; upload file biasa tetap mengirim nama polos.
-    files.forEach((f) => formData.append("files", f, f.webkitRelativePath || f.name))
-
+    files.forEach((f) => formData.append("files", f, (f as any).webkitRelativePath || f.name))
     setLoading(true)
     try {
       const res = await fetch(`/api/files/upload?path=${encodeURIComponent(currentPath)}`, {
@@ -396,9 +398,94 @@ export function FileManagerView() {
       notify.err(trf("Upload gagal: {0}", pesanError(err)))
     } finally {
       setLoading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ""
-      if (folderInputRef.current) folderInputRef.current.value = ""
     }
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.length) return
+    await uploadBerkas(Array.from(e.target.files))
+    if (fileInputRef.current) fileInputRef.current.value = ""
+    if (folderInputRef.current) folderInputRef.current.value = ""
+  }
+
+  // Drag-and-drop: baca semua entry secara rekursif dari DataTransfer lalu upload.
+  // webkitGetAsEntry() didukung Chrome, Edge, Firefox, dan Safari — standard
+  // File and Directory Entries API. Folder yang di-drop menghasilkan File dengan
+  // path relatif yang ditambahkan ke nama supaya server membentuk ulang strukturnya.
+  const bacaEntryRekursif = (entry: FileSystemEntry): Promise<File[]> =>
+    new Promise((resolve) => {
+      if (entry.isFile) {
+        ;(entry as FileSystemFileEntry).file((f) => {
+          // Simpan path relatif supaya server bisa membentuk ulang struktur folder.
+          Object.defineProperty(f, "name", { value: entry.fullPath.replace(/^\//, "") })
+          resolve([f])
+        }, () => resolve([]))
+      } else {
+        const reader = (entry as FileSystemDirectoryEntry).createReader()
+        const semua: File[] = []
+        const baca = () => {
+          reader.readEntries(async (batch) => {
+            if (batch.length === 0) {
+              resolve(semua)
+              return
+            }
+            for (const e of batch) {
+              semua.push(...(await bacaEntryRekursif(e)))
+            }
+            baca() // readEntries mengembalikan batch; panggil sampai habis
+          }, () => resolve(semua))
+        }
+        baca()
+      }
+    })
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounter.current = 0
+    setSedangDrop(false)
+
+    const items = e.dataTransfer.items
+    if (!items || items.length === 0) return
+
+    // Coba pakai webkitGetAsEntry untuk folder support
+    const entries: FileSystemEntry[] = []
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry?.()
+      if (entry) entries.push(entry)
+    }
+    if (entries.length > 0) {
+      const semua: File[] = []
+      for (const entry of entries) {
+        semua.push(...(await bacaEntryRekursif(entry)))
+      }
+      await uploadBerkas(semua)
+    } else if (e.dataTransfer.files.length > 0) {
+      // Fallback: browser lama tanpa webkitGetAsEntry
+      await uploadBerkas(Array.from(e.dataTransfer.files))
+    }
+  }
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounter.current++
+    if (dragCounter.current === 1) setSedangDrop(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounter.current--
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0
+      setSedangDrop(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
   }
 
   const handleMkdir = async () => {
@@ -941,7 +1028,24 @@ export function FileManagerView() {
     return daftarkanEscape(() => setRenameTarget(null))
   }, [renameTarget])
   return (
-    <div className="space-y-4" onClick={() => setContextMenu(null)}>
+    <div
+      className="space-y-4 relative"
+      onClick={() => setContextMenu(null)}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drop overlay — terlihat saat file diseret ke atas file manager */}
+      {sedangDrop && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-signal/10">
+          <div className="rounded-xl border-2 border-dashed border-signal bg-surface/90 px-8 py-6 text-center shadow-xl">
+            <Upload className="mx-auto size-10 text-signal" />
+            <p className="mt-2 text-sm font-semibold">{tr("Lepas untuk mengunggah")}</p>
+            <p className="text-xs text-muted-foreground">{currentPath}</p>
+          </div>
+        </div>
+      )}
       <Panel
         title={tr("File Manager")}
         hint={
