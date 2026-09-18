@@ -371,6 +371,8 @@ daftarkanTerjemahan({
   "Gagal menyimpan: {0}": "Failed to save: {0}",
   "Gagal paste: {0}": "Paste failed: {0}",
   "Gagal preview file: {0}": "Failed to preview the file: {0}",
+  "Preview PDF": "PDF Preview",
+  "Format ini tidak bisa ditampilkan langsung di browser. Unduh untuk membukanya di aplikasi yang sesuai.": "This format cannot be displayed in the browser. Download it to open in the appropriate application.",
   "Gagal rename: {0}": "Rename failed: {0}",
   "Gagal reset password: {0}": "Failed to reset the password: {0}",
   "Gagal ubah permission: {0}": "Failed to change permissions: {0}",

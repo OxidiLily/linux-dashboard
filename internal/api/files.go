@@ -764,6 +764,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 // nosniff melarang browser menebak sendiri, jadi <video> menolak memutarnya
 // bahkan untuk berkas yang codec-nya sebenarnya didukung.
 var tipeMediaTambahan = map[string]string{
+	".pdf":  "application/pdf",
 	".mp4":  "video/mp4",
 	".m4v":  "video/mp4",
 	".mkv":  "video/x-matroska",
@@ -893,7 +894,16 @@ func (s *Server) streamFile(w http.ResponseWriter, r *http.Request, asAttachment
 		// HTML/SVG milik user sebagai halaman dashboard.
 		w.Header().Set("Content-Disposition", "inline")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "sandbox")
+		// Penampil PDF bawaan browser memerlukan skrip — sandbox tanpa
+		// allow-scripts membuatnya menampilkan halaman kosong. PDF sendiri
+		// sudah di-sandbox oleh browser; sandbox di sini hanya untuk
+		// mencegah HTML/SVG user dieksekusi sebagai halaman panel.
+		ct := tipeKonten(path)
+		if ct == "application/pdf" {
+			w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-same-origin")
+		} else {
+			w.Header().Set("Content-Security-Policy", "sandbox")
+		}
 	}
 
 	if !adaRentang {

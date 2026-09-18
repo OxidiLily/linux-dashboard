@@ -207,6 +207,13 @@ export function FileManagerView() {
     text?: string
     isImg?: boolean
     media?: "video" | "audio"
+    // PDF di-render lewat <iframe> bawaan browser — semua browser modern sudah
+    // membawa penampil PDF sendiri (Chrome, Edge, Firefox, Safari). Tidak perlu
+    // library pihak ketiga.
+    pdf?: boolean
+    // Dokumen Office dan format biner lainnya yang tidak bisa ditampilkan
+    // langsung di browser — hanya ditawarkan unduh.
+    dokumen?: boolean
   } | null>(null)
   // Diset saat elemen <video>/<audio> gagal men-decode. Browser tidak
   // memberitahu ALASAN kegagalan lewat API mana pun, jadi yang bisa
@@ -670,10 +677,23 @@ export function FileManagerView() {
     }
   }
 
+  // Ekstensi dokumen yang tidak bisa di-render browser secara native. Dibuka
+  // hanya sebagai tawaran unduh — menampilkan byte mentahnya di <pre> tidak
+  // berguna, dan tidak ada library ringan yang bisa merender format ini di
+  // sisi klien tanpa menambah ratusan KB bundle.
+  const EKSTENSI_DOKUMEN = [
+    // Microsoft Word
+    "docx", "doc", "docm", "dotx",
+    // Microsoft Excel
+    "xlsx", "xls", "xlsm", "xlsb",
+    // Microsoft PowerPoint
+    "pptx", "ppsx", "pptm", "potx",
+  ]
+
   const handlePreview = (entry: FileEntry) => {
     const nomor = ++urutanPreview.current
     const ext = entry.name.split(".").pop()?.toLowerCase()
-    const imgExts = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
+    const imgExts = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]
     setMediaGagal(false)
     if (ext && imgExts.includes(ext)) {
       setPreviewContent({ path: entry.path, isImg: true })
@@ -687,6 +707,17 @@ export function FileManagerView() {
     }
     if (ext && EKSTENSI_AUDIO.includes(ext)) {
       setPreviewContent({ path: entry.path, media: "audio" })
+      return
+    }
+    // PDF di-render oleh penampil bawaan browser lewat <iframe>. Tidak perlu
+    // mengunduh isinya ke memori tab.
+    if (ext === "pdf") {
+      setPreviewContent({ path: entry.path, pdf: true })
+      return
+    }
+    // Dokumen Office: tidak bisa di-render di browser, langsung tawari unduh.
+    if (ext && EKSTENSI_DOKUMEN.includes(ext)) {
+      setPreviewContent({ path: entry.path, dokumen: true })
       return
     }
     void (async () => {
@@ -1701,6 +1732,29 @@ export function FileManagerView() {
                   alt={tr("Preview")}
                   className="max-h-[60dvh] object-contain mx-auto"
                 />
+              ) : previewContent.pdf ? (
+                <iframe
+                  src={`/api/files/preview?path=${encodeURIComponent(previewContent.path)}`}
+                  title={tr("Preview PDF")}
+                  className="h-[70dvh] w-full rounded border-0"
+                />
+              ) : previewContent.dokumen ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <File className="size-16 text-muted-foreground" />
+                  <p className="mt-4 text-sm font-medium">
+                    {previewContent.path.split("/").pop()}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {tr("Format ini tidak bisa ditampilkan langsung di browser. Unduh untuk membukanya di aplikasi yang sesuai.")}
+                  </p>
+                  <a
+                    className="mt-4 inline-flex items-center gap-2 rounded-md bg-signal px-4 py-2 text-sm font-medium text-signal-foreground hover:bg-signal/90"
+                    href={`/api/files/download?path=${encodeURIComponent(previewContent.path)}`}
+                    download
+                  >
+                    <Download className="size-4" /> {tr("Download")}
+                  </a>
+                </div>
               ) : previewContent.media ? (
                 <div className="space-y-3">
                   {previewContent.media === "video" ? (
