@@ -714,12 +714,10 @@ func uninstallComponent(name string, purge bool) (helperproto.ComponentStatus, e
 	}
 	defer selesaiProgres()
 
-	// Jika purge aktif, jalankan pembersihan awal sebelum biner dicopot
-	// (khusus docker: container/volume butuh biner docker untuk compose down/prune).
-	if purge && c.purge != nil {
-		if err := c.purge(); err != nil {
-			log.Printf("uninstall %s: hapus data awal: %v", name, err)
-		}
+	// Jika purge aktif dan komponen adalah docker, bersihkan container dan volume
+	// sebelum biner docker dicopot oleh uninstall.
+	if purge && name == "docker" {
+		bersihkanDockerLengkap()
 	}
 
 	var uninstErr error
@@ -734,7 +732,7 @@ func uninstallComponent(name string, purge bool) (helperproto.ComponentStatus, e
 	// membatalkan uninstall. Wajib tetap jalan meski c.uninstall() gagal.
 	if purge && c.purge != nil {
 		if err := c.purge(); err != nil {
-			log.Printf("uninstall %s: hapus data akhir: %v", name, err)
+			log.Printf("uninstall %s: hapus data: %v", name, err)
 		}
 	}
 	if uninstErr != nil {

@@ -1109,8 +1109,8 @@ daftarkanTerjemahan({
     "EVERY component the panel can install is removed, including Docker, Node.js, Tailscale, cloudflared, and the AI tools",
   "Token tunnel cloudflared dan data component (mis. password 9router) ikut dihapus":
     "The cloudflared tunnel token and component data (e.g. the 9router password) are deleted too",
-  "Image & volume Docker di /var/lib/docker tetap ada — panel tidak tahu isinya, dan itu bukan berkas panel":
-    "Docker images & volumes in /var/lib/docker are kept — the panel does not know what is inside them, and they are not panel files",
+  "Semua container, volume, network, dan data Docker dibersihkan":
+    "All Docker containers, volumes, networks, and data are cleaned",
   "Hapus total + data akun (~/DATA) — tidak bisa dikembalikan":
     "Remove everything + account data (~/DATA) — cannot be undone",
   "Folder DATA di SETIAP home akun dihapus — ~/DATA/AppData, Documents, Downloads, Gallery, Media":

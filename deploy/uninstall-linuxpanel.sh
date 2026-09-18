@@ -145,7 +145,7 @@ if (( ASSUME_YES == 0 )); then
       echo "  — SEMUA components yang dipasang panel dicopot, termasuk"
       echo "    Docker, Node.js, Tailscale, cloudflared, dan alat AI"
       echo "  — Data component ikut dihapus (token cloudflared, password 9router)"
-      echo "  — Image & volume Docker di /var/lib/docker TETAP ADA"
+      echo "  — Data Docker (container, volume, network, image) ikut dibersihkan"
       ;;
     total-data)
       echo "  — semua mode total"
@@ -178,8 +178,8 @@ mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
 PREFIX="$PREFIX" \
   SRC="${SRC:-/usr/local/src/go-react-linux-dashboard}" \
   SHARE_DIR="$SHARE_DIR" \
-  bash "$UNINSTALL_SH" "$MODE_RAW"
-rc=$?
+  bash "$UNINSTALL_SH" "$MODE_RAW" 2>&1 | tee -a "$LOG"
+rc=${PIPESTATUS[0]}
 
 echo "[i] Log uninstall: $LOG"
 exit "$rc"
