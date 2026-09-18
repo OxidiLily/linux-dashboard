@@ -1309,7 +1309,7 @@ export function DockerView() {
               <p className="font-semibold text-sm">{tr("Edit Environment Variables (.env)")}</p>
               <p className="num text-xs text-muted-foreground">{envModal.path}</p>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setEnvModal(null)}>
+            <Button variant="outline" size="sm" onClick={() => setEnvModal(null)}>
               {tr("Tutup")}
             </Button>
           </div>
@@ -1319,10 +1319,10 @@ export function DockerView() {
             onChange={(e) => setEnvModal({ ...envModal, content: e.target.value })}
             placeholder="# KEY=VALUE"
           />
-          <div className="flex justify-end gap-2 pt-3 border-t border-border mt-3">
-            <Button variant="outline" size="sm" onClick={() => setEnvModal(null)}>
-              {tr("Batal")}
-            </Button>
+          <div className="flex items-center justify-between gap-3 border-t border-border mt-3 pt-3">
+            <p className="text-[10px] text-muted-foreground">
+              {tr("Nilai baru berlaku setelah container dibuat ulang (Up)")}
+            </p>
             <Button size="sm" onClick={handleSaveEnv}>
               {tr("Simpan .env")}
             </Button>
