@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { useAuth } from "@/stores/auth"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
@@ -658,6 +659,34 @@ export function DockerView() {
     }
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!showAddStack) return
+    return daftarkanEscape(() => setShowAddStack(false))
+  }, [showAddStack])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!logModal) return
+    return daftarkanEscape(() => setLogModal(null))
+  }, [logModal])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!composeModal) return
+    return daftarkanEscape(() => setComposeModal(null))
+  }, [composeModal])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!envModal) return
+    return daftarkanEscape(() => setEnvModal(null))
+  }, [envModal])
   return (
   <div className="space-y-4">
     {/* Compose Stacks */}

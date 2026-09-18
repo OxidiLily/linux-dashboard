@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { Printer as PrinterIcon, Trash2, Plus, RefreshCw, Star, Power, PowerOff, X, Search, Download, CheckCircle2 } from "lucide-react"
 
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
@@ -265,6 +266,13 @@ export function PrintServerView() {
     }
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!modal) return
+    return daftarkanEscape(() => setModal(false))
+  }, [modal])
   return (
     <div className="space-y-4">
       <Panel

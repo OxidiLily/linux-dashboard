@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { ShieldBan, Trash2, Plus, RefreshCw, Pencil, Unlock, Download, Power } from "lucide-react"
 
@@ -185,6 +186,13 @@ export function Fail2banView() {
     }
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!modal) return
+    return daftarkanEscape(() => setModal(false))
+  }, [modal])
   return (
     <>
     <Panel

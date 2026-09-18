@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
@@ -240,6 +241,13 @@ export function NetworkView() {
     return n
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!vpnModal) return
+    return daftarkanEscape(() => setVpnModal(null))
+  }, [vpnModal])
   return (
     <div className="space-y-4">
       {/* Network Interfaces */}

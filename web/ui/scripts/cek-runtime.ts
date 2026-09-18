@@ -15,6 +15,8 @@ const simpanan = new Map<string, string>()
 } as Storage
 
 import { ApiError } from "@/lib/api"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { DialogIsian, isiValid } from "@/components/ui/prompt"
@@ -221,6 +223,105 @@ cek(String(modalDefault.includes('disabled=""')), "false", "prompt/tombol-hidup"
 // preferensi server tidak menimpanya begitu user masuk.
 simpanBahasaPralogin("en")
 cek(localStorage.getItem("lindash:bahasa-pralogin") ?? "", "en", "prefs/titip-bahasa")
+
+// ---------------------------------------------------------------------------
+// Setiap lapisan modal harus menutup dengan Escape.
+//
+// Penjaganya membaca SUMBER, bukan hasil render: pendaftaran Escape hidup di
+// dalam useEffect, dan efek tidak berjalan di renderToStaticMarkup — modal yang
+// lupa didaftarkan akan tampak sempurna dari markup-nya. Yang diperiksa karena
+// itu adalah pasangan yang wajib ada: pembungkus gelap `bg-black/60` (itulah
+// yang membuat sesuatu disebut lapisan modal) DAN panggilan daftarkanEscape.
+//
+// Pengecualiannya sengaja kosong. Kalau nanti ada modal yang memang tidak boleh
+// ditutup, itu keputusan sadar — dan tempatnya di daftar pengecualian di bawah,
+// bukan di lubang yang tak terlihat.
+// Jalurnya dijangkarkan ke cwd proyek, bukan import.meta.url: berkas ini
+// dijalankan dari BUNDEL di dalam node_modules, jadi URL-nya menunjuk ke sana.
+// scripts/cek-runtime.sh sudah `cd` ke web/ui sebelum menjalankannya.
+const bacaSumber = (jalur: string): string => {
+  try {
+    return readFileSync(resolve(process.cwd(), jalur), "utf8")
+  } catch (e) {
+    return `__GAGAL_BACA__ ${String(e)}`
+  }
+}
+
+const pemeriksaLapisan: [string, [string, string, string][]][] = [
+  ["src/components/ui/confirm.tsx", []],
+  ["src/components/ui/prompt.tsx", []],
+  ["src/components/ui/update-modal.tsx", []],
+  ["src/components/ui/uninstall-modal.tsx", []],
+  ["src/components/ui/disk-prepare-modal.tsx", []],
+  ["src/components/ui/iface-editor.tsx", []],
+  ["src/components/ui/wireguard-server.tsx", []],
+  ["src/views/files.tsx", [
+    ["printTarget", "setPrintTarget", "null"], ["previewContent", "setPreviewContent", "null"],
+    ["permTarget", "setPermTarget", "null"], ["editor", "setEditor", "null"],
+    ["renameTarget", "setRenameTarget", "null"],
+  ]],
+  ["src/views/account.tsx", [
+    ["showAddUser", "setShowAddUser", "false"], ["editTarget", "setEditTarget", "null"],
+  ]],
+  ["src/views/docker.tsx", [
+    ["showAddStack", "setShowAddStack", "false"], ["logModal", "setLogModal", "null"],
+    ["composeModal", "setComposeModal", "null"], ["envModal", "setEnvModal", "null"],
+  ]],
+  ["src/views/network.tsx", [["vpnModal", "setVpnModal", "null"]]],
+  ["src/views/firewall.tsx", [["showAdd", "tutupForm", ""]]],
+  ["src/views/nfs.tsx", [["modal", "setModal", "false"], ["modalMount", "setModalMount", "false"]]],
+  ["src/views/samba.tsx", [["userModal", "setUserModal", "null"], ["showModal", "setShowModal", "false"]]],
+  ["src/views/fail2ban.tsx", [["modal", "setModal", "false"]]],
+  ["src/views/mergerfs.tsx", [["modal", "setModal", "false"]]],
+  ["src/views/print-server.tsx", [["modal", "setModal", "false"]]],
+]
+
+for (const [jalur, penutupWajib] of pemeriksaLapisan) {
+  const isi = bacaSumber(jalur)
+  cek(String(isi.includes("bg-black/60")), "true", `escape/${jalur}/punya-lapisan`)
+  cek(String(isi.includes("daftarkanEscape")), "true", `escape/${jalur}/terdaftar`)
+
+  // Setiap lapisan harus punya pendaftaran Escape LENGKAP: guard yang hidup
+  // saat modal terbuka (`if (!kondisi) return`), penutup dengan setter dan
+  // argumen yang benar, dan daftar dependensi yang cocok dengan guardnya.
+  //
+  // Bentuk yang pernah benar-benar lolos dan mematikan SELURUH fitur ini:
+  // `if (printTarget) return` — pendaftarannya tidak pernah berjalan, padahal
+  // barisnya ada di berkas sehingga pemeriksaan yang hanya mencari kata
+  // "daftarkanEscape" tetap hijau. Karena itu arah guard-nya diperiksa
+  // eksplisit di sini, lengkap dengan kecocokan dependensinya.
+  for (const [kondisi, setter, arg] of penutupWajib) {
+    const blok = new RegExp(
+      `if \\(!${kondisi}\\) return\\s*\\n\\s*return daftarkanEscape\\(\\(\\) => ${setter}\\(${arg.replace(/[()]/g, "\\$&")}\\)\\)\\s*\\n\\s*\\}, \\[${kondisi}\\]\\)`,
+    )
+    cek(String(blok.test(isi)), "true", `escape/${jalur}/blok-${kondisi}`)
+  }
+
+  // Tidak boleh ada pendaftaran yang MEMBUKA modal: argumen truthy berarti satu
+  // tekanan Escape justru memunculkan lapisan, bukan menutupnya.
+  for (const m of isi.matchAll(/daftarkanEscape\(\(\) => (\w+)\(([^)]*)\)\)/g)) {
+    if (m[2].trim() === "true") cek("membuka", "menutup", `escape/${jalur}/${m[1]}(true)`)
+  }
+}
+
+// Berapa banyak pembungkus gelap di seluruh aplikasi, dan berapa yang terdaftar.
+// Angka ini yang menangkap lapisan BARU: menambah modal tanpa mendaftarkannya
+// membuat jumlahnya tidak lagi sepadan, dan pesannya menyebut angka yang
+// diharapkan sehingga jelas apa yang kurang.
+const semuaSumber = [
+  ...pemeriksaLapisan.map(([j]) => j),
+  "src/components/layout/app-shell.tsx",
+]
+let jumlahLapisan = 0
+for (const jalur of semuaSumber) {
+  const isi = bacaSumber(jalur)
+  // app-shell memakai z-40: itu lencana gelap drawer, bukan lapisan modal, dan
+  // penutupnya sudah memakai adaLapisanEscape() supaya tidak menutup di
+  // belakang modal.
+  const potongan = jalur.endsWith("app-shell.tsx") ? 0 : isi.split("bg-black/60").length - 1
+  jumlahLapisan += potongan
+}
+cek(String(jumlahLapisan), "27", "escape/jumlah-lapisan")
 
 if (gagal.length) {
   console.error("[✗] " + gagal.join("\n[✗] "))

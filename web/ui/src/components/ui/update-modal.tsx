@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Loader2, RefreshCw, X } from "lucide-react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { Button } from "@/components/ui/button"
 import { apiGet, apiSend } from "@/lib/api"
 import { pesanError } from "@/lib/pesan-error"
@@ -134,6 +135,9 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
 
   const selesaiGagal = !!st && !st.running && !!st.result && st.result !== "success"
 
+
+  // Escape menutup modal ini (lib/lapisan-escape.ts).
+  useEffect(() => daftarkanEscape(() => onClose()), [onClose])
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"

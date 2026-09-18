@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { Plus, Server, Trash2, X } from "lucide-react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiGet, apiSend } from "@/lib/api"
@@ -297,6 +298,9 @@ function ModalConfigKlien({ data, onClose }: { data: PeerBaru; onClose: () => vo
     else notify.err(tr("Browser menolak akses clipboard — salin manual dari kotak di atas."))
   }
 
+
+  // Escape menutup modal ini (lib/lapisan-escape.ts).
+  useEffect(() => daftarkanEscape(() => onClose()), [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
       <div className="flex max-h-[85dvh] w-full max-w-lg flex-col overflow-auto rounded-lg border border-border bg-surface p-4 shadow-xl">

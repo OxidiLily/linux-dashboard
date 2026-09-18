@@ -3,6 +3,7 @@ import { tr } from "@/stores/i18n"
 import { create } from "zustand"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle } from "lucide-react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 
 // Satu dialog konfirmasi untuk seluruh aplikasi, dipanggil sebagai promise:
 //   if (!(await confirmDialog({ title: "Hapus file?" }))) return
@@ -65,11 +66,17 @@ export function ConfirmHost() {
     if (!req) return
     confirmRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close(false)
       if (e.key === "Enter") close(true)
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
+  }, [req, close])
+
+  // Escape menutup dialog konfirmasi — lewat tumpukan lapisan bersama
+  // supaya hanya lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!req) return
+    return daftarkanEscape(() => close(false))
   }, [req, close])
 
   if (!req) return null

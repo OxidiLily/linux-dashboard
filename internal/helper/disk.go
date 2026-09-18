@@ -1,9 +1,9 @@
 package helper
 
 import (
-	"syscall"
 	"os"
 	"strings"
+	"syscall"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
 	"linux-dashboard/OxidiLily/internal/metrics"

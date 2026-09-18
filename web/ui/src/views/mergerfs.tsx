@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { HardDriveDownload, Trash2, Plus, RefreshCw, Pencil, Play, Unplug } from "lucide-react"
 
@@ -168,6 +169,13 @@ export function MergerfsView() {
     }
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!modal) return
+    return daftarkanEscape(() => setModal(false))
+  }, [modal])
   return (
     <>
     <Panel

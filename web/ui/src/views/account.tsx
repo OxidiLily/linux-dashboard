@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
@@ -248,6 +249,20 @@ export function AccountView() {
     }
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!showAddUser) return
+    return daftarkanEscape(() => setShowAddUser(false))
+  }, [showAddUser])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!editTarget) return
+    return daftarkanEscape(() => setEditTarget(null))
+  }, [editTarget])
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
