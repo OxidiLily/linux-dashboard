@@ -132,3 +132,31 @@ func TestModeUninstallValid(t *testing.T) {
 		t.Errorf("uninstallJalankan harus menolak mode tidak dikenal: got %v", err)
 	}
 }
+
+func TestRumahAgenDeduplikasi(t *testing.T) {
+	homes := rumahAgen()
+	if len(homes) == 0 {
+		t.Fatalf("rumahAgen() tidak boleh kosong")
+	}
+	adaRoot := false
+	seen := make(map[string]bool)
+	for _, h := range homes {
+		if h == "/root" {
+			adaRoot = true
+		}
+		if seen[h] {
+			t.Errorf("duplikat home terdeteksi di rumahAgen(): %s", h)
+		}
+		seen[h] = true
+	}
+	if !adaRoot {
+		t.Errorf("rumahAgen() wajib memuat /root")
+	}
+}
+
+func TestBersihkanHelperFungsi(t *testing.T) {
+	// Memastikan ketiga fungsi pembersihan aman dipanggil tanpa panic
+	bersihkanPipxLengkap()
+	bersihkanGoLengkap()
+	bersihkanConfigPanelPerUser()
+}

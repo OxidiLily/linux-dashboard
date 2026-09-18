@@ -472,7 +472,15 @@ var dirSistemAgen = map[string][]string{
 // plus /root (root tidak selalu muncul di daftar akun manusia, padahal ia yang
 // memakai instalasi system-wide).
 func rumahAgen() []string {
-	return append(rumahAkunManusia(), "/root")
+	seen := make(map[string]bool)
+	var out []string
+	for _, h := range append(rumahAkunManusia(), "/root") {
+		if h != "" && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // jejakAgenAdaDi mengembalikan jejak agent yang BENAR-BENAR ada di bawah
