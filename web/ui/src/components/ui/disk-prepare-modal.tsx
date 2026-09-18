@@ -1,5 +1,6 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AlertTriangle, HardDrive, X } from "lucide-react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -69,6 +70,10 @@ export function DiskPrepareModal({ disk, onClose }: { disk: UnusedDisk; onClose:
     }
   }
 
+
+  // Escape menutup modal ini — kecuali saat format/mount sedang berjalan,
+  // sama seperti tombol X yang mati selama itu (lib/lapisan-escape.ts).
+  useEffect(() => daftarkanEscape(() => { if (jalan) return false; onClose(false) }), [jalan, onClose])
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { apiGet, apiSend } from "@/lib/api"
 import { pesanError } from "@/lib/pesan-error"
 import { notify } from "@/components/ui/toast"
@@ -125,6 +126,9 @@ export function IfaceEditor({
   const label = "text-xs font-medium text-muted-foreground"
   const select = "mt-1 w-full rounded border border-border bg-background p-2 text-xs"
 
+
+  // Escape menutup editor ini (lib/lapisan-escape.ts).
+  useEffect(() => daftarkanEscape(() => onClose()), [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-surface p-4 shadow-xl">

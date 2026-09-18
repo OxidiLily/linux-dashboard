@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { useAuth } from "@/stores/auth"
 import { pesanError } from "@/lib/pesan-error"
 import { Share, Trash2, Plus, RefreshCw, Pencil, HardDriveDownload, Play, Unplug, Search } from "lucide-react"
@@ -311,6 +312,20 @@ export function NFSView() {
     }
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!modal) return
+    return daftarkanEscape(() => setModal(false))
+  }, [modal])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!modalMount) return
+    return daftarkanEscape(() => setModalMount(false))
+  }, [modalMount])
   return (
     <>
     <Panel

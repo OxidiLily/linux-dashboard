@@ -3,6 +3,7 @@ import { tr } from "@/stores/i18n"
 import { create } from "zustand"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 
 // Satu dialog isian untuk seluruh aplikasi, dipanggil sebagai promise:
 //   const nama = await promptDialog({ title: "Folder baru", label: "Nama folder" })
@@ -90,12 +91,10 @@ export function DialogIsian({
     // harus menghapusnya dulu.
     inputRef.current?.focus()
     inputRef.current?.select()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close(null)
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [close])
+  }, [])
+
+  // Escape lewat tumpukan lapisan bersama (lihat lib/lapisan-escape.ts).
+  useEffect(() => daftarkanEscape(() => close(null)), [close])
 
   const boleh = isiValid(nilai)
 

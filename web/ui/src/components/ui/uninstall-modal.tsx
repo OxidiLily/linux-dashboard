@@ -1,5 +1,6 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AlertTriangle, Trash2, X } from "lucide-react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { Button } from "@/components/ui/button"
 import { apiSend } from "@/lib/api"
 import { pesanError } from "@/lib/pesan-error"
@@ -123,6 +124,10 @@ export function UninstallModal({ username, onClose }: { username?: string; onClo
     }
   }
 
+
+  // Escape menutup modal ini — kecuali saat uninstaller sedang berjalan,
+  // sama seperti tombol X yang mati selama itu (lib/lapisan-escape.ts).
+  useEffect(() => daftarkanEscape(() => { if (jalan) return false; onClose() }), [jalan, onClose])
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"

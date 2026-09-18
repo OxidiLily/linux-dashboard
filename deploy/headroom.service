@@ -1,65 +1,26 @@
 [Unit]
 Description=Headroom proxy — lapisan kompresi konteks untuk Token Saver 9router
 Documentation=https://github.com/headroomlabs-ai/headroom
-# 9router adalah satu-satunya pemakainya: halaman Token Saver di gateway itulah
-# yang memanggil proxy ini. Keduanya enabled dan hidup bersama saat boot, dan
-# urutannya dijaga di sini supaya proxy tidak pernah mendahului gateway-nya.
-#
-# SENGAJA HANYA After=, TANPA Wants=9router.service. Wants= membuat setiap
-# start headroom ikut menyalakan 9router — termasuk saat headroom restart
-# sendiri di tengah pembaruan 9router, yang urutannya `systemctl stop 9router`
-# → `npm i -g 9router@latest` → `systemctl start` (lihat update9Router di
-# internal/helper/components.go). Start headroom pada jendela itu akan
-# menyalakan kembali 9router yang sedang ditimpa paketnya. Urutan saja sudah
-# cukup untuk boot, dan tidak bisa memicu hal seperti itu.
-After=network-online.target 9router.service
+# 9router memulai proxy-nya sendiri: systemd hanyalah lapisan ketahanan.
+# Unit dijalankan oleh 9router (lihat internal/helper/aitools.go:rebutHeadroomDari9router)
+# dan dihapus saat 9router berhenti, sehingga `systemctl restart headroom.service` tidak pernah dipanggil oleh panel.
+After=network-online.target
+Before=9router.service
 
 [Service]
 Type=simple
-# Port 8787 adalah nilai bawaan yang dicari 9router (HEADROOM_URL default
-# http://localhost:8787). Host dikunci ke 127.0.0.1: proxy ini hanya dipanggil
-# 9router di mesin yang sama, dan mengeksposnya ke LAN berarti membuka jalur
-# yang meneruskan permintaan ke penyedia model beserta kredensialnya.
 ExecStart=/opt/headroom/bin/headroom proxy --host 127.0.0.1 --port 8787
-# 9router menentukan proxy hidup/mati lewat ~/.9router/headroom/proxy.pid
-# (proses.kill terhadap pid itu), bukan lewat systemctl. Tanpa jembatan ini,
-# halaman Token Saver menelurkan proxy KEDUA di port 8787 yang gagal "address
-# already in use".
-#
-# Jembatan ini harus SATU baris dan bebas dari DUA hal berikut. Keduanya
-# pernah ada di rilis sebelumnya dan keduanya membuat proxy.pid berisi PID yang
-# bukan pid proxy:
-#
-#   1. Specifier systemd. "%s" di dalam ExecStartPost bukan placeholder printf:
-#      systemd menggantinya dengan shell milik manager ("/bin/bash"), dan "%d"
-#      akan diganti nilai kredensial. Buktinya ada di `systemctl show -p
-#      ExecStartPost --value headroom`: argv-nya memuat "/bin/bash" yang
-#      disuntikkan tepat ke dalam format string. Cetakan yang bebas persen:
-#      printf "%s\n" → printf "$MAINPID\n"
-#   2. Sakelar "-m" pada install. Tanpa "-m 0644" install menyalin mode berkas
-#      SUMBER-nya ke berkas tujuan — di sini proxy.pid bekas rilis lama yang
-#      bisa saja 0600 milik user lain. Proses tanpa hak istimewa lalu gagal
-#      membukanya dan proxy yang jelas hidup tetap terbaca "Stopped".
-#
-# Kutip tunggal di tengah baris bukan masalah: baris ini hanya memakai SATU
-# level kutip, dan shell yang menerimanya (/bin/sh alias dash) menerima seluruh
-# isi kutip itu sebagai satu skrip utuh. "$HOME" datang dari Environment= di
-# bawah — atau drop-in 10-user.conf yang menimpanya — jadi selalu sama dengan
-# HOME milik 9router.
+# 9router menentukan proxy hidup/mati lewat ~/.9router/headroom/proxy.pid (kill - TERM/KILL).
+# Unit ini HANYA menulis pid file untuk systemd: ExecStartPost membuat file,
+# ExecStop menghapusnya — 9router juga menghapus miliknya saat berhenti.
 ExecStartPost=/bin/sh -c 'install -d -m 0755 "$HOME/.9router/headroom" && printf "$MAINPID\n" > "$HOME/.9router/headroom/proxy.pid"'
-ExecStopPost=/bin/sh -c 'rm -f "$HOME/.9router/headroom/proxy.pid"'
+ExecStop=/bin/sh -c 'rm -f "$HOME/.9router/headroom/proxy.pid"'
 Restart=on-failure
 RestartSec=5
-# Proxy memuat kompresor (tree-sitter, dan ONNX/torch kalau extra [ml]
-# terpasang) saat start — di mesin lambat itu puluhan detik. Batas bawaan
-# systemd 90 detik terlalu ketat begitu [ml] ikut terpasang.
 TimeoutStartSec=300
 TimeoutStopSec=30
-# Panel MENIMPA kedua baris ini lewat drop-in 10-user.conf, dengan identitas
-# user panel yang sama dengan yang dipakai 9router — lihat pasangUnitHeadroom
-# di internal/helper/aitools.go. HOME wajib: headroom menyimpan cache CCR dan
-# statistiknya di $HOME, dan sebagai root itu mendarat di /root yang tidak
-# pernah dibaca siapa pun.
+# Jalankan sebagai user panel yang sama dengan 9router (via drop-in 10-user.conf).
+# drop-in ditulis di internal/helper/aitools.go:pastikanUserHeadroom.
 Environment=HOME=/root
 Environment=HEADROOM_TELEMETRY=off
 NoNewPrivileges=yes

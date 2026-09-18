@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
@@ -176,6 +177,13 @@ export function FirewallView() {
     }
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!showAdd) return
+    return daftarkanEscape(() => tutupForm())
+  }, [showAdd])
   return (
     <div className="space-y-4">
       <Panel

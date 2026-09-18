@@ -51,6 +51,7 @@ import { formatJam, setFormatPrefs } from "@/lib/format"
 import { tr, trf, useT } from "@/stores/i18n"
 import { usePrefs } from "@/stores/prefs"
 import { TimezonePicker } from "@/components/ui/timezone-picker"
+import { adaLapisanEscape } from "@/lib/lapisan-escape"
 import { cn } from "@/lib/utils"
 import type { ComponentType } from "react"
 
@@ -290,23 +291,30 @@ export function AppShell() {
 
   // Escape menutup drawer. Hanya di bawah lg: di desktop sidebar bukan lapisan
   // di atas konten, jadi Escape di sana malah membuang navigasi tanpa diminta.
+  //
+  // `adaLapisanEscape()` menjaga kasus modal terbuka di layar kecil: drawer
+  // yang tertutup di belakang modal membuat user kehilangan konteks navigasi
+  // tanpa pernah memintanya. Tumpukan lapisan-modal didaftarkan sesudah
+  // drawer-nya, jadi drawer memang harus mengalah.
   useEffect(() => {
     if (!open) return
     const tombol = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && window.innerWidth < 1024) setOpen(false)
+      if (e.key === "Escape" && !adaLapisanEscape() && window.innerWidth < 1024) setOpen(false)
     }
     document.addEventListener("keydown", tombol)
     return () => document.removeEventListener("keydown", tombol)
   }, [open])
 
   // Klik di luar & Escape menutup menu profil — sama seperti TimezonePicker.
+  // Sama juga alasannya menghormati ajaLapisanEscape(): menu ini z-40, jadi
+  // modal mana pun berada di atasnya.
   useEffect(() => {
     if (!profilBuka) return
     const klik = (e: MouseEvent) => {
       if (profilRef.current && !profilRef.current.contains(e.target as Node)) setProfilBuka(false)
     }
     const tombol = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setProfilBuka(false)
+      if (e.key === "Escape" && !adaLapisanEscape()) setProfilBuka(false)
     }
     document.addEventListener("mousedown", klik)
     document.addEventListener("keydown", tombol)

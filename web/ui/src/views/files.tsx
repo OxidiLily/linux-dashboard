@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState, useRef, useCallback } from "react"
+import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { useSearchParams } from "react-router-dom"
 import { apiGet, apiSend } from "@/lib/api"
@@ -904,6 +905,41 @@ export function FileManagerView() {
     setContextMenu(null)
   }
 
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!printTarget) return
+    return daftarkanEscape(() => setPrintTarget(null))
+  }, [printTarget])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!previewContent) return
+    return daftarkanEscape(() => setPreviewContent(null))
+  }, [previewContent])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!permTarget) return
+    return daftarkanEscape(() => setPermTarget(null))
+  }, [permTarget])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!editor) return
+    return daftarkanEscape(() => setEditor(null))
+  }, [editor])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
+    if (!renameTarget) return
+    return daftarkanEscape(() => setRenameTarget(null))
+  }, [renameTarget])
   return (
     <div className="space-y-4" onClick={() => setContextMenu(null)}>
       <Panel
