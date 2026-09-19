@@ -1747,13 +1747,14 @@ export function FileManagerView() {
                   <p className="mt-2 text-xs text-muted-foreground">
                     {tr("Format ini tidak bisa ditampilkan langsung di browser. Unduh untuk membukanya di aplikasi yang sesuai.")}
                   </p>
-                  <a
-                    className="mt-4 inline-flex items-center gap-2 rounded-md bg-signal px-4 py-2 text-sm font-medium text-signal-foreground hover:bg-signal/90"
-                    href={`/api/files/download?path=${encodeURIComponent(previewContent.path)}`}
-                    download
-                  >
-                    <Download className="size-4" /> {tr("Download")}
-                  </a>
+                  <Button asChild className="mt-4">
+                    <a
+                      href={`/api/files/download?path=${encodeURIComponent(previewContent.path)}`}
+                      download
+                    >
+                      <Download className="size-4" /> {tr("Download")}
+                    </a>
+                  </Button>
                 </div>
               ) : previewContent.media ? (
                 <div className="space-y-3">
