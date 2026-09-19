@@ -13,7 +13,7 @@ func TestKomponenWajibPunyaPurge(t *testing.T) {
 	komponenKritis := []string{
 		"docker", "9router", "headroom", "hermes", "claude-code", "codex",
 		"opencode", "openclaw", "rtk", "graphify", "ponytail", "browser-use",
-		"nodejs", "supabase", "arkon", "cloudflared", "technitium-dns",
+		"nodejs", "supabase", "arkon", "cloudflared", "technitium-dns", "samba",
 	}
 
 	for _, k := range komponenKritis {

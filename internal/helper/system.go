@@ -447,10 +447,11 @@ func ufwDelete(num, spec string) error {
 
 func ufwToggle(enable bool) error {
 	// Kebijakan masuk bawaan ufw adalah DROP, jadi menyalakan firewall memutus
-	// setiap layanan yang portnya belum diizinkan — termasuk SSH dan panel ini
-	// sendiri. Keduanya dipastikan SEBELUM firewall menyala, bukan sesudah.
+	// setiap layanan yang portnya belum diizinkan — termasuk SSH, panel ini
+	// sendiri, dan seluruh komponen yang terpasang. Seluruh port dipastikan
+	// SEBELUM firewall menyala, bukan sesudah.
 	if enable {
-		pastikanAksesAdmin()
+		daftarkanPortSemuaKomponen()
 	}
 	// "ufw enable" interaktif (konfirmasi "Command may disrupt existing ssh
 	// connections") -- pakai --force supaya tidak menggantung.

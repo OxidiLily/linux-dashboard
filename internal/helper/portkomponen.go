@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
@@ -111,7 +112,7 @@ func daftarkanPortKomponen(c *component) {
 	if _, ada := lookBinary("ufw"); !ada {
 		return
 	}
-	daftarkanPortLangsung(c.Name, c.ports, subnetLokal())
+	daftarkanPortLangsung(c.Name, c.ports, "")
 }
 
 // daftarkanPortLangsung menulis aturan allow untuk sekumpulan port. `dari`
@@ -140,9 +141,12 @@ func hapusPortKomponen(c *component) {
 	}
 	dari := subnetLokal()
 	for _, p := range c.ports {
-		if err := ufwHapusRule(aturanPort(p, dari)); err != nil {
+		if err := ufwHapusRule(aturanPort(p, "")); err != nil {
 			log.Printf("firewall: gagal mencabut izin %s/%s untuk %s: %v",
 				p.Port, p.Proto, c.Name, err)
+		}
+		if dari != "" {
+			_ = ufwHapusRule(aturanPort(p, dari))
 		}
 	}
 }
@@ -155,9 +159,6 @@ func daftarkanPortSemuaKomponen() {
 	if _, ada := lookBinary("ufw"); !ada {
 		return
 	}
-	// Subnet dihitung sekali di sini, bukan per komponen: menentukannya butuh
-	// dua panggilan `ip` dan jawabannya sama untuk semuanya.
-	dari := subnetLokal()
 	for _, c := range components {
 		if len(c.ports) == 0 {
 			continue
@@ -169,14 +170,11 @@ func daftarkanPortSemuaKomponen() {
 			terpasang = true
 		}
 		if terpasang {
-			daftarkanPortLangsung(c.Name, c.ports, dari)
+			daftarkanPortLangsung(c.Name, c.ports, "")
 		}
 	}
 	// SSH dan panel bukan komponen, tapi merekalah yang paling mahal kalau
-	// ikut tertutup. Sumbernya sengaja Anywhere, bukan subnet lokal seperti
-	// port komponen: membatasi keduanya ke LAN justru menciptakan penguncian
-	// yang mau dicegah di sini — admin yang masuk lewat WAN, VPN, atau
-	// Tailscale datang dari subnet yang lain.
+	// ikut tertutup. Sumbernya Anywhere, konsisten dengan akses admin.
 	daftarkanPortLangsung("akses admin", portAksesAdmin(), "")
 }
 
@@ -216,16 +214,31 @@ func portAksesAdmin() []portKomponen {
 	return out
 }
 
-// portSSH membaca setiap `Port N` di sshd_config. Kosong berarti sshd memakai
-// bawaannya, 22 — baris Port memang biasanya tidak ditulis sama sekali.
+// portSSH membaca setiap `Port N` di sshd_config dan sshd_config.d/*.conf. Kosong
+// berarti sshd memakai bawaannya, 22 — baris Port memang biasanya tidak ditulis sama sekali.
 func portSSH() []string {
 	var out []string
-	b, err := os.ReadFile("/etc/ssh/sshd_config")
-	if err == nil {
+	baca := func(path string) {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return
+		}
 		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "#") {
+				continue
+			}
 			f := strings.Fields(line)
-			if len(f) == 2 && strings.EqualFold(f[0], "Port") && portRe.MatchString(f[1]) {
+			if len(f) >= 2 && strings.EqualFold(f[0], "Port") && portRe.MatchString(f[1]) {
 				out = append(out, f[1])
+			}
+		}
+	}
+	baca("/etc/ssh/sshd_config")
+	if entries, err := os.ReadDir("/etc/ssh/sshd_config.d"); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".conf") {
+				baca(filepath.Join("/etc/ssh/sshd_config.d", e.Name()))
 			}
 		}
 	}

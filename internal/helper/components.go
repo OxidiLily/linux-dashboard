@@ -163,9 +163,8 @@ var components = map[string]*component{
 	// terpasang, dan user yang menekan Pasang harus masuk grup docker supaya
 	// halaman System → Docker bisa mengelola stack-nya.
 	//
-	// Hanya port gateway yang didaftarkan ke firewall. Postgres (5432) dan
-	// pooler (6543) juga terbuka di compose bawaan, tapi mengizinkannya ke
-	// seluruh LAN adalah keputusan admin — bukan efek samping menekan Pasang.
+	// Port gateway (8000), Postgres (5432), dan pooler (6543) didaftarkan
+	// otomatis ke firewall agar web studio dan koneksi database langsung siap dipakai.
 	"supabase": denganPort(&component{
 		Name: "supabase", Category: katData,
 		Description: "Backend self-hosted lengkap (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) di atas Docker Compose, dipasang lewat setup.sh resmi Supabase ke /opt/supabase.",
@@ -175,7 +174,9 @@ var components = map[string]*component{
 		purge:       purgeSupabase,
 		terpasang:   supabaseTerpasang,
 		version:     versiSupabase,
-	}, portKomponen{portGatewaySupabase, "tcp", "API gateway & Studio"}),
+	}, portKomponen{portGatewaySupabase, "tcp", "API gateway & Studio"},
+		portKomponen{"5432", "tcp", "Postgres"},
+		portKomponen{"6543", "tcp", "pooler Supavisor"}),
 	// Arkon sejenis Supabase dalam bentuk — stack docker compose di /opt — tapi
 	// masuk kategori AI, bukan Database & backend, karena yang dipakai panel
 	// darinya adalah endpoint MCP-nya: ia menjadi sumber pengetahuan untuk
@@ -199,20 +200,20 @@ var components = map[string]*component{
 		version:     versiArkon,
 	}, portKomponen{portAPIArkon, "tcp", "API & endpoint MCP"},
 		portKomponen{portWebArkon, "tcp", "portal admin"}),
-	"wireguard": {
+	"wireguard": denganPort(&component{
 		Name: "wireguard", Binary: "wg", Service: "wg-quick@wg0",
 		Category: katRuntime, Description: "VPN peer-to-peer, dikonfigurasi di Settings → Network.",
 		install:   func() error { return aptInstall("wireguard", "wireguard-tools") },
 		uninstall: func() error { return aptRemove("wireguard", "wireguard-tools") },
 		version:   func() string { return firstLine(tryRun("wg", "--version")) },
-	},
-	"tailscale": {
+	}, portKomponen{"51820", "udp", "WireGuard VPN"}),
+	"tailscale": denganPort(&component{
 		Name: "tailscale", Binary: "tailscale", Service: "tailscaled",
 		Category: katRuntime, Description: "Mesh VPN berbasis WireGuard, akses remote tanpa buka port.",
 		install:   installTailscale,
 		uninstall: uninstallTailscale,
 		version:   func() string { return firstLine(tryRun("tailscale", "version")) },
-	},
+	}, portKomponen{"41641", "udp", "Tailscale WireGuard peer"}),
 	"cloudflared": {
 		Name: "cloudflared", Binary: "cloudflared", Service: "cloudflared",
 		Category: katRuntime, Description: "Cloudflare Tunnel — ekspos service tanpa port forwarding.",
@@ -224,7 +225,7 @@ var components = map[string]*component{
 	},
 	"9router": {
 		Name: "9router", Binary: "9router", Service: "9router",
-		Category: katAI, Description: "Gateway API AI lokal (butuh Node.js).",
+		Category: katAI, Description: "Gateway API AI lokal + Headroom context compressor (butuh Node.js).",
 		// installUser, bukan install: 9router memindai CLI tool yang terpasang
 		// (Claude Code, Hermes, Codex, …) di dalam $HOME proses-nya sendiri,
 		// jadi ia harus berjalan dengan identitas user panel — lihat
@@ -317,8 +318,15 @@ var components = map[string]*component{
 	// 137:138/udp ikut didaftarkan meski `disable netbios = Yes` (bawaan Samba
 	// 4.22+) membuatnya tidak dipakai hari ini: aturannya menganggur tanpa
 	// biaya, dan sudah siap kalau nmbd dinyalakan untuk klien lama.
-	"samba": wajib(denganPort(aptComponent("samba", "smbd", "smbd", katBerbagi,
-		"Server file sharing SMB/CIFS. Halaman File manager → Samba butuh ini.", "samba"),
+	"samba": wajib(denganPort(&component{
+		Name: "samba", Binary: "smbd", Service: "smbd", Category: katBerbagi,
+		RequiredFor: "File manager → Samba",
+		Description: "Server file sharing SMB/CIFS. Halaman File manager → Samba butuh ini.",
+		install:     installSamba,
+		uninstall:   uninstallSamba,
+		purge:       purgeSamba,
+		version:     func() string { return firstLine(tryRun("smbd", "--version")) },
+	},
 		portKomponen{"445", "tcp", "SMB"},
 		portKomponen{"139", "tcp", "sesi NetBIOS"},
 		portKomponen{"137:138", "udp", "nama & datagram NetBIOS"}),
@@ -412,7 +420,7 @@ var components = map[string]*component{
 // ComponentNames menentukan urutan tampil di halaman Components.
 func ComponentNames() []string {
 	return []string{
-		"docker", "nodejs", "tailscale", "cloudflared", "wireguard", "9router", "headroom",
+		"docker", "nodejs", "tailscale", "cloudflared", "wireguard", "9router",
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
 		"rtk", "graphify", "ponytail", "browser-use", "arkon",
 		"supabase",
@@ -644,6 +652,10 @@ func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, er
 			// untuk menyusulkannya.
 			pastikanHeadroom(u)
 		}
+		// Komponen yang sudah ada tetap didaftarkan port-nya ke firewall: mesin
+		// yang memasang sebelum ufw ada atau di luar panel tetap punya rule
+		// tanpa harus uninstall lalu install ulang.
+		daftarkanPortKomponen(c)
 		return componentStatus(name), nil
 	}
 	if err := jalankanInstall(c, u); err != nil {
@@ -839,6 +851,7 @@ func componentService(name, action string, u *userInfo) error {
 	// enable juga; untuk stop biarkan apa adanya, karena disable bisa
 	// membatalkan pilihan admin yang sengaja mematikan unit.
 	if action == "start" {
+		daftarkanPortKomponen(c)
 		if _, err := run("systemctl", "enable", c.Service); err != nil {
 			log.Printf("peringatan: enable %s gagal: %v", c.Service, err)
 		}
@@ -852,9 +865,8 @@ func componentService(name, action string, u *userInfo) error {
 		if name == "9router" {
 			lama, err := os.ReadFile(unitDst9Router)
 			// Unit lama yang mengunci seluruh filesystem tanpa StateDirectory
-			// ikut diganti di sini: kalau tidak, tombol Jalankan menyalakan
-			// service yang pasti mati lagi beberapa detik kemudian.
-			if err != nil || unit9RouterRusak(string(lama)) {
+			// atau belum terhubung dengan headroom ikut diganti di sini.
+			if err != nil || unit9RouterPerluGanti(string(lama)) {
 				if src, e := bacaUnit9Router(); e == nil && len(src) > 0 {
 					_ = os.WriteFile(unitDst9Router, src, 0o644)
 					_, _ = run("systemctl", "daemon-reload")
@@ -864,6 +876,14 @@ func componentService(name, action string, u *userInfo) error {
 			// membaca INITIAL_PASSWORD hanya saat proses hidup.
 			pastikanPassword9Router()
 			pastikanUser9Router(u)
+			ganti, err := pastikanUnitHeadroom(u)
+			if err == nil {
+				rebutHeadroomDari9router(u)
+				if ganti {
+					_, _ = run("systemctl", "restart", "headroom.service")
+				}
+			}
+			_, _ = run("systemctl", "enable", "--now", "headroom.service")
 		}
 		// wg-quick@<iface> butuh /etc/wireguard/<iface>.conf. Tanpa config,
 		// systemctl start selalu gagal dengan pesan systemd yang menyesatkan
@@ -906,6 +926,21 @@ func componentService(name, action string, u *userInfo) error {
 					"qemu-guest-agent tidak bisa dijalankan. Agent ini hanya "+
 					"berguna di VM Proxmox/QEMU", portVirtioQEMU)
 		}
+	}
+	if name == "9router" && action == "stop" {
+		_, err := run("systemctl", "stop", "9router.service", "headroom.service")
+		return err
+	}
+	if name == "9router" && action == "restart" {
+		ganti, err := pastikanUnitHeadroom(u)
+		if err == nil {
+			rebutHeadroomDari9router(u)
+			if ganti {
+				_, _ = run("systemctl", "restart", "headroom.service")
+			}
+		}
+		_, err = run("systemctl", "restart", "headroom.service", "9router.service")
+		return err
 	}
 	return serviceAction(helperproto.ServiceArgs{Name: c.Service, Action: action})
 }
@@ -1099,6 +1134,12 @@ func ringkasBarisAPT(pesan string) string {
 
 func aptRemove(pkgs ...string) error {
 	args := append([]string{"remove", "-y"}, pkgs...)
+	_, err := run("apt-get", args...)
+	return err
+}
+
+func aptPurge(pkgs ...string) error {
+	args := append([]string{"purge", "-y", "--auto-remove"}, pkgs...)
 	_, err := run("apt-get", args...)
 	return err
 }
@@ -1653,23 +1694,23 @@ func update9Router(u *userInfo) error {
 	return pasangUnit9Router(u)
 }
 
+func unit9RouterPerluGanti(isi string) bool {
+	return unit9RouterRusak(isi) || !strings.Contains(isi, "headroom.service")
+}
+
 // pasangUnit9Router memasang unit systemd 9router kalau belum ada (atau
 // rusak), lalu menjalankan service-nya.
 func pasangUnit9Router(u *userInfo) error {
 	// Pasang unit systemd hanya jika belum ada — admin yang sudah menulis
 	// ExecStart/env khusus tidak boleh ditimpa diam-diam tiap install ulang.
 	if lama, err := os.ReadFile(unitDst9Router); err == nil {
-		// Kecuali satu bentuk: unit tulisan panel versi lama yang memakai
-		// ProtectSystem=strict tanpa StateDirectory. Kombinasi itu membuat
-		// 9router tidak punya lokasi yang bisa ditulis sama sekali, jadi
-		// service-nya mati berulang — membiarkannya "demi menghormati
-		// kustomisasi admin" berarti membiarkan komponen yang pasti rusak.
-		if !unit9RouterRusak(string(lama)) {
+		// Unit lama yang rusak atau belum mengintegrasikan headroom diganti.
+		if !unit9RouterPerluGanti(string(lama)) {
 			pastikanPassword9Router()
 			pastikanUser9Router(u)
 			return nil
 		}
-		log.Printf("9router: unit lama yang tidak bisa start diganti dengan versi yang benar")
+		log.Printf("9router: unit lama diperbarui dengan integrasi headroom")
 	}
 	// Kegagalan di sini dilaporkan, tidak ditelan: sejak update9Router
 	// menghapus unit lama lebih dulu, jawaban "berhasil" tanpa unit berarti
@@ -1719,11 +1760,13 @@ func pasangUnit9Router(u *userInfo) error {
 func uninstall9Router() error {
 	// Hentikan lebih dulu: service yang masih hidup sementara binary-nya
 	// dihapus akan gagal berulang dan tercatat sebagai failed di systemd.
-	_, _ = run("systemctl", "disable", "--now", "9router.service")
+	_, _ = run("systemctl", "disable", "--now", "9router.service", "headroom.service")
 
 	// HOME service dibaca SEBELUM drop-in-nya dihapus, lalu diingat untuk
 	// purge9Router.
 	ingatHome9Router()
+
+	_ = uninstallHeadroom()
 
 	if _, err := run("npm", "uninstall", "-g", "9router"); err != nil {
 		log.Printf("9router: npm uninstall gagal (dilewati): %v", err)
@@ -1770,6 +1813,7 @@ func ingatHome9Router() {
 // membuat pemasangan ulang menemukan provider dan sesi login lama — persis
 // kebalikan dari apa yang diminta user saat mencentang "hapus data juga".
 func purge9Router() error {
+	_ = purgeHeadroom()
 	lokasi := []string{homeRoot9Router, "/var/lib/9router"}
 	lokasi = append(lokasi, rumahAkunManusia()...)
 	// Dibaca sebelum drop-in dihapus (lihat ingatHome9Router) dan dari

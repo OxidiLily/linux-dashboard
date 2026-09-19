@@ -408,7 +408,7 @@ const jembatanPidHeadroom = `/bin/sh -c 'install -d -m 0755 "$HOME/.9router/head
 // diubah admin (port/host lain) tidak disentuh.
 func unitHeadroomPerluGanti(isi string) bool {
 	return strings.Contains(isi, "ExecStart=/opt/headroom/bin/headroom proxy --host 127.0.0.1 --port 8787") &&
-		!jembatanPidHeadroomUtuh(isi)
+		(!jembatanPidHeadroomUtuh(isi) || !strings.Contains(isi, "PartOf=9router.service") || !strings.Contains(isi, "BindsTo=9router.service"))
 }
 
 // jembatanPidHeadroomUtuh menjawab apakah unit sudah memakai jembatan pid file

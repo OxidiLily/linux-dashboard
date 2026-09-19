@@ -92,6 +92,7 @@ func NewServer(socketPath, secretPath, socketGroup string) (*Server, error) {
 		seenNonce:  map[string]time.Time{},
 	}
 	go s.gcNonces()
+	go daftarkanPortSemuaKomponen()
 	return s, nil
 }
 

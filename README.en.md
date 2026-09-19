@@ -460,14 +460,18 @@ while ufw is inactive:
 | samba | 445/tcp · 139/tcp · 137:138/udp |
 | nfs-server | 2049/tcp · 111/tcp · 111/udp |
 | avahi | 5353/udp |
+| technitium-dns | 53/tcp · 53/udp · 5380/tcp |
 | print-server | 631/tcp |
 | 9router | 20128/tcp |
+| supabase | 8000/tcp · 5432/tcp · 6543/tcp |
+| arkon | 5055/tcp · 3119/tcp |
+| wireguard | 51820/udp |
+| tailscale | 41641/udp |
 
-The source is limited to the local subnet detected from the default route; the
-SSH port and the panel port are deliberately left `Anywhere`, because an admin
-may come in from another subnet. Installing `ufw` later does not leave existing
-components behind — at that point every installed component's ports are
-registered after the fact. Removing a component withdraws its allowance again.
+Component ports, SSH, and the panel port are registered to the firewall (`Anywhere`)
+upon installation, so users never have to add firewall rules manually. Installing `ufw`
+later does not leave existing components behind — at that point every installed
+component's ports are registered after the fact. Removing a component withdraws its allowance again.
 
 fail2ban ships no filter for a single component in the catalog, so the `sshd`
 jail is enabled automatically when fail2ban is installed, and the Samba filter is
