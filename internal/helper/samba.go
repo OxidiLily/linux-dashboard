@@ -659,3 +659,74 @@ func pastikanGlobalAuditSamba() error {
 	_, err = run("systemctl", "restart", "smbd")
 	return err
 }
+
+// bersihkanSambaKonfigurasi membersihkan seluruh jejak konfigurasi, share,
+// audit, dan kredensial Samba yang pernah dikelola oleh panel.
+func bersihkanSambaKonfigurasi() {
+	_, _ = run("systemctl", "disable", "--now", "smbd.service", "nmbd.service")
+	_ = os.Remove(sambaIncludePath)
+	if _, err := os.Stat(sambaBackupConf); err == nil {
+		if b, err := os.ReadFile(sambaBackupConf); err == nil {
+			_ = os.WriteFile(sambaMainConf, b, 0o644)
+		}
+		_ = os.Remove(sambaBackupConf)
+	} else if b, err := os.ReadFile(sambaMainConf); err == nil {
+		isi := string(b)
+		baris := strings.Split(isi, "\n")
+		var hasil []string
+		skipBlok := false
+		for _, l := range baris {
+			if strings.Contains(l, sambaTandaGlobal) {
+				skipBlok = true
+				continue
+			}
+			if skipBlok {
+				if strings.HasPrefix(strings.TrimSpace(l), "[") {
+					skipBlok = false
+				} else {
+					continue
+				}
+			}
+			if strings.Contains(l, sambaIncludePath) || strings.Contains(l, "ditambahkan oleh linux-dashboard") {
+				continue
+			}
+			hasil = append(hasil, l)
+		}
+		_ = os.WriteFile(sambaMainConf, []byte(strings.Join(hasil, "\n")), 0o644)
+	}
+	if res, err := run("pdbedit", "-L"); err == nil {
+		for _, line := range strings.Split(res.Stdout, "\n") {
+			name, _, ok := strings.Cut(strings.TrimSpace(line), ":")
+			if ok && name != "" && name != "root" {
+				_, _ = run("pdbedit", "-x", "-u", name)
+			}
+		}
+	}
+	_ = os.Remove("/var/lib/samba/private/passdb.tdb")
+	_ = os.Remove("/var/lib/samba/private/secrets.tdb")
+	_ = os.Remove("/var/lib/samba/passdb.tdb")
+	_ = os.Remove(f2bJailSamba)
+	_ = os.Remove(f2bFilterSamba)
+	_, _ = run("fail2ban-client", "reload")
+}
+
+func installSamba() error {
+	if err := aptInstall("samba"); err != nil {
+		return err
+	}
+	_ = ensureSambaInclude()
+	_ = pastikanGlobalAuditSamba()
+	_, _ = run("systemctl", "enable", "--now", "smbd.service")
+	return nil
+}
+
+func uninstallSamba() error {
+	_, _ = run("systemctl", "disable", "--now", "smbd.service", "nmbd.service")
+	return aptRemove("samba", "smbd", "nmbd")
+}
+
+func purgeSamba() error {
+	bersihkanSambaKonfigurasi()
+	return aptPurge("samba", "smbd", "nmbd", "samba-common", "samba-common-bin")
+}
+

@@ -4,8 +4,8 @@ Documentation=https://9router.com/
 # Node.js di-install oleh installer panel dari NodeSource; di WSL/lxc
 # tanpa systemd init yang utuh unit ini tetap bisa dijalankan manual
 # lewat `9router --no-browser --skip-update`.
-After=network-online.target
-Wants=network-online.target
+After=network-online.target headroom.service
+Wants=network-online.target headroom.service
 
 [Service]
 Type=simple

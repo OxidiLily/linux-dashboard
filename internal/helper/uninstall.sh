@@ -37,10 +37,16 @@ log "Mode: ${MODE}"
 # ---- 1. Hentikan service -------------------------------------------------
 # Dijalankan sebagai unit transient di luar cgroup panel (lihat uninstall.go),
 # jadi menghentikan service sendiri di sini aman — skrip ini tidak ikut mati.
-for unit in linux-dashboard-web linux-dashboard-helper; do
-  systemctl disable --now "${unit}.service" >/dev/null 2>&1
+for unit in linux-dashboard-web linux-dashboard-helper smbd nmbd 9router headroom; do
+  systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
 done
-ok "Service dihentikan & di-disable"
+if compgen -G "/etc/wireguard/*.conf" >/dev/null; then
+  for iface in /etc/wireguard/*.conf; do
+    bn=$(basename "$iface" .conf)
+    systemctl disable --now "wg-quick@${bn}.service" >/dev/null 2>&1 || true
+  done
+fi
+ok "Service panel dan layanan terkait dihentikan & di-disable"
 
 rm -f /etc/systemd/system/linux-dashboard-web.service \
       /etc/systemd/system/linux-dashboard-helper.service
@@ -105,7 +111,7 @@ if [[ "$MODE" == "total" || "$MODE" == "total-data" ]]; then
     docker network prune -f >/dev/null 2>&1 || true
     docker system prune -a --volumes -f >/dev/null 2>&1 || true
   fi
-  for unit in docker docker.socket containerd 9router headroom; do
+  for unit in docker docker.socket containerd 9router headroom smbd nmbd; do
     systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
   done
   rm -rf /var/lib/docker /var/lib/containerd /etc/docker /var/run/docker.sock /var/run/docker
@@ -116,9 +122,10 @@ if [[ "$MODE" == "total" || "$MODE" == "total-data" ]]; then
   rm -rf /etc/systemd/system/9router.service.d /etc/systemd/system/headroom.service.d
   systemctl daemon-reload >/dev/null 2>&1 || true
 
-  # Hapus paket build/runtime yang dipasang installer jika ada
+  # Hapus paket build/runtime/komponen yang dipasang installer/panel jika ada
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
+    apt-get purge -y --auto-remove samba smbd nmbd samba-common samba-common-bin >/dev/null 2>&1 || true
     apt-get remove -y -qq golang-go nodejs npm >/dev/null 2>&1 || true
     apt-get autoremove -y -qq >/dev/null 2>&1 || true
   fi
@@ -193,6 +200,43 @@ if [[ "$MODE" != "panel" ]]; then
     rm -rf "${home%/}/.config/linux-dashboard"
   done < <(getent passwd)
   rm -rf /root/.config/linux-dashboard
+
+  # Bersihkan konfigurasi Samba panel
+  rm -f /etc/samba/lindash-shares.conf
+  if [[ -f /etc/samba/smb.conf.lindash.bak ]]; then
+    cp /etc/samba/smb.conf.lindash.bak /etc/samba/smb.conf 2>/dev/null || true
+    rm -f /etc/samba/smb.conf.lindash.bak
+  elif [[ -f /etc/samba/smb.conf ]]; then
+    sed -i '/# ditambahkan oleh linux-dashboard/d' /etc/samba/smb.conf 2>/dev/null || true
+    sed -i '/include = \/etc\/samba\/lindash-shares.conf/d' /etc/samba/smb.conf 2>/dev/null || true
+    sed -i '/# ---- linux-dashboard: audit autentikasi/,+10d' /etc/samba/smb.conf 2>/dev/null || true
+  fi
+  rm -f /var/lib/samba/private/passdb.tdb /var/lib/samba/private/secrets.tdb /var/lib/samba/passdb.tdb
+
+  # Bersihkan konfigurasi fail2ban panel
+  rm -f /etc/fail2ban/jail.d/lindash-*.conf /etc/fail2ban/filter.d/lindash-*.conf
+  if command -v fail2ban-client >/dev/null 2>&1; then
+    fail2ban-client reload >/dev/null 2>&1 || true
+  fi
+
+  # Bersihkan konfigurasi WireGuard panel
+  rm -f /etc/wireguard/wg0.conf
+
+  # Bersihkan konfigurasi NFS panel
+  rm -f /etc/exports.d/lindash.exports
+  if [[ -f /etc/exports ]]; then
+    sed -i '/# lindash-nfs/d' /etc/exports 2>/dev/null || true
+  fi
+  if command -v exportfs >/dev/null 2>&1; then
+    exportfs -ra 2>/dev/null || true
+  fi
+
+  # Bersihkan mount point NFS dan mergerfs panel di /etc/fstab
+  if [[ -f /etc/fstab ]]; then
+    sed -i '/# lindash-nfsmount/d' /etc/fstab 2>/dev/null || true
+    sed -i '/# lindash-mergerfs/d' /etc/fstab 2>/dev/null || true
+  fi
+
   ok "Data & config panel dihapus"
 
   # Akun service dihapus belakangan: selama /var/lib masih ada, folder itu
@@ -258,5 +302,5 @@ if [[ "$MODE" == "total-data" ]]; then
 else
   echo "[i] Folder data akun (~/DATA/*) TIDAK dihapus — isinya milik pemilik akun."
 fi
-echo "[i] Konfigurasi layanan di luar panel (Samba, NFS, WireGuard, firewall) tetap apa adanya."
+ok "Layanan dan konfigurasi yang dikelola panel (Samba, NFS, WireGuard, 9router, Headroom) telah dibersihkan."
 ok "Uninstall selesai (mode ${MODE})."

@@ -5,6 +5,8 @@ Documentation=https://github.com/headroomlabs-ai/headroom
 # Unit dijalankan oleh 9router (lihat internal/helper/aitools.go:rebutHeadroomDari9router)
 # dan dihapus saat 9router berhenti, sehingga `systemctl restart headroom.service` tidak pernah dipanggil oleh panel.
 After=network-online.target
+PartOf=9router.service
+BindsTo=9router.service
 Before=9router.service
 
 [Service]
@@ -14,7 +16,7 @@ ExecStart=/opt/headroom/bin/headroom proxy --host 127.0.0.1 --port 8787
 # Unit ini HANYA menulis pid file untuk systemd: ExecStartPost membuat file,
 # ExecStop menghapusnya — 9router juga menghapus miliknya saat berhenti.
 ExecStartPost=/bin/sh -c 'install -d -m 0755 "$HOME/.9router/headroom" && printf "$MAINPID\n" > "$HOME/.9router/headroom/proxy.pid"'
-ExecStop=/bin/sh -c 'rm -f "$HOME/.9router/headroom/proxy.pid"'
+ExecStopPost=/bin/sh -c 'rm -f "$HOME/.9router/headroom/proxy.pid"'
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=300

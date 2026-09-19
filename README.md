@@ -548,14 +548,18 @@ sedang nonaktif:
 | samba | 445/tcp · 139/tcp · 137:138/udp |
 | nfs-server | 2049/tcp · 111/tcp · 111/udp |
 | avahi | 5353/udp |
+| technitium-dns | 53/tcp · 53/udp · 5380/tcp |
 | print-server | 631/tcp |
 | 9router | 20128/tcp |
+| supabase | 8000/tcp · 5432/tcp · 6543/tcp |
+| arkon | 5055/tcp · 3119/tcp |
+| wireguard | 51820/udp |
+| tailscale | 41641/udp |
 
-Sumbernya dibatasi ke subnet lokal yang dideteksi dari default route; port SSH
-dan port panel sengaja dibiarkan `Anywhere`, karena admin bisa masuk dari subnet
-lain. Memasang `ufw` belakangan tidak membuat komponen yang sudah ada tertinggal
-— saat itu seluruh port komponen yang terpasang didaftarkan menyusul. Mencopot
-komponen mencabut izinnya lagi.
+Port komponen, SSH, dan panel didaftarkan ke firewall (`Anywhere`) saat dipasang,
+sehingga pengguna tidak perlu memasukkan port manual. Memasang `ufw` belakangan
+tidak membuat komponen yang sudah ada tertinggal — saat itu seluruh port komponen
+yang terpasang didaftarkan menyusul. Mencopot komponen mencabut izinnya lagi.
 
 fail2ban tidak menyediakan filter untuk satu pun komponen di katalog, jadi jail
 `sshd` dinyalakan otomatis saat fail2ban dipasang, dan filter Samba dipasang

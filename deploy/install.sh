@@ -353,6 +353,39 @@ for unit in linux-dashboard-helper linux-dashboard-web; do
   systemctl is-active --quiet "$unit" || die "${unit}.service gagal start — cek: journalctl -u ${unit} -n 50"
 done
 
+# ---- 3a. Pendaftaran firewall (ufw) untuk akses SSH dan panel -----------
+# Port SSH dan port panel otomatis diizinkan agar user tidak terkunci dari
+# mesinnya sendiri saat firewall menyala, dan tidak perlu memasukkan port manual.
+if command -v ufw >/dev/null 2>&1; then
+  log "Mendaftarkan port SSH dan panel ke ufw…"
+  ssh_ports=()
+  if [[ -r /etc/ssh/sshd_config ]]; then
+    while read -r p; do
+      [[ -n "$p" ]] && ssh_ports+=("$p")
+    done < <(awk 'tolower($1)=="port" && $2 ~ /^[0-9]+$/ {print $2}' /etc/ssh/sshd_config 2>/dev/null)
+  fi
+  for conf in /etc/ssh/sshd_config.d/*.conf; do
+    if [[ -r "$conf" ]]; then
+      while read -r p; do
+        [[ -n "$p" ]] && ssh_ports+=("$p")
+      done < <(awk 'tolower($1)=="port" && $2 ~ /^[0-9]+$/ {print $2}' "$conf" 2>/dev/null)
+    fi
+  done
+  if (( ${#ssh_ports[@]} == 0 )); then
+    ssh_ports=(22)
+  fi
+  for sp in "${ssh_ports[@]}"; do
+    ufw allow "${sp}/tcp" comment 'SSH' >/dev/null 2>&1 || ufw allow "${sp}/tcp" >/dev/null 2>&1 || true
+  done
+  panel_port=$(grep -E '^[[:space:]]*DASHBOARD_LISTEN=' /etc/default/linux-dashboard 2>/dev/null | cut -d= -f2- | tr -d '"'\'' ' | awk -F: '{print $NF}')
+  if [[ -n "$panel_port" && "$panel_port" =~ ^[0-9]+$ ]]; then
+    ufw allow "${panel_port}/tcp" comment 'panel linux-dashboard' >/dev/null 2>&1 || ufw allow "${panel_port}/tcp" >/dev/null 2>&1 || true
+  else
+    ufw allow 1122/tcp comment 'panel linux-dashboard' >/dev/null 2>&1 || ufw allow 1122/tcp >/dev/null 2>&1 || true
+  fi
+  ok "Port SSH (${ssh_ports[*]}/tcp) dan panel otomatis diizinkan di ufw"
+fi
+
 # ---- 4. Laporan komponen opsional -----------------------------------------
 # Software fitur TIDAK dipasang installer: user memilih sendiri lewat halaman
 # Components. Yang dilaporkan di sini cuma apa yang sudah ada, supaya jelas
