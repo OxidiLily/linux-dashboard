@@ -642,27 +642,6 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return nil, uninstallJalankan(u, args)
 
-	case helperproto.CmdWGServerInfo:
-		return jsonOf(wgServerInfo(), nil)
-	case helperproto.CmdWGServerInit:
-		args, err := decodeArgs[helperproto.WGServerArgs](req)
-		if err != nil {
-			return nil, err
-		}
-		return jsonOf(wgServerInit(args))
-	case helperproto.CmdWGPeerAdd:
-		args, err := decodeArgs[helperproto.WGPeerArgs](req)
-		if err != nil {
-			return nil, err
-		}
-		return jsonOf(wgPeerTambah(args))
-	case helperproto.CmdWGPeerDelete:
-		args, err := decodeArgs[helperproto.WGPeerArgs](req)
-		if err != nil {
-			return nil, err
-		}
-		return jsonOf(wgPeerHapus(args))
-
 	case helperproto.CmdUpdateStatus:
 		args, err := decodeArgs[helperproto.UpdateArgs](req)
 		if err != nil {

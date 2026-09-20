@@ -30,4 +30,5 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/api/carifile_api_test.go
 !internal/helper/uninstall_purge_test.go
 !internal/helper/portkomponen_test.go
+!internal/helper/stalwart_test.go
 web/dist.bak/

@@ -32,7 +32,7 @@ func TestKomponenPortsValid(t *testing.T) {
 		"9router":        {"20128"},
 		"supabase":       {"8000", "5432", "6543"},
 		"arkon":          {"5055", "3119"},
-		"wireguard":      {"51820"},
+		"stalwart":       {"8080", "443", "25", "465", "993", "995", "4190"},
 		"tailscale":      {"41641"},
 	}
 

@@ -39,10 +39,10 @@ untuk menu Docker, Firewall, Fail2ban, Samba, Disk Pool, NFS, dan Components).
 | Grup | Menu |
 |---|---|
 | Home | Dashboard (CPU, RAM, Storage, GPU, Network real-time; disk kosong bisa diformat & di-mount dari sini, mount yang ada bisa dilepas) |
-| File manager | File Manager (editor teks, buat file, cetak berkas, **pencarian nama di folder terbuka maupun sampai ke subfolder**) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
+| File manager | File Manager (editor teks, buat file, cetak berkas, **unggah dengan bar kemajuan**, **pencarian nama di folder terbuka maupun sampai ke subfolder**) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (sesi CLI agent di dalam panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (semua alert panel) · File Operations · Activity Logs |
-| Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
+| Settings | Network (DNS + Tailscale/Cloudflare Tunnel) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
 | System | Processes · Docker (aksi per container, log, editor compose & `.env`, image/volume/network, pemakaian disk) · Cronjob · Terminal |
 
 **Akun** tidak ada di sidebar: pintu masuknya adalah blok profil di kaki
@@ -115,7 +115,7 @@ Berlaku untuk seluruh panel, bukan satu halaman saja:
 - **Aksi panjang punya toast yang ikut berpindah halaman.** Setiap aksi yang
   dikerjakan helper daemon — pasang/copot komponen, driver printer, ufw,
   fail2ban, Samba, NFS, mergerfs, VPN, salin/pindah/hapus berkas, format disk,
-  WireGuard, user Linux, Docker — memakai satu toast yang berputar sejak tombol
+  user Linux, Docker — memakai satu toast yang berputar sejak tombol
   ditekan lalu berubah sendiri jadi berhasil atau gagal. `<Toaster />` dipasang
   di app-shell (di luar rute), jadi toast itu ikut berpindah halaman bersama
   user. Sebelumnya toast baru muncul di akhir, sehingga aksi yang selesai saat
@@ -144,15 +144,16 @@ tersimpan per akun di server, bukan di browser.
 
 ## Components
 
-32 software opsional yang tidak ikut di instalasi dasar Ubuntu/Debian, bisa
+35 software opsional yang tidak ikut di instalasi dasar Ubuntu/Debian, bisa
 dipasang/dicopot dari panel:
 
 | Kategori | Isi |
 |---|---|
-| Runtime & tunnel | docker · nodejs · tailscale · cloudflared · wireguard |
+| Runtime & tunnel | docker · nodejs · tailscale · cloudflared |
 | AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail · browser-use |
 | Database & backend | supabase |
-| Berbagi file & jaringan | samba · nfs-server · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
+| Berbagi file & jaringan | samba · nfs-server · nfs-client · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
+| Email & kolaborasi | stalwart |
 | Keamanan | ufw · fail2ban |
 | Monitoring & disk | lm-sensors · smartmontools · nvme-cli · qemu-guest-agent |
 | Utilitas | htop · ncdu · fastfetch · restic |
@@ -317,6 +318,36 @@ foldernya ke `/opt/supabase/bekas-<tanggal>-<jam>` — kartunya kembali ke
 "belum terpasang", pemasangan berikutnya tidak ditolak setup.sh, dan datanya
 masih ada kalau ternyata masih dibutuhkan. Centang "hapus data juga" yang
 membuang `/opt/supabase` seluruhnya, termasuk folder `bekas-*`.
+
+### Stalwart (server email)
+
+Komponen `stalwart` memasang Stalwart — server email all-in-one (SMTP, IMAP,
+POP3, JMAP, CalDAV/CardDAV, WebDAV) — lewat skrip resmi vendor
+`get.stalw.art/install.sh`, karena tidak ada paket .deb-nya. Skrip itu yang
+menaruh binernya di `/usr/local/bin/stalwart`, membuat akun service
+`stalwart`, menulis unit `stalwart.service`, lalu menyalakannya dalam **mode
+bootstrap** dengan WebUI di `http://<ip-mesin>:8080/admin`.
+
+Password bootstrap itu dicetak sekali ke log lalu hilang, jadi panel memaku
+kredensialnya sendiri lewat `STALWART_RECOVERY_ADMIN` di
+`/etc/stalwart/stalwart.env` dan menampilkannya di kartu komponen — sama
+seperti password awal 9router. Begitu wizard selesai (Stalwart menulis
+`config.json`), kredensial bootstrap tidak berlaku lagi, dan **panel menutup
+jalur itu sendiri** dengan mengomentari baris `STALWART_RECOVERY_ADMIN`:
+dokumentasi Stalwart memperingatkan variabel itu tetap berlaku saat server
+berjalan normal, jadi membiarkannya sama dengan meninggalkan pintu belakang
+dengan password yang pernah tampil di layar. Panel hanya menyentuh berkas env
+yang benar-benar memuat password buatannya sendiri.
+
+Semua port bawaan Stalwart didaftarkan ke firewall saat komponennya dipasang:
+`8080` (WebUI & wizard), `443` (WebUI/JMAP setelah setup), `25` (SMTP), `465`
+(submissions TLS), `993` (IMAPS), `995` (POP3S), dan `4190` (ManageSieve) —
+daftarnya diambil dari registry bawaan Stalwart sendiri, bukan tebakan.
+
+Uninstall mencopot service, unit, dan binernya; `data`/`config` hanya hilang
+lewat "hapus data juga", yang sekaligus menghapus akun sistem `stalwart` —
+dengan pagar UID < 1000 dan shell nologin, supaya akun manusia bernama sama
+tidak pernah ikut terhapus.
 
 ### Alat & skill wajib AI Agent
 
@@ -553,7 +584,7 @@ sedang nonaktif:
 | 9router | 20128/tcp |
 | supabase | 8000/tcp · 5432/tcp · 6543/tcp |
 | arkon | 5055/tcp · 3119/tcp |
-| wireguard | 51820/udp |
+| stalwart | 8080/tcp · 443/tcp · 25/tcp · 465/tcp · 993/tcp · 995/tcp · 4190/tcp |
 | tailscale | 41641/udp |
 
 Port komponen, SSH, dan panel didaftarkan ke firewall (`Anywhere`) saat dipasang,
@@ -744,7 +775,8 @@ halaman yang membutuhkannya menampilkan "Belum Terpasang" sampai dipasang:
 | ufw | `ufw` | Settings → Firewall |
 | fail2ban | `fail2ban-client` | Settings → Fail2ban |
 | docker-ce + docker-compose-plugin (repo resmi Docker) | `docker` | System → Docker |
-| wireguard, tailscale, cloudflared | `wg`/`wg-quick`, `tailscale`, `cloudflared` | Settings → Network |
+| tailscale, cloudflared | `tailscale`, `cloudflared` | Settings → Network |
+| stalwart | `stalwart` (skrip resmi get.stalw.art) | Components → Stalwart |
 | nodejs | `node`, `npm` | Components → 9Router |
 
 **Library Go**: `go-chi/chi/v5`, `coder/websocket`, `creack/pty`,

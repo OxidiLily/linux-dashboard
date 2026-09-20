@@ -13,10 +13,8 @@ import (
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
 
-// Tailscale, Cloudflare Tunnel, dan WireGuard dikelompokkan jadi satu kelompok
-// VPN/Tunnel — konfigurasinya ada di Settings → Network, bukan halaman sendiri.
-
-const wgInterface = "wg0"
+// Tailscale dan Cloudflare Tunnel dikelompokkan jadi satu kelompok VPN/Tunnel
+// — konfigurasinya ada di Settings → Network, bukan halaman sendiri.
 
 // Panjang dicek terpisah dari pola: repeat count di regexp Go dibatasi 1000,
 // sedangkan token Cloudflare Tunnel bisa jauh lebih panjang dari itu.
@@ -31,7 +29,7 @@ func validSecret(re *regexp.Regexp, s string, max int) bool {
 
 func vpnStatusAll() []helperproto.VPNStatus {
 	return []helperproto.VPNStatus{
-		tailscaleStatus(), cloudflaredStatus(), wireguardStatus(),
+		tailscaleStatus(), cloudflaredStatus(),
 	}
 }
 
@@ -382,79 +380,12 @@ func cloudflaredToken() string {
 	return ""
 }
 
-// wgInterfaceAktif mengembalikan nama interface WireGuard yang benar-benar
-// hidup di kernel, apa pun namanya. Menganggap hanya "wg0" yang ada membuat
-// tunnel yang sudah jalan dengan nama lain terlihat mati di panel.
-func wgInterfaceAktif() string {
-	res, err := run("wg", "show", "interfaces")
-	if err != nil {
-		return ""
-	}
-	if f := strings.Fields(res.Stdout); len(f) > 0 {
-		return f[0]
-	}
-	return ""
-}
-
-// wgInterfaceTerkonfigurasi mencari config yang sudah ada di /etc/wireguard,
-// supaya panel memakai config milik sistem alih-alih menuntut nama wg0.
-func wgInterfaceTerkonfigurasi() string {
-	if aktif := wgInterfaceAktif(); aktif != "" {
-		return aktif
-	}
-	entries, err := os.ReadDir("/etc/wireguard")
-	if err != nil {
-		return wgInterface
-	}
-	for _, e := range entries {
-		if name := strings.TrimSuffix(e.Name(), ".conf"); name != e.Name() {
-			return name
-		}
-	}
-	return wgInterface
-}
-
-// wireguardDiagnose mengambil 30 baris terakhir journal untuk wg-quick agar
-// pesan yang sampai ke user berisi alasan kegagalan (DNS resolve, route
-// conflict, dsb), bukan cuma "Job for wg-quick@wg0.service failed because
-// the control process exited with error code".
-func wireguardDiagnose(iface string, orig error) string {
-	unit := "wg-quick@" + iface
-	if j, e := run("journalctl", "-u", unit, "-n", "30", "-o", "cat", "--no-pager"); e == nil {
-		js := strings.TrimSpace(j.Stdout)
-		if js != "" {
-			return strings.TrimSpace(orig.Error()) + "\n" + js
-		}
-	}
-	return strings.TrimSpace(orig.Error())
-}
-
-func wireguardStatus() helperproto.VPNStatus {
-	st := helperproto.VPNStatus{Name: "wireguard", Installed: installed("wg")}
-	if !st.Installed {
-		st.State = "belum terpasang"
-		return st
-	}
-	iface := wgInterfaceTerkonfigurasi()
-	res, err := run("wg", "show", iface)
-	if err != nil || strings.TrimSpace(res.Stdout) == "" {
-		st.State = "interface " + iface + " tidak aktif"
-		return st
-	}
-	st.Connected = true
-	st.State = "terhubung (" + iface + ")"
-	st.Detail = strings.TrimSpace(res.Stdout)
-	return st
-}
-
 func vpnConfigure(args helperproto.VPNArgs) (helperproto.VPNStatus, error) {
 	switch args.Name {
 	case "tailscale":
 		return tailscaleConfigure(args)
 	case "cloudflared":
 		return cloudflaredConfigure(args)
-	case "wireguard":
-		return wireguardConfigure(args)
 	}
 	return helperproto.VPNStatus{}, errInvalid("VPN %q tidak dikenal", args.Name)
 }
@@ -620,59 +551,3 @@ func cloudflaredConfigure(args helperproto.VPNArgs) (helperproto.VPNStatus, erro
 	return cloudflaredStatus(), nil
 }
 
-func wireguardConfigure(args helperproto.VPNArgs) (helperproto.VPNStatus, error) {
-	if !installed("wg-quick") {
-		return helperproto.VPNStatus{}, errInvalid("WireGuard belum terpasang — install dulu lewat Components")
-	}
-	iface := wgInterfaceTerkonfigurasi()
-	confPath := "/etc/wireguard/" + iface + ".conf"
-	switch args.Action {
-	case "down":
-		if _, err := run("wg-quick", "down", iface); err != nil {
-			return helperproto.VPNStatus{}, err
-		}
-	case "up":
-		if args.Config != "" {
-			if !strings.Contains(args.Config, "[Interface]") {
-				return helperproto.VPNStatus{}, errInvalid("config WireGuard harus punya section [Interface]")
-			}
-			if err := os.MkdirAll("/etc/wireguard", 0o700); err != nil {
-				return helperproto.VPNStatus{}, err
-			}
-			// 0600: config memuat private key.
-			if err := os.WriteFile(confPath, []byte(args.Config), 0o600); err != nil {
-				return helperproto.VPNStatus{}, err
-			}
-		}
-		if _, err := os.Stat(confPath); err != nil {
-			return helperproto.VPNStatus{}, errInvalid("config %s belum ada", confPath)
-		}
-		// Kalau tidak ada `wg-quick@iface` di systemctl, tampilkan diagnosa
-		// dari journal — baris "Job for wg-quick@wg0.service failed because..."
-		// tanpa konteks tidak membantu. Bind interface config dulu ke iface.
-		if _, err := run("wg-quick", "up", iface); err != nil {
-			detail := wireguardDiagnose(iface, err)
-			if detail != "" {
-				return helperproto.VPNStatus{}, errInvalid("%s", detail)
-			}
-			return helperproto.VPNStatus{}, err
-		}
-	case "remove":
-		// Config WireGuard memuat private key: menghapusnya berarti kehilangan
-		// identitas peer ini, jadi file lama disalin ke .bak lebih dulu.
-		_, _ = run("wg-quick", "down", iface)
-		if b, err := os.ReadFile(confPath); err == nil {
-			_ = os.WriteFile(confPath+".bak", b, 0o600)
-		}
-		if err := os.Remove(confPath); err != nil && !os.IsNotExist(err) {
-			return helperproto.VPNStatus{}, err
-		}
-		// Unit boot dimatikan bersama confignya: wg-quick@<iface> yang tetap
-		// enabled tanpa config akan gagal tiap boot dan mengotori status
-		// systemd dengan unit failed yang tidak bisa dijelaskan user.
-		_, _ = run("systemctl", "disable", "wg-quick@"+iface)
-	default:
-		return helperproto.VPNStatus{}, errInvalid("aksi tidak dikenal")
-	}
-	return wireguardStatus(), nil
-}

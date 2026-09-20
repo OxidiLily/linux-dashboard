@@ -254,7 +254,6 @@ const pemeriksaLapisan: [string, [string, string, string][]][] = [
   ["src/components/ui/uninstall-modal.tsx", []],
   ["src/components/ui/disk-prepare-modal.tsx", []],
   ["src/components/ui/iface-editor.tsx", []],
-  ["src/components/ui/wireguard-server.tsx", []],
   ["src/views/files.tsx", [
     ["printTarget", "setPrintTarget", "null"], ["previewContent", "setPreviewContent", "null"],
     ["permTarget", "setPermTarget", "null"], ["editor", "setEditor", "null"],
@@ -267,7 +266,6 @@ const pemeriksaLapisan: [string, [string, string, string][]][] = [
     ["showAddStack", "setShowAddStack", "false"], ["logModal", "setLogModal", "null"],
     ["composeModal", "setComposeModal", "null"], ["envModal", "setEnvModal", "null"],
   ]],
-  ["src/views/network.tsx", [["vpnModal", "setVpnModal", "null"]]],
   ["src/views/firewall.tsx", [["showAdd", "tutupForm", ""]]],
   ["src/views/nfs.tsx", [["modal", "setModal", "false"], ["modalMount", "setModalMount", "false"]]],
   ["src/views/samba.tsx", [["userModal", "setUserModal", "null"], ["showModal", "setShowModal", "false"]]],
@@ -321,7 +319,7 @@ for (const jalur of semuaSumber) {
   const potongan = jalur.endsWith("app-shell.tsx") ? 0 : isi.split("bg-black/60").length - 1
   jumlahLapisan += potongan
 }
-cek(String(jumlahLapisan), "27", "escape/jumlah-lapisan")
+cek(String(jumlahLapisan), "25", "escape/jumlah-lapisan")
 
 if (gagal.length) {
   console.error("[✗] " + gagal.join("\n[✗] "))

@@ -140,11 +140,6 @@ const (
 	CmdUpdateStatus = "update.status"
 	CmdUpdateStart  = "update.start"
 
-	CmdWGServerInfo = "wg.server.info"
-	CmdWGServerInit = "wg.server.init"
-	CmdWGPeerAdd    = "wg.peer.add"
-	CmdWGPeerDelete = "wg.peer.delete"
-
 	CmdUninstall = "panel.uninstall"
 	CmdReboot    = "system.reboot"
 )
@@ -809,13 +804,12 @@ type ExecResult struct {
 }
 
 // VPNArgs dipakai untuk kelompok VPN/Tunnel di Settings → Network:
-// Tailscale, Cloudflare Tunnel, dan WireGuard.
+// Tailscale dan Cloudflare Tunnel.
 type VPNArgs struct {
-	Name    string `json:"name"`   // tailscale|cloudflared|wireguard
-	Action  string `json:"action"` // up|down (khusus wireguard: juga "remove")
+	Name    string `json:"name"`   // tailscale|cloudflared
+	Action  string `json:"action"` // up|down
 	AuthKey string `json:"auth_key,omitempty"`
 	Token   string `json:"token,omitempty"`
-	Config  string `json:"config,omitempty"` // isi wg0.conf
 	Host    string `json:"hostname,omitempty"`
 }
 
@@ -926,54 +920,6 @@ type UpdateArgs struct {
 	// Cek karena butuh `git fetch` — pengecekan versi di sidebar yang jalan
 	// tiap lima menit cukup dengan `git ls-remote` yang tidak menarik objek.
 	Rinci bool `json:"rinci,omitempty"`
-}
-
-// WireGuard mode server: panel yang membuat config, kunci, NAT, dan daftar
-// peer-nya. Mode klien tetap memakai VPNArgs.Config (tempel config apa adanya).
-
-type WGServerArgs struct {
-	// Subnet tunnel dalam CIDR, mis. "10.8.0.0/24". Alamat pertama dipakai
-	// server sendiri.
-	Subnet string `json:"subnet"`
-	Port   int    `json:"port"`
-	// Endpoint adalah alamat yang dituju klien dari luar — IP publik atau
-	// hostname. Tidak bisa disimpulkan sendiri oleh server di balik NAT.
-	Endpoint string `json:"endpoint"`
-}
-
-type WGPeerArgs struct {
-	Nama      string `json:"nama"`
-	PublicKey string `json:"public_key,omitempty"`
-}
-
-type WGPeer struct {
-	Nama      string `json:"nama"`
-	PublicKey string `json:"public_key"`
-	IP        string `json:"ip"`
-	// Handshake & Transfer diisi dari `wg show` kalau interface sedang hidup.
-	Handshake string `json:"handshake,omitempty"`
-	Transfer  string `json:"transfer,omitempty"`
-}
-
-// WGServerInfo menggambarkan config WireGuard yang ada di sistem, termasuk
-// yang dibuat di luar panel: Server bernilai true begitu config punya
-// ListenPort, apa pun yang membuatnya.
-type WGServerInfo struct {
-	Ada      bool     `json:"ada"`
-	Server   bool     `json:"server"`
-	Iface    string   `json:"iface"`
-	Subnet   string   `json:"subnet,omitempty"`
-	Port     int      `json:"port,omitempty"`
-	Endpoint string   `json:"endpoint,omitempty"`
-	Peers    []WGPeer `json:"peers"`
-}
-
-// WGPeerBaru memuat config klien lengkap. Private key klien TIDAK disimpan di
-// server, jadi isinya hanya bisa dilihat sekali — sesudah itu klien harus
-// dibuat ulang kalau confignya hilang.
-type WGPeerBaru struct {
-	Peer   WGPeer `json:"peer"`
-	Config string `json:"config"`
 }
 
 // UninstallArgs menjalankan uninstall panel. Mode bertingkat:

@@ -191,10 +191,10 @@ export function UninstallModal({ username, onClose }: { username?: string; onClo
             <p className="rounded border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
               {pilihan.data
                 ? tr(
-                    "Mode ini menghapus folder DATA di setiap akun — dokumen, foto, dan kode di dalamnya hilang permanen. Akun Linux Anda sendiri tidak dihapus, dan home directory-nya juga tidak; hanya folder DATA di dalamnya. Konfigurasi Samba, NFS, dan WireGuard tetap ditinggalkan apa adanya.",
+                    "Mode ini menghapus folder DATA di setiap akun — dokumen, foto, dan kode di dalamnya hilang permanen. Akun Linux Anda sendiri tidak dihapus, dan home directory-nya juga tidak; hanya folder DATA di dalamnya. Konfigurasi Samba dan NFS tetap ditinggalkan apa adanya.",
                   )
                 : tr(
-                    "Berkas pribadi di ~/DATA setiap akun tidak ikut dihapus pada mode ini. Akun Linux Anda juga tidak — yang dihapus hanya akun sistem linux-dashboard milik service. Konfigurasi Samba, NFS, dan WireGuard ditinggalkan apa adanya; pada mode hapus total, izin firewall milik komponen yang dicopot ikut dicabut.",
+                    "Berkas pribadi di ~/DATA setiap akun tidak ikut dihapus pada mode ini. Akun Linux Anda juga tidak — yang dihapus hanya akun sistem linux-dashboard milik service. Konfigurasi Samba dan NFS ditinggalkan apa adanya; pada mode hapus total, izin firewall milik komponen yang dicopot ikut dicabut.",
                   )}
             </p>
             {pilihan.data && (

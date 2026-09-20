@@ -38,13 +38,16 @@ func (s *Server) handleHostname(w http.ResponseWriter, r *http.Request) {
 
 // handleOpenURL adalah endpoint diagnostik yang mengembalikan URL absolut
 // untuk komponen yang punya antarmuka web sendiri — 9router (:20128),
-// Technitium DNS (:5380), Supabase Studio (:8000), dan portal Arkon (:3119).
-// Dipakai tombol "Buka"
+// Technitium DNS (:5380), Supabase Studio (:8000), portal Arkon (:3119), dan
+// WebUI Stalwart (:8080/admin). Dipakai tombol "Buka"
 // di halaman Components — tanpa ini user harus mengingat port dan mengetik
 // manual, yang sering salah di WSL/lxc yang tidak punya hostname tetap.
 func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	component := chi.URLParam(r, "name")
 	var port int
+	// jalur diisi kalau antarmuka komponennya TIDAK duduk di akar — WebUI
+	// Stalwart ada di /admin, dan membuka akarnya cuma memperlihatkan 404.
+	var jalur string
 	switch component {
 	case "9router":
 		port = 20128
@@ -64,6 +67,14 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 		// dibangkitkan panel saat memasang dan bisa dibaca di penyunting
 		// .env stack pada halaman System → Docker.
 		port = 3119
+	case "stalwart":
+		// 8080 = listener HTTP bawaan Stalwart, satu-satunya tempat wizard
+		// penyiapan bisa diselesaikan. Setelah wizard, WebUI-nya pindah ke
+		// https://<server hostname>/admin di port 443 — hostname itu justru
+		// biasanya belum resolve dari perangkat yang membuka panel, jadi yang
+		// ditautkan tetap 8080 sampai setup-nya selesai.
+		port = 8080
+		jalur = "/admin"
 	default:
 		writeErr(w, http.StatusNotFound, "tidak ada URL langsung untuk komponen "+component)
 		return
@@ -97,7 +108,7 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	scheme := "http"
 	portStr := strconv.Itoa(port)
 	writeJSON(w, http.StatusOK, map[string]string{
-		"url":    scheme + "://" + host + ":" + portStr,
+		"url":    scheme + "://" + host + ":" + portStr + jalur,
 		"scheme": scheme,
 		"host":   host,
 		"port":   portStr,

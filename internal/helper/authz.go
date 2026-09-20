@@ -135,15 +135,10 @@ var sudoRequired = map[string]bool{
 	helperproto.CmdFileChown:          true,
 	helperproto.CmdVPNStatus:          true,
 	helperproto.CmdVPNConfigure:       true,
-	// WireGuard mode server menulis /etc/wireguard dan menjalankan wg-quick
-	// sebagai root; pembaruan panel menjalankan install.sh sebagai root.
-	// Web app memang sudah menggate keduanya dengan requireSudo, tapi helper
-	// adalah penegak otorisasi yang sebenarnya: satu handler baru yang lupa
-	// memanggil requireSudo tidak boleh cukup untuk membuka jalur root.
-	helperproto.CmdWGServerInfo: true,
-	helperproto.CmdWGServerInit: true,
-	helperproto.CmdWGPeerAdd:    true,
-	helperproto.CmdWGPeerDelete: true,
+	// Web app memang sudah menggate CmdUpdateStart dan CmdReboot dengan
+	// requireSudo, tapi helper adalah penegak otorisasi yang sebenarnya: satu
+	// handler baru yang lupa memanggil requireSudo tidak boleh cukup untuk
+	// membuka jalur root (pembaruan panel menjalankan install.sh sebagai root).
 	helperproto.CmdUpdateStatus: true,
 	helperproto.CmdUpdateStart:  true,
 	helperproto.CmdReboot:       true,

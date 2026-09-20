@@ -41,10 +41,10 @@ Components menus).
 | Group | Menu |
 |---|---|
 | Home | Dashboard (CPU, RAM, Storage, GPU, Network in real time; empty disks can be formatted & mounted from here, existing mounts can be unmounted) |
-| File manager | File Manager (text editor, file creation, printing, **name search in the open folder or all the way down into subfolders**) · Samba (shares + users) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
+| File manager | File Manager (text editor, file creation, printing, **upload progress bar**, **name search in the open folder or all the way down into subfolders**) · Samba (shares + users) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
 | AI | AI Agent (agent CLI sessions inside the panel: claude-code, codex, opencode, hermes, openclaw) |
 | Logs | Logs (every panel alert) · File Operations · Activity Logs |
-| Settings | Network (DNS + Tailscale/Cloudflare Tunnel/WireGuard) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
+| Settings | Network (DNS + Tailscale/Cloudflare Tunnel) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
 | System | Processes · Docker (per-container actions, logs, compose & `.env` editors, images/volumes/networks, disk usage) · Cronjobs · Terminal |
 
 **Account** is not in the sidebar: its entry point is the profile block at the
@@ -117,7 +117,7 @@ This applies panel-wide, not to one page:
   ends the session, because it throws away all the JS along with the WebSocket.
 - **Long actions carry a toast that follows you.** Every action executed by the
   helper daemon — install/remove components, printer drivers, ufw, fail2ban,
-  Samba, NFS, mergerfs, VPN, file copy/move/delete, disk formatting, WireGuard,
+  Samba, NFS, mergerfs, VPN, file copy/move/delete, disk formatting,
   Linux users, Docker — uses one toast that spins from the moment the button is
   pressed and turns into success or failure by itself. `<Toaster />` is mounted
   in the app shell (outside the routes), so that toast travels with the user.
@@ -148,15 +148,16 @@ topbar and are stored per account on the server, not in the browser.
 
 ## Components
 
-32 optional pieces of software that are not part of a base Ubuntu/Debian
+35 optional pieces of software that are not part of a base Ubuntu/Debian
 install, installable and removable from the panel:
 
 | Category | Contents |
 |---|---|
-| Runtime & tunnel | docker · nodejs · tailscale · cloudflared · wireguard |
+| Runtime & tunnel | docker · nodejs · tailscale · cloudflared |
 | AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail · browser-use |
 | Database & backend | supabase |
-| File sharing & network | samba · nfs-server · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
+| File sharing & network | samba · nfs-server · nfs-client · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
+| Email & collaboration | stalwart |
 | Security | ufw · fail2ban |
 | Monitoring & disk | lm-sensors · smartmontools · nvme-cli · qemu-guest-agent |
 | Utilities | htop · ncdu · fastfetch · restic |
@@ -318,6 +319,37 @@ the next install is not rejected by setup.sh, and the data is still there if it
 turns out to be needed. Tick "delete data too" to remove `/opt/supabase`
 entirely, including any `bekas-*` folders.
 
+### Stalwart (mail server)
+
+The `stalwart` component installs Stalwart — an all-in-one mail server (SMTP,
+IMAP, POP3, JMAP, CalDAV/CardDAV, WebDAV) — through the vendor's official
+`get.stalw.art/install.sh` script, because there is no .deb for it. That script
+places the binary at `/usr/local/bin/stalwart`, creates the `stalwart` service
+account, writes `stalwart.service`, and starts it in **bootstrap mode** with
+its WebUI at `http://<machine-ip>:8080/admin`.
+
+That bootstrap password is printed to the log once and then lost, so the panel
+pins its own credential through `STALWART_RECOVERY_ADMIN` in
+`/etc/stalwart/stalwart.env` and shows it on the component card — the same
+pattern as 9router's initial password. Once the wizard finishes (Stalwart
+writes `config.json`) the bootstrap credential no longer applies, and **the
+panel closes that path itself** by commenting out the `STALWART_RECOVERY_ADMIN`
+line: Stalwart's documentation warns that the variable keeps working while the
+server runs normally, so leaving it in place is the same as keeping a backdoor
+with a password that was once shown on screen. The panel only touches an env
+file that actually contains its own generated password.
+
+Every default Stalwart port is registered to the firewall when the component is
+installed: `8080` (WebUI & wizard), `443` (WebUI/JMAP after setup), `25` (SMTP),
+`465` (submissions TLS), `993` (IMAPS), `995` (POP3S), and `4190`
+(ManageSieve) — the list comes from Stalwart's own default registry, not from a
+guess.
+
+Uninstall removes the service, the unit, and the binary; `data`/`config` only go
+away with "delete data too", which also removes the `stalwart` system account —
+guarded by UID < 1000 and a nologin shell, so a human account with the same name
+is never deleted.
+
 ### Required AI Agent tools & skills
 
 The last four components in the AI category — `rtk`, `graphify`, `ponytail`,
@@ -465,7 +497,7 @@ while ufw is inactive:
 | 9router | 20128/tcp |
 | supabase | 8000/tcp · 5432/tcp · 6543/tcp |
 | arkon | 5055/tcp · 3119/tcp |
-| wireguard | 51820/udp |
+| stalwart | 8080/tcp · 443/tcp · 25/tcp · 465/tcp · 993/tcp · 995/tcp · 4190/tcp |
 | tailscale | 41641/udp |
 
 Component ports, SSH, and the panel port are registered to the firewall (`Anywhere`)
@@ -657,7 +689,8 @@ menu; pages that need them show "Not Installed" until they are present:
 | ufw | `ufw` | Settings → Firewall |
 | fail2ban | `fail2ban-client` | Settings → Fail2ban |
 | docker-ce + docker-compose-plugin (official Docker repo) | `docker` | System → Docker |
-| wireguard, tailscale, cloudflared | `wg`/`wg-quick`, `tailscale`, `cloudflared` | Settings → Network |
+| tailscale, cloudflared | `tailscale`, `cloudflared` | Settings → Network |
+| stalwart | `stalwart` (official get.stalw.art script) | Components → Stalwart |
 | nodejs | `node`, `npm` | Components → 9Router |
 
 **Go libraries**: `go-chi/chi/v5`, `coder/websocket`, `creack/pty`,
