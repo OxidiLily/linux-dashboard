@@ -550,4 +550,3 @@ func cloudflaredConfigure(args helperproto.VPNArgs) (helperproto.VPNStatus, erro
 	}
 	return cloudflaredStatus(), nil
 }
-
