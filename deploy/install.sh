@@ -377,7 +377,14 @@ if command -v ufw >/dev/null 2>&1; then
   for sp in "${ssh_ports[@]}"; do
     ufw allow "${sp}/tcp" comment 'SSH' >/dev/null 2>&1 || ufw allow "${sp}/tcp" >/dev/null 2>&1 || true
   done
-  panel_port=$(grep -E '^[[:space:]]*DASHBOARD_LISTEN=' /etc/default/linux-dashboard 2>/dev/null | cut -d= -f2- | tr -d '"'\'' ' | awk -F: '{print $NF}')
+  # `|| true` DI DALAM substitusi, bukan setelahnya: /etc/default bawaan tidak
+  # memuat baris DASHBOARD_LISTEN (contohnya dikomentari), jadi grep memang
+  # sering tidak menemukan apa pun — dan skrip ini berjalan dengan
+  # `set -e` + `pipefail`, sehingga grep yang exit 1 membuat SELURUH installer
+  # berhenti tepat di sini. Gejalanya: log berhenti setelah baris "Mendaftarkan
+  # port SSH dan panel ke ufw…", port panel tidak pernah didaftarkan, dan
+  # laporan komponen di bagian akhir tidak pernah tercetak.
+  panel_port=$( { grep -E '^[[:space:]]*DASHBOARD_LISTEN=' /etc/default/linux-dashboard 2>/dev/null || true; } | cut -d= -f2- | tr -d '"'\'' ' | awk -F: '{print $NF}')
   if [[ -n "$panel_port" && "$panel_port" =~ ^[0-9]+$ ]]; then
     ufw allow "${panel_port}/tcp" comment 'panel linux-dashboard' >/dev/null 2>&1 || ufw allow "${panel_port}/tcp" >/dev/null 2>&1 || true
   else

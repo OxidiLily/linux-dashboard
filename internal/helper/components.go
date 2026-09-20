@@ -508,13 +508,13 @@ func componentStatus(name string) helperproto.ComponentStatus {
 		st.Note = catatanArkon
 	}
 	if st.Installed && name == "stalwart" {
-		// Wizard yang sudah selesai mengubah kredensial bootstrap jadi
-		// backdoor yang tetap berlaku saat server berjalan normal — lihat
-		// tutupKredensialBootstrapStalwart. Panel yang memasangnya, jadi panel
-		// yang menutupnya, dan status komponen adalah satu-satunya tempat yang
-		// pasti dilewati lagi setelah user menyelesaikan wizard. Penutupannya
-		// tidak me-restart apa pun: setelannya berlaku pada start berikutnya.
-		tutupKredensialBootstrapStalwart()
+		// Berkas env diselaraskan TANPA me-restart service: inilah jalur yang
+		// pasti dilewati lagi setelah user memasang komponennya, jadi kalau
+		// baris kredensialnya hilang karena sebab apa pun, halaman Components
+		// mengembalikannya sendiri. Saat wizard sudah selesai, pemanggilan ini
+		// justru yang menutup kredensial bootstrap — lihat
+		// padukanKredensialStalwart.
+		padukanKredensialStalwart(jalurStalwartAsli, false)
 		st.Note = catatanStalwart()
 	}
 	return st
@@ -2592,54 +2592,94 @@ func hapusAkunSystem(nama string) {
 	_, _ = run("userdel", nama)
 }
 
+// jalurKredensialStalwart mengelompokkan berkas yang dipakai alur kredensial
+// bootstrap. Ketiganya parameter, bukan konstanta yang dibaca langsung, supaya
+// seluruh alur bisa diuji di direktori sementara — pola yang sama dipakai
+// homeUser9Router. Path sungguhan hanya ada di satu tempat: jalurStalwartAsli.
+type jalurKredensialStalwart struct {
+	Env    string
+	Pass   string
+	Config string
+}
+
+var jalurStalwartAsli = jalurKredensialStalwart{
+	Env: stalwartEnv, Pass: passFileStalwart, Config: stalwartConfig,
+}
+
+// komentarTutupStalwart adalah baris pengganti STALWART_RECOVERY_ADMIN saat
+// panel mematikannya. Ditulis tanpa nilainya — berkas itu 0640 dan dibaca grup
+// akun service, jadi password yang tidak berlaku lagi tidak perlu tertinggal.
+const komentarTutupStalwart = "# " + kunciRecoveryStalwart +
+	" dikomentari panel: kredensial bootstrap tidak berlaku lagi setelah wizard selesai"
+
 // passwordTersimpanStalwart membaca password bootstrap yang pernah dibuat
 // panel. Kosong berarti panel belum pernah membuatnya — mis. Stalwart dipasang
 // manual dari terminal, dan itu bukan urusan panel untuk ditebak-tebak.
-func passwordTersimpanStalwart() string {
-	b, err := os.ReadFile(passFileStalwart)
+func passwordTersimpanStalwart() string { return passwordTersimpanDi(jalurStalwartAsli.Pass) }
+
+func passwordTersimpanDi(path string) string {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
 }
 
-func simpanPasswordStalwart(pass string) {
-	if err := os.MkdirAll(filepath.Dir(passFileStalwart), 0o755); err != nil {
-		log.Printf("stalwart: %s gagal dibuat: %v", filepath.Dir(passFileStalwart), err)
+func simpanPasswordStalwart(pass string) { simpanPasswordDi(jalurStalwartAsli.Pass, pass) }
+
+func simpanPasswordDi(path, pass string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		log.Printf("stalwart: %s gagal dibuat: %v", filepath.Dir(path), err)
 		return
 	}
 	// 0600 milik root: password ini hanya dibaca daemon helper (root) untuk
 	// ditampilkan ke admin yang sudah login ke panel.
-	if err := os.WriteFile(passFileStalwart, []byte(pass+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(pass+"\n"), 0o600); err != nil {
 		log.Printf("stalwart: password bootstrap gagal disimpan: %v", err)
 	}
 }
 
 // pastikanKredensialStalwart memaku kredensial admin bootstrap ke berkas env
-// Stalwart — dan melepasnya lagi begitu wizard selesai.
+// Stalwart (dan melepasnya lagi begitu wizard selesai). Dipakai jalur yang
+// memang boleh me-restart service: pemasangan dan tombol Jalankan.
+func pastikanKredensialStalwart() { padukanKredensialStalwart(jalurStalwartAsli, true) }
+
+// padukanKredensialStalwart menyelaraskan berkas env dengan keadaan Stalwart,
+// dan itulah satu-satunya tempat kredensial bootstrap ditulis.
 //
 // Kenapa dipaku: selama belum ada config.json, Stalwart hidup dalam mode
-// bootstrap dengan password acak yang dicetak SEKALI ke log. Halaman
-// Components tidak bisa menampilkan sesuatu yang tidak pernah disimpan, dan
-// satu-satunya petunjuk yang tersisa untuk user adalah membaca journal.
-// STALWART_RECOVERY_ADMIN adalah jalur yang dokumentasi Stalwart sendiri
-// sebutkan untuk keadaan ini ("pin a credential instead"), jadi panel memakai
-// itu alih-alih menebak isi log — persis seperti INITIAL_PASSWORD di 9router.
+// bootstrap dengan password acak yang dicetak SEKALI ke log. Halaman Components
+// tidak bisa menampilkan sesuatu yang tidak pernah disimpan, dan satu-satunya
+// petunjuk yang tersisa untuk user adalah membaca journal. STALWART_RECOVERY_ADMIN
+// adalah jalur yang dokumentasi Stalwart sendiri sebutkan untuk keadaan ini
+// ("pin a credential instead"), jadi panel memakai itu alih-alih menebak isi
+// log — persis seperti INITIAL_PASSWORD di 9router.
 //
-// Kegagalan di sini tidak membatalkan pemasangan: server tetap terpasang dan
+// Dua mode pemanggilan, dan bedanya penting:
+//
+//   - restart=true (pemasangan, tombol Jalankan): service di-restart supaya
+//     proses yang berjalan benar-benar memakai kredensial yang dipaku.
+//   - restart=false (pembacaan status): berkasnya diselaraskan tanpa menyentuh
+//     proses. Dipakai justru karena inilah jalur yang pasti dilewati lagi
+//     setelah user memasang komponennya — kalau barisnya hilang karena sebab
+//     apa pun, halaman Components mengembalikannya sendiri, dan selama masih
+//     bootstrap me-restart server dari sebuah pembacaan status berarti
+//     menginterupsi wizard yang sedang dikerjakan user di browser.
+//
+// Kegagalan di sini tidak membatalkan apa pun: server tetap terpasang dan
 // berjalan; yang hilang cuma jalan pintas lewat panel.
-func pastikanKredensialStalwart() {
-	// Wizard sudah selesai → yang berlaku akun admin permanen buatan wizard.
-	// Yang tersisa hanya kewajiban menutup kredensial bootstrap.
-	if _, err := os.Stat(stalwartConfig); err == nil {
-		tutupKredensialBootstrapStalwart()
+func padukanKredensialStalwart(j jalurKredensialStalwart, restart bool) {
+	// Wizard sudah selesai → yang berlaku akun admin permanen buatan wizard,
+	// dan kredensial bootstrap justru harus ditutup.
+	if _, err := os.Stat(j.Config); err == nil {
+		tutupKredensialBootstrapStalwartDi(j)
 		return
 	}
-	isi, err := os.ReadFile(stalwartEnv)
+	isi, err := os.ReadFile(j.Env)
 	if err != nil {
 		return
 	}
-	pass := passwordTersimpanStalwart()
+	pass := passwordTersimpanDi(j.Pass)
 	if pass == "" {
 		if pass, err = sandiAcak(20); err != nil {
 			log.Printf("stalwart: gagal membuat password bootstrap: %v", err)
@@ -2651,17 +2691,25 @@ func pastikanKredensialStalwart() {
 	if baru != string(isi) {
 		// 0640 root:<akun> — izin yang sama dengan yang dipasang skrip vendor,
 		// dan grupnya dipertahankan supaya service tetap bisa membacanya.
-		if err := os.WriteFile(stalwartEnv, []byte(baru), 0o640); err != nil {
-			log.Printf("stalwart: gagal menulis %s: %v", stalwartEnv, err)
+		if err := os.WriteFile(j.Env, []byte(baru), 0o640); err != nil {
+			log.Printf("stalwart: gagal menulis %s: %v", j.Env, err)
 			return
 		}
-		_, _ = run("chown", "root:"+stalwartAkun, stalwartEnv)
-		jalankanUlangStalwart()
+		if j == jalurStalwartAsli {
+			_, _ = run("chown", "root:"+stalwartAkun, j.Env)
+		}
+		if restart {
+			jalankanUlangStalwart()
+		}
 	}
-	simpanPasswordStalwart(pass)
+	simpanPasswordDi(j.Pass, pass)
 }
 
-// tutupKredensialBootstrapStalwart mengomentari baris STALWART_RECOVERY_ADMIN
+// tutupKredensialBootstrapStalwart mengomentari baris STALWART_RECOVERY_ADMIN —
+// dan hanya boleh dipanggil setelah wizard selesai.
+func tutupKredensialBootstrapStalwart() { tutupKredensialBootstrapStalwartDi(jalurStalwartAsli) }
+
+// tutupKredensialBootstrapStalwartDi mengomentari baris STALWART_RECOVERY_ADMIN
 // begitu wizard selesai.
 //
 // Dokumentasi Stalwart memperingatkan bahwa variabel ini berlaku JUGA saat
@@ -2672,27 +2720,41 @@ func pastikanKredensialStalwart() {
 // berikutnya, dan me-restart server mail dari sebuah pembacaan status berarti
 // memutus sesi IMAP/SMTP orang tanpa diminta.
 //
-// Pagar yang membuat ini tidak pernah menyentuh setelan orang lain: hanya
-// berkas env yang benar-benar memuat password BUATAN PANEL yang diubah —
-// password itu dibaca dari passFileStalwart, dan tidak ada kalau pemasangannya
-// tidak lewat panel.
-func tutupKredensialBootstrapStalwart() {
-	pass := passwordTersimpanStalwart()
+// WAJIB dijaga keberadaan config.json — dan itu sempat tidak dilakukan:
+// halaman Components memanggil fungsi ini setiap kali status dibaca, sehingga
+// baris yang baru dipaku saat pemasangan langsung dikomentari lagi di
+// pembacaan status pertama. Akibatnya password bootstrap yang benar-benar
+// berlaku (dan sudah dicetak server ke log) tidak pernah muncul di kartu
+// komponen, dan satu-satunya jalan masuk ke WebUI tinggal membaca journal.
+// Selama config.json belum ada, server masih bootstrap: baris itu adalah
+// satu-satunya jalan masuk, jadi tidak boleh disentuh.
+//
+// Pagar kedua: hanya berkas env yang benar-benar memuat password BUATAN PANEL
+// yang diubah — password itu dibaca dari berkas password panel, dan tidak ada
+// kalau pemasangannya tidak lewat panel. Kredensial recovery milik admin
+// sendiri tidak pernah ikut dimatikan.
+func tutupKredensialBootstrapStalwartDi(j jalurKredensialStalwart) {
+	if _, err := os.Stat(j.Config); err != nil {
+		return
+	}
+	pass := passwordTersimpanDi(j.Pass)
 	if pass == "" {
 		return
 	}
-	isi, err := os.ReadFile(stalwartEnv)
+	isi, err := os.ReadFile(j.Env)
 	if err != nil {
 		return
 	}
 	if !strings.Contains(string(isi), kunciRecoveryStalwart+"="+stalwartAkunAdmin+":"+pass) {
 		return
 	}
-	if err := os.WriteFile(stalwartEnv, []byte(setBarisEnv(string(isi), kunciRecoveryStalwart, "")), 0o640); err != nil {
+	if err := os.WriteFile(j.Env, []byte(setBarisEnv(string(isi), kunciRecoveryStalwart, "")), 0o640); err != nil {
 		log.Printf("stalwart: gagal menutup kredensial bootstrap: %v", err)
 		return
 	}
-	_, _ = run("chown", "root:"+stalwartAkun, stalwartEnv)
+	if j == jalurStalwartAsli {
+		_, _ = run("chown", "root:"+stalwartAkun, j.Env)
+	}
 }
 
 // jalankanUlangStalwart me-restart service-nya hanya kalau sedang berjalan:
@@ -2715,10 +2777,18 @@ func jalankanUlangStalwart() {
 // password yang sudah tidak berlaku tidak perlu tertinggal di sana.
 // Komentar milik admin (termasuk contoh `#STALWART_RECOVERY_ADMIN=...` tulisan
 // skrip installer) tidak pernah disentuh — hanya baris aktif yang cocok.
+//
+// Komentar penutup BUATAN PANEL (komentarTutupStalwart) dibuang saat barisnya
+// dipaku lagi: tanpa itu berkas berakhir dengan satu baris aktif dan satu
+// komentar yang saling bertentangan tentang kredensial yang sama.
 func setBarisEnv(isi, kunci, nilai string) string {
 	baris := strings.Split(strings.TrimRight(isi, "\n"), "\n")
 	ketemu := false
 	for i, b := range baris {
+		if nilai != "" && b == komentarTutupStalwart {
+			baris[i] = ""
+			continue
+		}
 		if !strings.HasPrefix(b, kunci+"=") {
 			continue
 		}
@@ -2729,7 +2799,7 @@ func setBarisEnv(isi, kunci, nilai string) string {
 			continue
 		}
 		if nilai == "" {
-			baris[i] = "# " + kunci + " dimatikan panel: wizard Stalwart sudah selesai"
+			baris[i] = komentarTutupStalwart
 		} else {
 			baris[i] = nilai
 		}
@@ -2745,23 +2815,26 @@ func setBarisEnv(isi, kunci, nilai string) string {
 }
 
 // catatanStalwart mengembalikan kredensial bootstrap untuk ditampilkan di
-// halaman Components. Kosong begitu wizard selesai: sejak itu kredensial
-// bootstrap tidak berlaku lagi, dan menampilkannya hanya menyesatkan.
-func catatanStalwart() string {
-	if _, err := os.Stat(stalwartConfig); err == nil {
+// halaman Components — bentuknya sengaja sama dengan catatan 9router. Kosong
+// begitu wizard selesai: sejak itu kredensial bootstrap tidak berlaku lagi,
+// dan menampilkannya hanya menyesatkan.
+func catatanStalwart() string { return catatanStalwartDi(jalurStalwartAsli) }
+
+func catatanStalwartDi(j jalurKredensialStalwart) string {
+	if _, err := os.Stat(j.Config); err == nil {
 		return ""
 	}
-	pass := passwordTersimpanStalwart()
+	pass := passwordTersimpanDi(j.Pass)
 	if pass == "" {
 		return ""
 	}
 	// Password hanya berlaku kalau berkas env-nya masih memuat nilai itu —
 	// admin yang mengganti kredensialnya sendiri tidak boleh ditampilkan
 	// password lama yang sudah tidak dipakai.
-	isi, err := os.ReadFile(stalwartEnv)
+	isi, err := os.ReadFile(j.Env)
 	if err != nil || !strings.Contains(string(isi), kunciRecoveryStalwart+"="+stalwartAkunAdmin+":"+pass) {
 		return ""
 	}
-	return "Login awal (mode bootstrap): user `" + stalwartAkunAdmin + "`, password `" + pass +
-		"`. Selesaikan wizard di http://<ip-mesin>:8080/admin — setelah itu kredensial ini tidak berlaku lagi."
+	return "Login awal: user `" + stalwartAkunAdmin + "`, password `" + pass +
+		"`. Buka http://<ip-mesin>:8080/admin untuk menyelesaikan wizard — setelah wizard selesai, kredensial ini tidak berlaku lagi."
 }
