@@ -536,9 +536,9 @@ cek_komponen ufw         ufw             "Settings → Firewall"
 cek_komponen fail2ban    fail2ban-client "Settings → Fail2ban"
 cek_komponen docker      docker          "System → Docker"
 cek_komponen nodejs      node            "Components → 9Router"
-cek_komponen wireguard   wg              "Settings → Network (WireGuard)"
 cek_komponen tailscale   tailscale       "Settings → Network (Tailscale)"
 cek_komponen cloudflared cloudflared     "Settings → Network (Cloudflare Tunnel)"
+cek_komponen stalwart    stalwart        "Components → Stalwart (server email)"
 
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 # Sumber kebenaran satu-satunya untuk skema URL adalah env yang benar-benar

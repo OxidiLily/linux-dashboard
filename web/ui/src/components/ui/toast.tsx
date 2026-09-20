@@ -3,7 +3,7 @@ import { toast as sonner } from "sonner"
 // Notifikasi in-app menggantikan window.alert(). Selain tampilannya di luar
 // kendali tema, alert() memblokir seluruh tab sampai user menekan OK — jadi
 // pesan "berhasil" pun menghentikan pekerjaan. Dipanggil dari mana saja:
-//   notify.ok("Komponen wireguard berhasil dihapus.")
+//   notify.ok("Komponen stalwart berhasil dipasang.")
 //   notify.err(`Gagal memasang docker: ${pesanError(e)}`)
 //
 // Sejak Sonner dipasang, berkas ini tinggal adapter: renderer, tumpukan, dan

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
@@ -10,9 +9,8 @@ import { trf, useTr } from "@/stores/i18n"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Network, ShieldCheck, RefreshCw, Power, Package, Trash2, Pencil } from "lucide-react"
+import { Network, ShieldCheck, RefreshCw, Power, Package, Pencil } from "lucide-react"
 import { useNavigate } from "react-router-dom"
-import { WireGuardServer } from "@/components/ui/wireguard-server"
 import { IfaceEditor } from "@/components/ui/iface-editor"
 
 type Iface = {
@@ -42,16 +40,9 @@ type VPNStatus = {
 // Field per-VPN yang dikirim ke backend VPNArgs:
 //   tailscale  → { action: "up"|"down", auth_key, hostname? }
 //   cloudflared→ { action: "up"|"down", token }
-//   wireguard  → { action: "up"|"down", config }
 // Backend helper VPNArgs di internal/helperproto/proto.go. Aksi HARUS up|down
 // — frontend lama pakai "connect"/"disconnect" sehingga helper menolak dengan
 // tr("aksi tidak dikenal").
-type VPNConfigForm = {
-  authKey: string
-  hostname: string
-  token: string
-  config: string
-}
 
 export function NetworkView() {
   const tr = useTr()
@@ -60,12 +51,7 @@ export function NetworkView() {
   const [dnsInput, setDnsInput] = useState("")
   const [vpns, setVpns] = useState<VPNStatus[]>([])
   const [loading, setLoading] = useState(false)
-  const [vpnModal, setVpnModal] = useState<string | null>(null)
   const [editIface, setEditIface] = useState<Iface | null>(null)
-  // Penanda muat-ulang: panel WireGuard punya endpoint sendiri, jadi ia perlu
-  // diberi tahu kalau daftar VPN berubah (mis. config baru saja dihapus) —
-  // tanpa ini isinya tetap menampilkan server yang sudah tidak ada.
-  const [versiVPN, setVersiVPN] = useState(0)
   const navigate = useNavigate()
   // Token Cloudflare Tunnel diedit langsung di panel, bukan lewat modal:
   // nilainya perlu terlihat untuk tahu tunnel mana yang sedang terpasang.
@@ -78,12 +64,6 @@ export function NetworkView() {
   const [tsKey, setTsKey] = useState("")
   const [tsDiketik, setTsDiketik] = useState(false)
   const [tsHost, setTsHost] = useState("")
-  const [vpnForm, setVpnForm] = useState<VPNConfigForm>({
-    authKey: "",
-    hostname: "",
-    token: "",
-    config: "",
-  })
 
   // paksaTokenServer dipakai setelah aksi sambung/putus: nilai cfDiketik yang
   // tertangkap closure ini masih nilai lama, jadi flag-nya tidak bisa dipercaya
@@ -110,7 +90,6 @@ export function NetworkView() {
       notify.err(trf("Gagal memuat network: {0}", pesanError(e)))
     } finally {
       setLoading(false)
-      setVersiVPN((v) => v + 1)
     }
   }
 
@@ -149,33 +128,8 @@ export function NetworkView() {
       if (name === "tailscale" && tsDiketik && tsKey.trim()) body.auth_key = tsKey.trim()
       if (name === "tailscale" && tsHost.trim()) body.hostname = tsHost.trim()
       if (name === "cloudflared" && cfDiketik && cfToken.trim()) body.token = cfToken.trim()
-      if (name === "wireguard" && vpnForm.config) body.config = vpnForm.config
     }
     return body
-  }
-
-  const hapusConfigWG = async () => {
-    const ok = await confirmDialog({
-      title: tr("Hapus config WireGuard?"),
-      message:
-        tr("Interface diturunkan dan /etc/wireguard/<iface>.conf dihapus. Private key di dalamnya ikut hilang — salinannya disimpan sebagai .bak di folder yang sama."),
-      confirmLabel: tr("Hapus"),
-      danger: true,
-    })
-    if (!ok) return
-    try {
-      await notify.tugas(
-        apiSend("/api/settings/network/vpn/wireguard", "PUT", { name: "wireguard", action: "remove" }),
-        {
-          jalan: tr("Menghapus config WireGuard…"),
-          sukses: tr("Config WireGuard dihapus."),
-          gagal: (e) => trf("Gagal menghapus config: {0}", pesanError(e)),
-        },
-      )
-      load()
-    } catch {
-      // Pesan gagalnya sudah ditampilkan notify.tugas.
-    }
   }
 
   const handleVPN = async (name: string, action: "up" | "down") => {
@@ -222,8 +176,6 @@ export function NetworkView() {
           gagal: (e) => trf("Gagal mengatur VPN {0}: {1}", name, pesanError(e)),
         },
       )
-      setVpnModal(null)
-      setVpnForm({ authKey: "", hostname: "", token: "", config: "" })
       // Token yang barusan diketik sudah tersimpan di sistem; tampilkan lagi
       // bentuk tersamar dari server, bukan teks mentah yang masih di layar.
       if (name === "cloudflared") setCfDiketik(false)
@@ -237,17 +189,9 @@ export function NetworkView() {
   const vpnLabel = (n: string) => {
     if (n === "tailscale") return "Tailscale"
     if (n === "cloudflared") return "Cloudflare Tunnel"
-    if (n === "wireguard") return "WireGuard"
     return n
   }
 
-
-  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
-  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
-  useEffect(() => {
-    if (!vpnModal) return
-    return daftarkanEscape(() => setVpnModal(null))
-  }, [vpnModal])
   return (
     <div className="space-y-4">
       {/* Network Interfaces */}
@@ -322,7 +266,7 @@ export function NetworkView() {
 
         {/* VPN / Tunnel Grouping */}
         {user?.sudo && (
-          <Panel title={tr("VPN & Tunnels")} hint={tr("Tailscale, Cloudflare Tunnel, WireGuard")}>
+          <Panel title={tr("VPN & Tunnels")} hint={tr("Tailscale, Cloudflare Tunnel")}>
             <div className="space-y-3">
               {vpns.map((v) => (
                 <div key={v.name} className="rounded-md border border-border p-3">
@@ -383,28 +327,9 @@ export function NetworkView() {
                           variant="outline"
                           size="sm"
                           className="h-7 text-xs"
-                          onClick={() => {
-                            if (v.name === "cloudflared" || v.name === "tailscale") {
-                              handleVPN(v.name, "up")
-                              return
-                            }
-                            setVpnModal(v.name)
-                            setVpnForm({ authKey: "", hostname: "", token: "", config: "" })
-                          }}
+                          onClick={() => handleVPN(v.name, "up")}
                         >
                           <ShieldCheck className="mr-1 size-3 text-ok" /> {tr("Sambung")}
-                        </Button>
-                      )}
-                      {v.name === "wireguard" && v.installed && !v.connected && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-muted-foreground hover:text-crit"
-                          aria-label={tr("Hapus config WireGuard")}
-                          title={tr("Hapus config wg")}
-                          onClick={hapusConfigWG}
-                        >
-                          <Trash2 className="size-3.5" />
                         </Button>
                       )}
                     </div>
@@ -446,12 +371,6 @@ export function NetworkView() {
                             : tr("Boleh tempel kuncinya saja, atau perintah lengkap dari dashboard Tailscale — yang diambil hanya auth key-nya.")}
                       </p>
                     </div>
-                  )}
-
-                  {/* Mode server: config, kunci, dan daftar klien dibuat panel.
-                      Mode klien tetap lewat tombol Sambung + tempel config. */}
-                  {v.name === "wireguard" && v.installed && (
-                    <WireGuardServer versi={versiVPN} onBerubah={() => load()} />
                   )}
 
                   {/* Token tunnel tampil apa adanya: itu satu-satunya cara tahu
@@ -501,41 +420,6 @@ export function NetworkView() {
             load()
           }}
         />
-      )}
-
-      {/* Modal khusus WireGuard: isinya berkas config, bukan satu kunci —
-          terlalu besar untuk ditaruh inline di daftar. */}
-      {vpnModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-surface p-4 shadow-xl">
-            <p className="font-semibold text-sm">{trf("Hubungkan {0}", vpnLabel(vpnModal))}</p>
-            <div className="mt-3 space-y-3">
-              {vpnModal === "wireguard" && (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">{tr("Isi wg0.conf")}</label>
-                  <textarea
-                    className="mt-1 w-full rounded border border-border bg-background p-2 font-mono text-[11px]"
-                    rows={8}
-                    value={vpnForm.config}
-                    onChange={(e) => setVpnForm({ ...vpnForm, config: e.target.value })}
-                    placeholder={"[Interface]\nAddress = 10.0.0.2/24\nPrivateKey = ...\n\n[Peer]\n..."}
-                  />
-                  <p className="mt-1 text-[10px] text-muted-foreground">
-                    {tr("Wajib ada section [Interface]. Disimpan ke /etc/wireguard/wg0.conf (mode 0600).")}
-                  </p>
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" size="sm" onClick={() => setVpnModal(null)}>
-                  {tr("Batal")}
-                </Button>
-                <Button size="sm" onClick={() => handleVPN(vpnModal, "up")}>
-                  {tr("Hubungkan")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   )

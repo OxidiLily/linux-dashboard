@@ -230,7 +230,7 @@ func diagnosaJurnal(unit string) string {
 
 // systemctlDiagnose mengambil 20 baris terakhir journal untuk unit ini saat
 // systemctl gagal — root cause biasanya ada di situ (dependency missing,
-// path biner salah, dsb). Dipakai untuk wireguard, qemu-guest-agent, dan
+// path biner salah, dsb). Dipakai untuk qemu-guest-agent dan
 // service lain yang sering gagal start tanpa pesan jelas.
 func systemctlDiagnose(unit, action string) string {
 	res, err := run("systemctl", action, unit)

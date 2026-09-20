@@ -50,7 +50,6 @@ const kalimatBackend: Record<string, string> = {
   "component %q tidak dikenal": "unknown component %q",
   "component %s tidak punya service": "component %s has no service",
   "config %s belum ada": "config %s does not exist yet",
-  "config WireGuard harus punya section [Interface]": "the WireGuard config must have an [Interface] section",
   "Docker belum terpasang — pasang dulu lewat Settings → Components":
     "Docker is not installed — install it from Settings → Components first",
   "dir harus absolut": "dir must be absolute",
@@ -133,8 +132,6 @@ const kalimatBackend: Record<string, string> = {
   "user %q tidak ditemukan: %w": "user %q not found: %w",
   "user %q tidak ditemukan": "user %q not found",
   "VPN %q tidak dikenal": "unknown VPN %q",
-  "WireGuard belum terpasang — install dulu lewat Components":
-    "WireGuard is not installed — install it from Components first",
 
   // ---- handler HTTP (internal/api) ----
   "Alamat DNS tidak valid: %s": "Invalid DNS address: %s",

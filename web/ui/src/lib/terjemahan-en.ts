@@ -67,6 +67,7 @@ daftarkanTerjemahan({
   "detik berjalan — jangan tutup halaman ini": "seconds elapsed — do not close this page",
   "Runtime & tunnel": "Runtime & tunnels",
   "Berbagi file & jaringan": "File sharing & network",
+  "Email & kolaborasi": "Email & collaboration",
   "Keamanan": "Security",
   "Utilitas": "Utilities",
   "Semua komponen di katalog sudah terpasang.": "Every component in the catalog is installed.",
@@ -84,9 +85,9 @@ daftarkanTerjemahan({
     "WireGuard-based mesh VPN, remote access without opening ports.",
   "Cloudflare Tunnel — ekspos service tanpa port forwarding.":
     "Cloudflare Tunnel — expose services without port forwarding.",
+  "Server email all-in-one (SMTP, IMAP, POP3, JMAP, CalDAV/CardDAV, WebDAV) dengan WebUI sendiri — dipasang lewat skrip resmi get.stalw.art, config di /etc/stalwart.":
+    "All-in-one mail server (SMTP, IMAP, POP3, JMAP, CalDAV/CardDAV, WebDAV) with its own WebUI — installed through the official get.stalw.art script, config in /etc/stalwart.",
   "Dijalankan dari {0}": "Started from {0}",
-  "VPN peer-to-peer, dikonfigurasi di Settings → Network.":
-    "Peer-to-peer VPN, configured in Settings → Network.",
   "Gateway API AI lokal (butuh Node.js).": "Local AI API gateway (requires Node.js).",
   "Backend self-hosted lengkap (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) di atas Docker Compose, dipasang lewat setup.sh resmi Supabase ke /opt/supabase.":
     "A complete self-hosted backend (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) on Docker Compose, installed into /opt/supabase by Supabase's official setup.sh.",
@@ -430,7 +431,6 @@ daftarkanTerjemahan({
   "Simpan ambang peringatan?": "Save alert thresholds?",
   "Simpan docker-compose.yml?": "Save docker-compose.yml?",
   "Timpa file .env stack ini?": "Overwrite this stack's .env file?",
-  "Hapus config WireGuard?": "Delete the WireGuard config?",
   "Jalankan \"{0}\" pada service {1}?": "Run \"{0}\" on service {1}?",
   "Jalankan \"docker compose {0}\" pada stack {1}?": "Run \"docker compose {0}\" on stack {1}?",
   "Hapus {0} {1}?": "Delete {0} {1}?",
@@ -476,7 +476,6 @@ daftarkanTerjemahan({
   "Hapus juga folder home miliknya?": "Also delete its home folder?",
   "Hostname berhasil diubah.": "Hostname changed.",
   "IP ini bisa mencoba login lagi ke {0}.": "This IP will be able to try logging in to {0} again.",
-  "Interface diturunkan dan /etc/wireguard/<iface>.conf dihapus. Private key di dalamnya ikut hilang — salinannya disimpan sebagai .bak di folder yang sama.": "The interface is brought down and /etc/wireguard/<iface>.conf is deleted. The private key inside goes with it — a copy is kept as .bak in the same folder.",
   "Jail diperbarui.": "Jail updated.",
   "Jail mulai memantau lagi setelah fail2ban dimuat ulang.": "The jail starts monitoring again after fail2ban reloads.",
   "Jail {0} diaktifkan.": "Jail {0} enabled.",
@@ -552,8 +551,6 @@ daftarkanTerjemahan({
   "Hapus Share": "Delete Share",
   "Hapus User": "Delete User",
   "Hapus akun": "Delete account",
-  "Hapus config WireGuard": "Delete WireGuard config",
-  "Hapus config wg": "Delete wg config",
   "Hapus container {0}": "Delete container {0}",
   "Hapus export {0}": "Delete export {0}",
   "Hapus home juga": "Delete home too",
@@ -649,8 +646,14 @@ daftarkanTerjemahan({
   "Ubah Password": "Change Password",
   "UFW Nonaktif": "UFW Disabled",
   "Unggah satu folder beserta seluruh isinya": "Upload a folder with everything inside it",
+  "Lepas untuk mengunggah": "Drop to upload",
+  "Kemajuan unggahan": "Upload progress",
+  "Server menulis berkas…": "Server is writing files…",
+  "Mengunggah {0}": "Uploading {0}",
+  "{0} berkas": "{0} files",
+  "koneksi ke server terputus": "the connection to the server was lost",
+  "unggahan dibatalkan": "the upload was cancelled",
   "Cari proses, PID, user...": "Search process, PID, user…",
-  "Config WireGuard dihapus.": "WireGuard config deleted.",
   "{0} dilepas dari {1}.": "{0} unbanned from {1}.",
   "{0} pintasan folder": "{0} folder shortcuts",
   "{0} user terdaftar": "{0} registered users",
@@ -832,8 +835,6 @@ daftarkanTerjemahan({
   "Resolusi nama seluruh server memakai daftar ini. Salah isi bisa memutus akses internet server.": "The whole server resolves names through this list. A wrong entry can cut off the server's internet access.",
   "tempel auth key, atau perintah `sudo tailscale up --auth-key=…`": "paste the auth key, or the `sudo tailscale up --auth-key=…` command",
   "tempel token, atau perintah `cloudflared service install <token>`": "paste the token, or the `cloudflared service install <token>` command",
-  "Isi wg0.conf": "wg0.conf contents",
-  "Wajib ada section [Interface]. Disimpan ke /etc/wireguard/wg0.conf (mode 0600).": "An [Interface] section is required. Saved to /etc/wireguard/wg0.conf (mode 0600).",
   "Export {0} ke jaringan?": "Export {0} to the network?",
   "Export diperbarui.": "Export updated.",
   "Export {0} dibuat.": "Export {0} created.",
@@ -1029,57 +1030,6 @@ daftarkanTerjemahan({
   "Pembaruan selesai. Muat ulang halaman untuk memakai versi baru.":
     "Update finished. Reload the page to use the new version.",
 
-  // ---- WireGuard mode server ----
-  "Jadikan server": "Make this a server",
-  "Atau tekan Sambung untuk memakai mesin ini sebagai klien dengan menempel config.":
-    "Or press Connect to use this machine as a client by pasting a config.",
-  "Subnet tunnel": "Tunnel subnet",
-  "Port UDP": "UDP port",
-  "Endpoint untuk klien": "Endpoint for clients",
-  "Endpoint adalah alamat yang dituju klien dari luar — IP publik atau hostname. Server di balik NAT tidak bisa menebaknya sendiri, dan port UDP-nya harus diteruskan router.":
-    "The endpoint is the address clients reach from outside — a public IP or hostname. A server behind NAT cannot guess it, and its UDP port must be forwarded by the router.",
-  "Siapkan": "Set up",
-  "Siapkan server WireGuard?": "Set up the WireGuard server?",
-  "Panel membuat kunci server, menulis config, menyalakan IP forwarding, menambah aturan NAT, dan membuka port UDP di firewall kalau ufw aktif.":
-    "The panel creates the server key, writes the config, enables IP forwarding, adds the NAT rules, and opens the UDP port in the firewall if ufw is active.",
-  "Server WireGuard siap.": "WireGuard server is ready.",
-  "Gagal menyiapkan server: {0}": "Could not set up the server: {0}",
-  "Gagal membaca config WireGuard: {0}": "Could not read the WireGuard config: {0}",
-  "Config klien terpasang di {0}. Mode server tidak aktif.":
-    "A client config is installed at {0}. Server mode is off.",
-  "Tambah klien": "Add client",
-  "Tambah klien WireGuard": "Add a WireGuard client",
-  "Nama klien": "Client name",
-  "mis. laptop-kerja": "e.g. work-laptop",
-  "Gagal menambah klien: {0}": "Could not add the client: {0}",
-  "Belum ada klien. Tambahkan satu untuk mendapat config + QR.":
-    "No clients yet. Add one to get its config and QR code.",
-  "Klien": "Client",
-  "Alamat": "Address",
-  "Handshake": "Handshake",
-  "Hapus klien {0}?": "Delete client {0}?",
-  "Hapus klien {0}": "Delete client {0}",
-  "Klien ini langsung kehilangan akses ke tunnel. Config yang ada di perangkatnya tidak akan bisa dipakai lagi.":
-    "This client loses tunnel access immediately. The config on its device stops working.",
-  "Klien dihapus.": "Client deleted.",
-  "Gagal menghapus klien: {0}": "Could not delete the client: {0}",
-  "endpoint belum tercatat": "endpoint not recorded",
-  "belum pernah": "never",
-  "{0} dtk lalu": "{0}s ago",
-  "{0} mnt lalu": "{0}m ago",
-  "{0} jam lalu": "{0}h ago",
-  "{0} hari lalu": "{0}d ago",
-  "Config klien {0}": "Config for {0}",
-  "Simpan sekarang — private key-nya tidak disimpan di server, jadi config ini tidak bisa ditampilkan lagi.":
-    "Save it now — the private key is not kept on the server, so this config cannot be shown again.",
-  "Scan dari app WireGuard di HP: Tambah tunnel → Buat dari QR code.":
-    "Scan it in the WireGuard phone app: Add tunnel → Create from QR code.",
-  "Salin config": "Copy config",
-  "Tersalin": "Copied",
-  "Selesai": "Done",
-  "Browser menolak akses clipboard — salin manual dari kotak di atas.":
-    "The browser denied clipboard access — copy manually from the box above.",
-
   // ---- uninstall panel ----
   "Uninstall panel": "Uninstall the panel",
   "Pilih sejauh mana yang dihapus. Tidak ada langkah yang bisa dibatalkan setelah dimulai.":
@@ -1121,10 +1071,10 @@ daftarkanTerjemahan({
     "The /etc/skel/DATA skeleton is removed too, so new accounts no longer get one",
   "Akun Linux dan home directory-nya sendiri TIDAK dihapus — yang hilang hanya folder DATA di dalamnya":
     "Linux accounts and their home directories are NOT deleted — only the DATA folder inside them is gone",
-  "Mode ini menghapus folder DATA di setiap akun — dokumen, foto, dan kode di dalamnya hilang permanen. Akun Linux Anda sendiri tidak dihapus, dan home directory-nya juga tidak; hanya folder DATA di dalamnya. Konfigurasi Samba, NFS, dan WireGuard tetap ditinggalkan apa adanya.":
-    "This mode deletes the DATA folder in every account — the documents, photos, and code inside are gone for good. Your Linux accounts are not deleted, nor are their home directories; only the DATA folder inside them. Samba, NFS, and WireGuard configuration is still left untouched.",
-  "Berkas pribadi di ~/DATA setiap akun tidak ikut dihapus pada mode ini. Akun Linux Anda juga tidak — yang dihapus hanya akun sistem linux-dashboard milik service. Konfigurasi Samba, NFS, dan WireGuard ditinggalkan apa adanya; pada mode hapus total, izin firewall milik komponen yang dicopot ikut dicabut.":
-    "Personal files in each account's ~/DATA are not deleted in this mode. Neither are your Linux accounts — only the linux-dashboard system account used by the service is removed. Samba, NFS, and WireGuard configuration is left untouched; in full-removal mode, firewall permissions belonging to the removed components are revoked with them.",
+  "Mode ini menghapus folder DATA di setiap akun — dokumen, foto, dan kode di dalamnya hilang permanen. Akun Linux Anda sendiri tidak dihapus, dan home directory-nya juga tidak; hanya folder DATA di dalamnya. Konfigurasi Samba dan NFS tetap ditinggalkan apa adanya.":
+    "This mode deletes the DATA folder in every account — the documents, photos, and code inside are gone for good. Your Linux accounts are not deleted, nor are their home directories; only the DATA folder inside them. Samba and NFS configuration is still left untouched.",
+  "Berkas pribadi di ~/DATA setiap akun tidak ikut dihapus pada mode ini. Akun Linux Anda juga tidak — yang dihapus hanya akun sistem linux-dashboard milik service. Konfigurasi Samba dan NFS ditinggalkan apa adanya; pada mode hapus total, izin firewall milik komponen yang dicopot ikut dicabut.":
+    "Personal files in each account's ~/DATA are not deleted in this mode. Neither are your Linux accounts — only the linux-dashboard system account used by the service is removed. Samba and NFS configuration is left untouched; in full-removal mode, firewall permissions belonging to the removed components are revoked with them.",
   "Ketik {0} untuk menyalakan tombol Uninstall.": "Type {0} to enable the Uninstall button.",
   "Tulisan belum sama — harus persis {0}.": "Not a match yet — it must be exactly {0}.",
   "Ketik {0}": "Type {0}",
@@ -1242,7 +1192,6 @@ daftarkanTerjemahan({
   "Antrean {0} dinyalakan": "Queue {0} enabled",
   "Membatalkan cetakan {0}…": "Cancelling print job {0}…",
   "Menyimpan DNS nameserver…": "Saving DNS nameservers…",
-  "Menghapus config WireGuard…": "Removing the WireGuard config…",
   "Menghubungkan {0}…": "Connecting {0}…",
   "Memutus {0}…": "Disconnecting {0}…",
   "Menyalakan ufw…": "Enabling ufw…",
@@ -1302,7 +1251,6 @@ daftarkanTerjemahan({
   "Gagal menyiapkan {0}: {1}": "Could not prepare {0}: {1}",
   "{0} sudah berisi filesystem — pilih Timpa di jendela penyiapan.":
     "{0} already holds a filesystem — choose Overwrite in the setup dialog.",
-  "Menyiapkan server WireGuard…": "Setting up the WireGuard server…",
   "Menambah klien {0}…": "Adding client {0}…",
   "Klien {0} ditambahkan.": "Client {0} added.",
   "Menghapus klien {0}…": "Removing client {0}…",

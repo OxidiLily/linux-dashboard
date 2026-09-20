@@ -174,10 +174,6 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/settings/network/dns", s.handleSetDNS)
 			r.Get("/settings/network/vpn", s.handleVPNStatus)
 			r.Put("/settings/network/vpn/{name}", s.handleVPNConfigure)
-			r.Get("/settings/network/wireguard", s.handleWGServerInfo)
-			r.Post("/settings/network/wireguard/server", s.handleWGServerInit)
-			r.Post("/settings/network/wireguard/peers", s.handleWGPeerAdd)
-			r.Delete("/settings/network/wireguard/peers", s.handleWGPeerDelete)
 
 			r.Get("/firewall/rules", s.handleFirewallList)
 			r.Post("/firewall/rules", s.handleFirewallAdd)

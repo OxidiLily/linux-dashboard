@@ -278,6 +278,13 @@ export function FileManagerView() {
   // induk sebelum enter berikutnya tiba.
   const [sedangDrop, setSedangDrop] = useState(false)
   const dragCounter = useRef(0)
+  // Kemajuan unggahan nyata dari XHR (upload.onprogress), bukan animasi
+  // "sedang bekerja": berkas besar lewat LAN lambat butuh puluhan detik, dan
+  // tanpa angka user tidak bisa membedakan masih berjalan dari menggantung.
+  // menulis = byte terakhir sudah terkirim, helper masih menuliskannya ke disk.
+  const [unggahan, setUnggahan] = useState<{ nama: string; persen: number; menulis: boolean } | null>(
+    null,
+  )
 
   const loadRoots = async () => {
     try {
@@ -392,21 +399,59 @@ export function FileManagerView() {
     if (files.length === 0) return
     const formData = new FormData()
     files.forEach((f) => formData.append("files", f, (f as any).webkitRelativePath || f.name))
+    // Satu nama yang bisa dibaca user di bar: nama berkasnya kalau cuma satu,
+    // jumlahnya kalau banyak — daftar panjang tidak muat di satu baris.
+    const nama =
+      files.length === 1
+        ? (files[0] as any).webkitRelativePath || files[0].name
+        : trf("{0} berkas", files.length)
     setLoading(true)
+    setUnggahan({ nama, persen: 0, menulis: false })
     try {
-      const res = await fetch(`/api/files/upload?path=${encodeURIComponent(currentPath)}`, {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      })
-      if (!res.ok) throw new Error(`Upload error ${res.status}`)
+      await kirimUnggahan(
+        formData,
+        (persen) => setUnggahan({ nama, persen, menulis: false }),
+        // 100% terkirim BUKAN 100% selesai: helper masih menulis berkasnya ke
+        // disk, dan untuk folder besar itu bagian yang paling lama. Tanpa
+        // keadaan terpisah ini bar berdiri diam di 100% tanpa keterangan.
+        () => setUnggahan({ nama, persen: 100, menulis: true }),
+      )
       loadDir(currentPath)
     } catch (err: any) {
       notify.err(trf("Upload gagal: {0}", pesanError(err)))
     } finally {
       setLoading(false)
+      setUnggahan(null)
     }
   }
+
+  // kirimUnggahan memakai XMLHttpRequest, bukan fetch: hanya XHR yang punya
+  // event kemajuan untuk PENGIRIMAN (upload.onprogress). Dengan fetch(),
+  // satu-satunya kabar yang tersedia adalah "sedang mengunggah" tanpa akhir
+  // yang jelas — dan justru di situasi itu (berkas besar, LAN lambat) panel
+  // paling sering dikira menggantung.
+  const kirimUnggahan = (
+    formData: FormData,
+    saatProgres: (persen: number) => void,
+    saatTerkirim: () => void,
+  ) =>
+    new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open("POST", `/api/files/upload?path=${encodeURIComponent(currentPath)}`)
+      // Setara credentials: "include" pada fetch — cookie sesi PAM ikut.
+      xhr.withCredentials = true
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) saatProgres(Math.round((e.loaded / e.total) * 100))
+      }
+      xhr.upload.onload = saatTerkirim
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve()
+        else reject(new Error(`Upload error ${xhr.status}`))
+      }
+      xhr.onerror = () => reject(new Error(tr("koneksi ke server terputus")))
+      xhr.onabort = () => reject(new Error(tr("unggahan dibatalkan")))
+      xhr.send(formData)
+    })
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return
@@ -1074,6 +1119,37 @@ export function FileManagerView() {
             <Upload className="mx-auto size-10 text-signal" />
             <p className="mt-2 text-sm font-semibold">{tr("Lepas untuk mengunggah")}</p>
             <p className="text-xs text-muted-foreground">{currentPath}</p>
+          </div>
+        </div>
+      )}
+      {/* Bar kemajuan unggahan. Bukan lapisan modal: user harus tetap bisa
+          membaca daftar berkas dan melihat berkas yang baru muncul. Angkanya
+          dari byte yang benar-benar terkirim (XHR), jadi ia bergerak sesuai
+          jaringan yang ada — bukan animasi yang selesai sebelum datanya. */}
+      {unggahan && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+          <div
+            className="w-full max-w-sm rounded-lg border border-border bg-surface/95 p-3 shadow-xl"
+            role="progressbar"
+            aria-valuenow={unggahan.persen}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={tr("Kemajuan unggahan")}
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-xs text-muted-foreground">
+                {unggahan.menulis
+                  ? tr("Server menulis berkas…")
+                  : trf("Mengunggah {0}", unggahan.nama)}
+              </span>
+              <span className="num shrink-0 text-[11px] text-muted-2">{unggahan.persen}%</span>
+            </div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+              <div
+                className="h-full rounded-full bg-signal transition-[width] duration-200 ease-out"
+                style={{ width: `${unggahan.persen}%` }}
+              />
+            </div>
           </div>
         </div>
       )}

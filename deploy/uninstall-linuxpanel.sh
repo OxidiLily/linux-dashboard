@@ -21,7 +21,7 @@
 # jelas; ini terjadi kalau linux-dashboard dipasang dari paket yang tidak
 # menyertakan skrip uninstall.
 #
-# TIDAK menghapus: ~/DATA/* user (kecuali mode total-data) dan konfigurasi layanan di luar panel (Samba/NFS/WireGuard).
+# TIDAK menghapus: ~/DATA/* user (kecuali mode total-data) dan konfigurasi layanan di luar panel (Samba/NFS).
 set -uo pipefail
 
 PREFIX="${PREFIX:-/usr/local/bin}"

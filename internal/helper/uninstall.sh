@@ -40,12 +40,6 @@ log "Mode: ${MODE}"
 for unit in linux-dashboard-web linux-dashboard-helper smbd nmbd 9router headroom; do
   systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
 done
-if compgen -G "/etc/wireguard/*.conf" >/dev/null; then
-  for iface in /etc/wireguard/*.conf; do
-    bn=$(basename "$iface" .conf)
-    systemctl disable --now "wg-quick@${bn}.service" >/dev/null 2>&1 || true
-  done
-fi
 ok "Service panel dan layanan terkait dihentikan & di-disable"
 
 rm -f /etc/systemd/system/linux-dashboard-web.service \
@@ -219,8 +213,12 @@ if [[ "$MODE" != "panel" ]]; then
     fail2ban-client reload >/dev/null 2>&1 || true
   fi
 
-  # Bersihkan konfigurasi WireGuard panel
-  rm -f /etc/wireguard/wg0.conf
+  # Sisa rilis panel lama yang mengelola WireGuard: berkas ini ditulis panel
+  # (nama berkasnya berawalan linux-dashboard), jadi ia tetap dibersihkan
+  # meski komponen WireGuard sudah tidak ada lagi di katalog. Konfigurasi
+  # /etc/wireguard sendiri TIDAK disentuh — sejak WireGuard bukan komponen
+  # panel, isinya bukan lagi milik panel untuk dihapus.
+  rm -f /etc/sysctl.d/99-linux-dashboard-wg.conf
 
   # Bersihkan konfigurasi NFS panel
   rm -f /etc/exports.d/lindash.exports
@@ -302,5 +300,5 @@ if [[ "$MODE" == "total-data" ]]; then
 else
   echo "[i] Folder data akun (~/DATA/*) TIDAK dihapus — isinya milik pemilik akun."
 fi
-ok "Layanan dan konfigurasi yang dikelola panel (Samba, NFS, WireGuard, 9router, Headroom) telah dibersihkan."
+ok "Layanan dan konfigurasi yang dikelola panel (Samba, NFS, 9router, Headroom) telah dibersihkan."
 ok "Uninstall selesai (mode ${MODE})."
