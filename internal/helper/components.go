@@ -1402,6 +1402,10 @@ func uninstallDocker() error {
 		return err
 	}
 	hapusRepoAPT(dockerList, dockerKeyring)
+	// Rule yang dibuat untuk port container ikut dicabut: container-nya sudah
+	// tidak ada, dan tanpa ini port layanan yang sudah mati tetap terbuka di
+	// firewall tanpa satu pun baris di panel yang menjelaskan asalnya.
+	cabutSemuaPortDocker()
 	return nil
 }
 

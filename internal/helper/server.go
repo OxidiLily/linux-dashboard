@@ -93,6 +93,9 @@ func NewServer(socketPath, secretPath, socketGroup string) (*Server, error) {
 	}
 	go s.gcNonces()
 	go daftarkanPortSemuaKomponen()
+	// Port container menyusul di latar: daftarnya hanya bisa diketahui dengan
+	// bertanya ke docker, dan panel tidak boleh menunggu jawabannya saat start.
+	go pengawasPortDocker()
 	return s, nil
 }
 
@@ -676,12 +679,20 @@ func run(name string, args ...string) (helperproto.ExecResult, error) {
 	return runIn("", nil, name, args...)
 }
 
+// pathExec adalah PATH yang dipakai setiap perintah eksternal helper.
+//
+// Variabel, bukan konstanta yang ditulis di dua tempat: test menyisipkan
+// direktori binary tiruan di depannya, sehingga alur seperti reconciler port
+// container bisa diuji utuh — perintah yang benar-benar dipanggil, urutannya,
+// dan argumennya — tanpa menyentuh `docker` atau `ufw` mesin pengembang.
+var pathExec = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 // runStdin sama dengan run, tapi mengirim isi stdin — dipakai perintah yang
 // membaca dari pipe, mis. `wg pubkey` yang menerima private key lewat stdin.
 func runStdin(stdin string, name string, args ...string) (helperproto.ExecResult, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Env = []string{
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"PATH=" + pathExec,
 		"LC_ALL=C",
 	}
 	cmd.Stdin = strings.NewReader(stdin)
@@ -700,7 +711,7 @@ func runIn(dir string, extraEnv []string, name string, args ...string) (helperpr
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Env = append([]string{
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"PATH=" + pathExec,
 		"HOME=/root",
 		"DEBIAN_FRONTEND=noninteractive",
 		"LC_ALL=C",

@@ -520,6 +520,44 @@ re-register component ports, and a jail that already exists or has been deleted
 is not recreated. The only thing still guaranteed before the firewall comes up is
 admin access, because losing that means losing the machine.
 
+### Docker container ports are watched too
+
+Containers publish host ports (`0.0.0.0:8090->8090/tcp`) through docker, not
+through ufw: those rules live in docker's own iptables chains, and the Firewall
+page never sees them. The helper closes that gap with a reconciler that runs
+every **30 seconds**:
+
+- a **running** container → every host port it publishes is registered as
+  `allow <port>/<proto>` (`Anywhere`, same as component ports);
+- a **stopped/exited** container → that allowance is withdrawn again, so a dead
+  service does not leave its port open behind it.
+
+The reconciler is also triggered right after Start/Stop/Restart/Remove from the
+panel or `compose up/down`, and before the UFW switch on the Firewall page is
+turned on — there is no need for a window of a few seconds where container
+services are unreachable. The periodic pass is still needed because containers
+also start from a terminal, from `docker compose` outside the panel, or through
+`restart: always` after a reboot.
+
+What it does **not** touch:
+
+- rules that existed before the panel saw them — component rules, SSH/panel, and
+  rules you wrote yourself are never claimed as the panel's, so they are never
+  withdrawn;
+- ports already declared by a component (Samba, NFS, Supabase, 9router, …), in
+  whatever order things were installed;
+- a rule you deleted yourself in Settings → Firewall: for as long as the
+  container still uses that port, the rule is **not** recreated.
+
+If docker cannot answer (`docker ps` fails), nothing changes — an unreadable
+container list is not proof that the containers stopped. If only part of the
+list was readable, new allowances are still opened but withdrawals wait for the
+next pass, because the containers that failed to read may still be running.
+
+The record of who owns which rule lives in
+`/var/lib/linux-dashboard/docker-ports.json`. Removing the `docker` component
+withdraws every rule created this way.
+
 ---
 
 ## Disks & Disk Pool
