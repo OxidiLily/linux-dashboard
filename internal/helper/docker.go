@@ -96,7 +96,41 @@ func dockerExec(args helperproto.DockerExecArgs) (helperproto.ExecResult, error)
 		return helperproto.ExecResult{}, errKode(helperproto.ErrBelumTerpasang,
 			"Docker belum terpasang — pasang dulu lewat Settings → Components")
 	}
-	return runIn(args.Dir, nil, "docker", args.Args...)
+	res, err := runIn(args.Dir, nil, "docker", args.Args...)
+	if err != nil {
+		return res, err
+	}
+	// Aksi yang mengubah keadaan container mengubah pula daftar port host yang
+	// perlu diizinkan firewall. Reconciler dibangunkan supaya izinnya menyusul
+	// segera, bukan menunggu putaran berkala. Asinkron: balasan ke panel tidak
+	// boleh menunggu `docker inspect` selesai.
+	if dockerUbahKeadaan(sub, args.Args[1:]) {
+		picuSinkronPortDocker()
+	}
+	return res, nil
+}
+
+// dockerUbahKeadaan menandai subcommand docker yang bisa membuat daftar port
+// host berubah — dinyalakan, dimatikan, di-restart, atau dihapus.
+//
+// Daftarnya sengaja pendek: `ps`, `logs`, `inspect`, `stats`, dan `compose ps`
+// dibaca berkali-kali saat halaman Docker terbuka, dan membangunkan reconciler
+// untuk setiap bacaan berarti `docker inspect` yang tidak ada gunanya.
+func dockerUbahKeadaan(sub string, rest []string) bool {
+	switch sub {
+	case "start", "stop", "restart", "rm":
+		return true
+	case "compose":
+		s, err := composeSub(rest)
+		if err != nil {
+			return false
+		}
+		switch s {
+		case "up", "down", "start", "stop", "restart":
+			return true
+		}
+	}
+	return false
 }
 
 // checkDayaArgs memvalidasi `docker <volume|network|image|system|builder> <sub> ...`.
@@ -122,24 +156,41 @@ func checkDayaArgs(daya string, rest []string) error {
 	return nil
 }
 
-func checkComposeArgs(rest []string) error {
+// composeSub mengambil subcommand dari daftar argumen compose, melewati opsi
+// yang membawa nilai. Kembalian "" berarti tidak ada subcommand sama sekali.
+//
+// Dipakai dua tempat: validasi izin (`checkComposeArgs`) dan penentuan apakah
+// aksinya mengubah keadaan container (`dockerUbahKeadaan`). Dipisah supaya
+// keduanya tidak pernah berbeda pendapat soal di mana subcommand-nya berada.
+func composeSub(rest []string) (string, error) {
 	// Bentuk yang dipakai panel: compose -f <path> [--env-file <path>] <sub> ...
 	for i := 0; i < len(rest); i++ {
 		a := rest[i]
 		switch {
 		case a == "-f" || a == "--file" || a == "--env-file" || a == "-p" || a == "--project-name":
 			if i+1 >= len(rest) {
-				return errInvalid("opsi %s butuh nilai", a)
+				return "", errInvalid("opsi %s butuh nilai", a)
 			}
 			i++
 		case strings.HasPrefix(a, "-"):
 			// Flag lain (mis. -d, --remove-orphans) tidak membawa path, aman dilewati.
 		default:
-			if !allowedComposeSub[a] {
-				return errInvalid("subcommand compose %q tidak diizinkan", a)
-			}
-			return nil
+			return a, nil
 		}
 	}
-	return errInvalid("subcommand compose tidak ditemukan")
+	return "", nil
+}
+
+func checkComposeArgs(rest []string) error {
+	sub, err := composeSub(rest)
+	if err != nil {
+		return err
+	}
+	if sub == "" {
+		return errInvalid("subcommand compose tidak ditemukan")
+	}
+	if !allowedComposeSub[sub] {
+		return errInvalid("subcommand compose %q tidak diizinkan", sub)
+	}
+	return nil
 }

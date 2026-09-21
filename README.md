@@ -607,6 +607,46 @@ mendaftarkan ulang port komponen, dan jail yang sudah ada atau sudah dihapus
 tidak dibuat ulang. Yang tetap dipastikan sebelum firewall menyala hanya akses
 admin, karena kehilangan itu berarti kehilangan mesinnya.
 
+### Port container Docker ikut dijaga
+
+Container mempublikasikan port host (`0.0.0.0:8090->8090/tcp`) lewat docker,
+bukan lewat ufw: aturannya hidup di chain iptables milik docker, dan halaman
+Firewall tidak pernah melihatnya. Helper menutup jarak itu dengan pengawas yang
+menyelaraskan keduanya setiap **30 detik**:
+
+- container **sedang jalan** → setiap port host yang dipublikasikannya
+  didaftarkan sebagai `allow <port>/<proto>` (`Anywhere`, sama seperti port
+  komponen);
+- container **berhenti/keluar** → izin itu dicabut lagi, supaya port layanan
+  yang sudah mati tidak tertinggal terbuka.
+
+Penyelarasan juga langsung dipicu sesudah Start/Stop/Restart/Hapus container
+atau `compose up/down` dari panel, dan sebelum tombol UFW di halaman Firewall
+dinyalakan — jendela beberapa detik di mana layanan container tidak bisa
+dihubungi tidak perlu ada. Pemeriksaan berkala tetap perlu karena container
+juga menyala dari terminal, dari `docker compose` di luar panel, atau oleh
+`restart: always` sesudah reboot.
+
+Yang **tidak** disentuh:
+
+- rule yang sudah ada sebelum panel melihatnya — rule komponen, SSH/panel, dan
+  rule yang ditulis sendiri tidak pernah diakui sebagai milik panel, jadi tidak
+  pernah dicabut;
+- port yang sudah dideklarasikan komponen (Samba, NFS, Supabase, 9router, …),
+  berapa pun urutan pemasangannya;
+- rule yang dihapus sendiri lewat Settings → Firewall: selama container-nya
+  masih memakai port itu, rule tersebut **tidak** dibuat ulang.
+
+Kalau docker tidak bisa dijawab (`docker ps` gagal), tidak ada yang diubah —
+daftar container yang tidak terbaca bukan bukti bahwa container-nya berhenti.
+Kalau hanya sebagian daftar yang terbaca, izin baru tetap dibuka tapi
+pencabutan ditunda ke putaran berikutnya, karena container yang gagal dibaca
+mungkin masih jalan.
+
+Catatan rule siapa-milik-siapa ada di
+`/var/lib/linux-dashboard/docker-ports.json`. Mencopot komponen `docker`
+mencabut seluruh rule yang dibuat dengan cara ini.
+
 ---
 
 ## Disk & Disk Pool

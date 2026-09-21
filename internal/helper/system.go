@@ -2,6 +2,7 @@ package helper
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"regexp"
 	"strconv"
@@ -434,12 +435,29 @@ func ufwDelete(num, spec string) error {
 		if len(args) < 3 {
 			return errInvalid("spec rule kosong")
 		}
-		_, err := run("ufw", args...)
-		return err
+		if _, err := run("ufw", args...); err != nil {
+			return err
+		}
+		// Diberitahukan ke reconciler port container supaya rule itu tidak
+		// dibuat ulang pada putaran berikutnya — lihat tandaiPortDockerDihapus.
+		if r, ok := parseAddedRule("ufw " + spec); ok {
+			tandaiPortDockerDihapus(r.Port, r.Proto)
+		}
+		return nil
 	}
 	n, err := strconv.Atoi(num)
 	if err != nil || n <= 0 {
 		return errInvalid("nomor rule tidak valid")
+	}
+	// Bentuk rule dicari SEBELUM dihapus: nomor hanyalah posisi dalam daftar,
+	// dan sesudah satu rule hilang seluruh nomor di bawahnya bergeser.
+	if st, err := ufwStatus(); err == nil {
+		for _, r := range st.Rules {
+			if nn, e := strconv.Atoi(r.Num); e == nil && nn == n {
+				tandaiPortDockerDihapus(r.Port, r.Proto)
+				break
+			}
+		}
 	}
 	_, err = run("ufw", "--force", "delete", strconv.Itoa(n))
 	return err
@@ -452,6 +470,14 @@ func ufwToggle(enable bool) error {
 	// SEBELUM firewall menyala, bukan sesudah.
 	if enable {
 		daftarkanPortSemuaKomponen()
+		// Port container dipastikan SEBELUM firewall menyala, dan kali ini
+		// sinkron: menyalakan ufw memutus setiap port yang belum punya rule,
+		// termasuk container yang sedang melayani permintaan. Menyerahkan ini
+		// ke penyelarasan berkala berarti ada jendela beberapa detik di mana
+		// layanan itu tidak bisa dihubungi.
+		if err := sinkronkanPortDocker(); err != nil {
+			log.Printf("firewall: port container tidak bisa dipastikan sebelum ufw dinyalakan: %v", err)
+		}
 	}
 	// "ufw enable" interaktif (konfirmasi "Command may disrupt existing ssh
 	// connections") -- pakai --force supaya tidak menggantung.
