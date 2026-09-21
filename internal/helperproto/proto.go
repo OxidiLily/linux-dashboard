@@ -910,6 +910,16 @@ type UpdateStatus struct {
 	// riwayat lokal tidak menyambung ke remote (checkout dangkal dari sumber
 	// lain, atau ketinggalan lebih jauh dari jendela yang diambil).
 	PerubahanPasti bool `json:"perubahan_pasti,omitempty"`
+	// Jarak = berapa commit yang belum terpasang, yaitu panjang daftar di atas.
+	// Isinya bermakna bersama PerubahanPasti: kalau PerubahanPasti=false,
+	// angkanya adalah batas jendela (mis. 20) dan artinya "sekurang-kurangnya
+	// sebanyak itu" — panel yang tertinggal puluhan commit memang tidak bisa
+	// dihitung tepat dari checkout dangkal.
+	//
+	// Angka ini yang membuat sifat "sekali tekan = versi terakhir" terlihat di
+	// modal: user tahu yang dipasang adalah ujung branch, berapa pun jumlah
+	// commit yang dilompati.
+	Jarak int `json:"jarak,omitempty"`
 }
 
 // UpdateArgs menyalakan pengecekan versi remote — sengaja opsional karena

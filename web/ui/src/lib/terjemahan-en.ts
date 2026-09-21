@@ -1010,14 +1010,20 @@ daftarkanTerjemahan({
   "Versi terpasang tidak terbaca — sumber belum ada di mesin ini.":
     "Installed version unreadable — the source is not on this machine yet.",
   "Ada versi baru di GitHub: {0}": "A newer version is on GitHub: {0}",
+  "Tertinggal {0} commit — satu kali Perbarui memasang versi terakhir sekaligus, bukan satu per satu.":
+    "{0} commits behind — a single Update installs the latest version in one go, not one commit at a time.",
+  "Tertinggal sekurang-kurangnya {0} commit — satu kali Perbarui memasang versi terakhir sekaligus.":
+    "At least {0} commits behind — a single Update installs the latest version in one go.",
+  "Satu kali Perbarui memasang versi terakhir di GitHub sekaligus, berapa pun commit yang tertinggal.":
+    "A single Update installs the latest version on GitHub in one go, however many commits behind you are.",
   "Sudah versi terbaru.": "Already up to date.",
   "Versi di GitHub tidak terbaca — cek koneksi mesin ini ke github.com.":
     "The GitHub version could not be read — check this machine's connection to github.com.",
   "Belum ada pembaruan yang dijalankan di mesin ini.":
     "No update has been run on this machine yet.",
   "Jalankan pembaruan panel?": "Run the panel update?",
-  "Sumber ditarik ulang dari GitHub, dibangun ulang, lalu kedua service di-restart. Panel akan terputus sebentar di akhir proses, dan build bisa memakan beberapa menit di mesin kecil.":
-    "The source is pulled again from GitHub, rebuilt, then both services are restarted. The panel drops briefly at the end, and the build can take several minutes on a small machine.",
+  "Sumber ditarik ulang dari GitHub langsung ke versi paling baru — berapa pun commit yang tertinggal, bukan satu per satu — lalu dibangun ulang dan kedua service di-restart. Panel akan terputus sebentar di akhir proses, dan build bisa memakan beberapa menit di mesin kecil.":
+    "The source is pulled again from GitHub straight to the newest version — however many commits behind you are, not one at a time — then rebuilt and both services are restarted. The panel drops briefly at the end, and the build can take several minutes on a small machine.",
   "Perbarui": "Update",
   "Perbarui sekarang": "Update now",
   "Memperbarui…": "Updating…",

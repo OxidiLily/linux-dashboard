@@ -100,6 +100,7 @@ func updateStatus(args helperproto.UpdateArgs) helperproto.UpdateStatus {
 		}
 		if st.Tertinggal && args.Rinci {
 			st.Perubahan, st.PerubahanPasti = daftarPerubahan(lokalSha)
+			st.Jarak = len(st.Perubahan)
 		}
 	}
 	return st
