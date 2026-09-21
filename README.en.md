@@ -505,6 +505,11 @@ upon installation, so users never have to add firewall rules manually. Installin
 later does not leave existing components behind — at that point every installed
 component's ports are registered after the fact. Removing a component withdraws its allowance again.
 
+Every rule the panel writes carries its **owner label** — `ufw allow 445/tcp
+comment 'Samba'` — so both `ufw status numbered` and the Firewall page name who
+uses the port: `Samba`, `SSH`, `panel linux-dashboard`, `Docker: <container>`,
+`9router`, and so on. The Firewall page shows it as `# <label>` next to the port.
+
 fail2ban ships no filter for a single component in the catalog, so the `sshd`
 jail is enabled automatically when fail2ban is installed, and the Samba filter is
 installed by the panel itself. That filter is only useful if failed logins are
@@ -518,7 +523,35 @@ removing the block restores the old configuration exactly).
 Rules and jails created afterwards **belong to the user**: `ufw enable` does not
 re-register component ports, and a jail that already exists or has been deleted
 is not recreated. The only thing still guaranteed before the firewall comes up is
-admin access, because losing that means losing the machine.
+admin access, because losing that means losing the machine. Component ports are
+still kept in step afterwards — but through the state of their services, not
+through `ufw enable`.
+
+### Component ports follow the state of their service
+
+A port the panel registered is not left open once its service is gone. The same
+reconciler that watches containers runs every **30 seconds** (and whenever a
+component is installed/removed/started/stopped from the panel):
+
+- service **alive** → its port is opened and labelled. A legacy rule from a panel
+  version predating labels is **updated in place** (`ufw` prints "Rule updated")
+  rather than deleted and rewritten: there is no window where the port is closed,
+  and an existing scope — e.g. one deliberately limited to the local subnet — is
+  not widened;
+- service **stopped, or its unit no longer exists** (e.g. the CUPS package was
+  removed) → the allowance is withdrawn again. A port left open for a dead service
+  protects nothing. Unlabelled legacy rules are withdrawn too, **unless** the port
+  is currently published by a running container or its scope is limited to another
+  address — those two shapes were not written by the panel and are left alone;
+- a rule you deleted yourself in Settings → Firewall is **not** recreated for as
+  long as its service is alive; a rule that disappeared outside the panel
+  (`ufw reset`, deleted from a terminal) is restored, because keeping it is the
+  reconciler's job.
+
+Anything that cannot be read is not treated as dead: a `systemctl` or `ufw` error
+only defers that round, it does not withdraw the allowance of a service that may
+still be running. The panel's rule bookkeeping lives in
+`/var/lib/linux-dashboard/komponen-ports.json`.
 
 ### Docker container ports are watched too
 

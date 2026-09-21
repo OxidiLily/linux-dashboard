@@ -592,6 +592,12 @@ sehingga pengguna tidak perlu memasukkan port manual. Memasang `ufw` belakangan
 tidak membuat komponen yang sudah ada tertinggal — saat itu seluruh port komponen
 yang terpasang didaftarkan menyusul. Mencopot komponen mencabut izinnya lagi.
 
+Setiap rule yang ditulis panel membawa **label pemiliknya** — `ufw allow 445/tcp
+comment 'Samba'` — jadi `ufw status numbered` maupun halaman Firewall menyebut
+siapa yang memakai portnya: `Samba`, `SSH`, `panel linux-dashboard`,
+`Docker: <nama container>`, `9router`, dan seterusnya. Halaman Firewall
+menampilkannya sebagai `# <label>` di sebelah port.
+
 fail2ban tidak menyediakan filter untuk satu pun komponen di katalog, jadi jail
 `sshd` dinyalakan otomatis saat fail2ban dipasang, dan filter Samba dipasang
 panel sendiri. Filter itu hanya berguna kalau kegagalan login benar-benar
@@ -605,7 +611,36 @@ blok itu mengembalikan konfigurasi lama persis).
 Aturan dan jail yang dibuat **sesudahnya milik user**: `ufw enable` tidak
 mendaftarkan ulang port komponen, dan jail yang sudah ada atau sudah dihapus
 tidak dibuat ulang. Yang tetap dipastikan sebelum firewall menyala hanya akses
-admin, karena kehilangan itu berarti kehilangan mesinnya.
+admin, karena kehilangan itu berarti kehilangan mesinnya. Port komponen tetap
+diselaraskan sesudahnya — tapi lewat keadaan layanannya, bukan lewat `ufw enable`.
+
+### Port komponen mengikuti keadaan layanannya
+
+Port yang didaftarkan panel tidak dibiarkan tetap terbuka sesudah layanannya
+hilang. Penyelaras yang sama dengan pengawas container berjalan setiap **30
+detik** (dan tiap kali komponen dipasang/dicopot/dinyalakan/dihentikan dari
+panel):
+
+- layanan **hidup** → portnya dibuka dan dilabeli. Rule lama dari versi panel
+  sebelum label ada **diperbarui di tempat** (`ufw` mencetak "Rule updated"),
+  bukan dihapus lalu ditulis ulang: tidak ada jeda saat portnya tertutup, dan
+  cakupan yang sudah ada — mis. yang sengaja dibatasi ke subnet lokal — tidak
+  ikut dilonggarkan;
+- layanan **mati, atau unitnya sudah tidak ada** (mis. paket CUPS dicopot) →
+  izinnya dicabut lagi. Port yang tetap terbuka untuk layanan yang sudah mati
+  tidak menjaga apa pun. Rule lama yang belum berlabel pun ikut dicabut,
+  **kecuali** kalau portnya sedang dipublikasikan container yang jalan, atau
+  cakupannya dibatasi ke alamat lain — dua bentuk itu bukan tulisan panel, jadi
+  tidak disentuh;
+- rule yang dihapus sendiri lewat Settings → Firewall **tidak** dibuat ulang
+  selama layanannya masih hidup; sedangkan rule yang hilang di luar panel
+  (`ufw reset`, dihapus dari terminal) dikembalikan, karena menjaga itulah
+  tugasnya.
+
+Yang gagal dibaca tidak dianggap mati: `systemctl` atau `ufw` yang error hanya
+menunda putaran itu, bukan mencabut izin layanan yang mungkin masih jalan.
+Catatan rule milik panel disimpan di
+`/var/lib/linux-dashboard/komponen-ports.json`.
 
 ### Port container Docker ikut dijaga
 

@@ -152,6 +152,11 @@ func serviceAction(args helperproto.ServiceArgs) error {
 			return err
 		}
 	}
+	// Keadaan service baru saja diubah dari panel. Port komponen disesuaikan
+	// sekarang, bukan menunggu putaran berkala: service yang baru dinyalakan
+	// harus bisa dihubungi dari LAN begitu halaman ini selesai memuat ulang,
+	// dan yang baru dimatikan tidak boleh meninggalkan izin terbuka.
+	picuSinkronPortKomponen()
 	return nil
 }
 
@@ -261,7 +266,21 @@ func systemctlDiagnose(unit, action string) string {
 // ---- ufw ----
 
 // Baris `ufw status numbered` berbentuk: "[ 1] 22/tcp   ALLOW IN   Anywhere"
+// atau, kalau rule-nya berlabel, "... Anywhere   # Samba".
 var ufwLineRe = regexp.MustCompile(`^\[\s*(\d+)\]\s+(\S+)\s+(ALLOW|DENY|REJECT|LIMIT)\s+(IN|OUT)\s+(.*)$`)
+
+// ufwCommentRe memisahkan label pemilik dari kolom terakhir `ufw status`.
+// ufw menulisnya sebagai "<sumber> # <label>"; tanpa pemisahan ini labelnya
+// ikut terbaca sebagai bagian dari alamat sumber.
+var ufwCommentRe = regexp.MustCompile(`^(.*?)\s+#\s*(.*)$`)
+
+// pisahKomentar memecah "Anywhere # Samba" menjadi "Anywhere" dan "Samba".
+func pisahKomentar(s string) (sumber, komentar string) {
+	if m := ufwCommentRe.FindStringSubmatch(strings.TrimSpace(s)); m != nil {
+		return strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
+	}
+	return strings.TrimSpace(s), ""
+}
 
 type UfwStatus struct {
 	Enabled bool                  `json:"enabled"`
@@ -280,13 +299,18 @@ func ufwStatus() (UfwStatus, error) {
 			continue
 		}
 		port, proto, _ := strings.Cut(m[2], "/")
+		// Label pemilik dipisah dari kolom sumber sebelum dipakai: "Anywhere #
+		// Samba" bukan alamat, dan membiarkannya utuh membuat rule berlabel
+		// gagal disimpan ulang saat diedit dari halaman Firewall.
+		sumber, komentar := pisahKomentar(m[5])
 		st.Rules = append(st.Rules, helperproto.UfwRule{
-			Num:    m[1],
-			Action: strings.ToLower(m[3]),
-			Port:   port,
-			Proto:  proto,
-			From:   strings.TrimSpace(m[5]),
-			Raw:    strings.TrimSpace(line),
+			Num:     m[1],
+			Action:  strings.ToLower(m[3]),
+			Port:    port,
+			Proto:   proto,
+			From:    sumber,
+			Comment: komentar,
+			Raw:     strings.TrimSpace(line),
 		})
 	}
 	// Saat ufw nonaktif, `ufw status numbered` hanya mencetak "Status: inactive"
@@ -315,7 +339,32 @@ func parseAddedRule(line string) (helperproto.UfwRule, bool) {
 	}
 	r := helperproto.UfwRule{Action: strings.ToLower(f[1]), Raw: strings.Join(f[1:], " ")}
 	rest := f[2:]
+	// Label dipisah lebih dulu: `ufw show added` menulisnya sebagai
+	// "comment 'SSH'", dan tokennya bukan bagian dari bentuk rule. Label boleh
+	// memuat spasi ("panel linux-dashboard"), dan `strings.Fields` memecahnya —
+	// jadi yang digabungkan adalah seluruh token sampai kutip penutupnya.
+	for i, t := range rest {
+		if t != "comment" || i+1 >= len(rest) {
+			continue
+		}
+		var potongan []string
+		for _, x := range rest[i+1:] {
+			potongan = append(potongan, x)
+			if strings.HasSuffix(x, "'") || strings.HasSuffix(x, `"`) {
+				break
+			}
+		}
+		r.Comment = strings.Trim(strings.Join(potongan, " "), `'"`)
+		rest = append(append([]string{}, rest[:i]...), rest[i+1+len(potongan):]...)
+		break
+	}
+	if len(rest) == 0 {
+		return helperproto.UfwRule{}, false
+	}
 	if rest[0] == "from" {
+		if len(rest) < 2 {
+			return helperproto.UfwRule{}, false
+		}
 		r.From = rest[1]
 		for i, t := range rest {
 			if i+1 >= len(rest) {
@@ -362,6 +411,22 @@ func validUfwRule(r helperproto.UfwRule) error {
 	default:
 		return errInvalid("protokol tidak valid")
 	}
+	return validKomentar(r.Comment)
+}
+
+// komentarRe membatasi label pemilik rule ke karakter yang aman dikirim ke ufw:
+// huruf, angka, spasi, dan tanda baca yang lazim dipakai nama layanan. Tanda
+// kutip dan garis miring terbalik sengaja tidak termasuk — keduanya bisa
+// membuat ufw salah membaca sisa perintahnya.
+var komentarRe = regexp.MustCompile(`^[A-Za-z0-9 .,_()/+:-]{1,60}$`)
+
+func validKomentar(s string) error {
+	if s == "" {
+		return nil
+	}
+	if !komentarRe.MatchString(s) {
+		return errInvalid("label firewall tidak valid")
+	}
 	return nil
 }
 
@@ -399,8 +464,26 @@ func ufwArgs(r helperproto.UfwRule) ([]string, error) {
 	return args, nil
 }
 
-func ufwAdd(r helperproto.UfwRule) error {
+// ufwTambahArgs adalah bentuk rule untuk MENAMBAH. Hanya jalur tambah yang
+// membawa label: `ufw delete` mencocokkan rule tanpa labelnya (diuji langsung
+// di mesin ini), dan menyertakan label di sana justru membuat penghapusan
+// gagal karena bentuknya tidak ketemu.
+func ufwTambahArgs(r helperproto.UfwRule) ([]string, error) {
 	args, err := ufwArgs(r)
+	if err != nil {
+		return nil, err
+	}
+	if r.Comment == "" {
+		return args, nil
+	}
+	if err := validKomentar(r.Comment); err != nil {
+		return nil, err
+	}
+	return append(args, "comment", r.Comment), nil
+}
+
+func ufwAdd(r helperproto.UfwRule) error {
+	args, err := ufwTambahArgs(r)
 	if err != nil {
 		return err
 	}
@@ -425,12 +508,26 @@ var ufwSpecTokenRe = regexp.MustCompile(`^[A-Za-z0-9./:_-]+$`)
 
 func ufwDelete(num, spec string) error {
 	if spec != "" {
-		args := []string{"--force", "delete"}
-		for _, tok := range strings.Fields(spec) {
-			if !ufwSpecTokenRe.MatchString(tok) {
-				return errInvalid("spec rule tidak valid")
+		var args []string
+		// Spec dari halaman Firewall memuat label pemilik ("... comment 'SSH'")
+		// karena itulah bentuk yang dikeluarkan `ufw show added`. Token
+		// berlabel tidak lolos pemeriksaan bentuk di bawah, jadi rule-nya
+		// disusun ulang dari hasil pembacaan — dan bentuk itu yang dicocokkan
+		// ufw.
+		if r, ok := parseAddedRule("ufw " + spec); ok {
+			a, err := ufwArgs(r)
+			if err != nil {
+				return err
 			}
-			args = append(args, tok)
+			args = append([]string{"--force", "delete"}, a...)
+		} else {
+			args = []string{"--force", "delete"}
+			for _, tok := range strings.Fields(spec) {
+				if !ufwSpecTokenRe.MatchString(tok) {
+					return errInvalid("spec rule tidak valid")
+				}
+				args = append(args, tok)
+			}
 		}
 		if len(args) < 3 {
 			return errInvalid("spec rule kosong")
@@ -438,10 +535,11 @@ func ufwDelete(num, spec string) error {
 		if _, err := run("ufw", args...); err != nil {
 			return err
 		}
-		// Diberitahukan ke reconciler port container supaya rule itu tidak
-		// dibuat ulang pada putaran berikutnya — lihat tandaiPortDockerDihapus.
+		// Diberitahukan ke reconciler supaya rule itu tidak dibuat ulang pada
+		// putaran berikutnya — lihat tandaiPortDockerDihapus dan
+		// tandaiPortKomponenDihapus.
 		if r, ok := parseAddedRule("ufw " + spec); ok {
-			tandaiPortDockerDihapus(r.Port, r.Proto)
+			tandaiPortDihapusUser(r.Port, r.Proto)
 		}
 		return nil
 	}
@@ -454,7 +552,7 @@ func ufwDelete(num, spec string) error {
 	if st, err := ufwStatus(); err == nil {
 		for _, r := range st.Rules {
 			if nn, e := strconv.Atoi(r.Num); e == nil && nn == n {
-				tandaiPortDockerDihapus(r.Port, r.Proto)
+				tandaiPortDihapusUser(r.Port, r.Proto)
 				break
 			}
 		}

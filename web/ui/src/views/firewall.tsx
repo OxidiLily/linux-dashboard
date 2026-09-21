@@ -19,6 +19,8 @@ type UfwRule = {
   port: string
   proto: string
   from?: string
+  // Label pemilik rule (kolom `comment` ufw): "Samba", "SSH", "Docker: ...".
+  comment?: string
 }
 
 type UfwStatus = {
@@ -250,6 +252,9 @@ export function FirewallView() {
                     </td>
                     <td data-label={tr("Port / Protokol")} className="num py-2 font-semibold">
                       {r.port}{r.proto && r.proto !== "any" ? `/${r.proto}` : ""}
+                      {r.comment && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground"># {r.comment}</span>
+                      )}
                     </td>
                     <td data-label={tr("Dari")} className="num py-2 text-muted-foreground">{r.from || tr("Anywhere")}</td>
                     <td data-label="" className="py-2 text-right">

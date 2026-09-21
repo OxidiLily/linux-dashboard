@@ -358,7 +358,12 @@ type UfwRule struct {
 	Port   string `json:"port"`
 	Proto  string `json:"proto"` // tcp|udp|any
 	From   string `json:"from,omitempty"`
-	Raw    string `json:"raw,omitempty"`
+	// Comment adalah label pemilik rule: `ufw status` menampilkannya di kolom
+	// paling kanan ("445/tcp ALLOW IN Anywhere # Samba"), jadi dari daftar rule
+	// saja sudah terbaca layanan mana yang membukanya. Sebagian rule lama tidak
+	// punya label — reconciler port komponen yang menambahkan.
+	Comment string `json:"comment,omitempty"`
+	Raw     string `json:"raw,omitempty"`
 }
 
 // UfwUpdateArgs mengganti satu rule: rule lama dihapus, rule baru ditambahkan.
