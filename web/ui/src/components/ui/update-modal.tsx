@@ -20,6 +20,8 @@ type UpdateStatus = {
   perubahan?: string[]
   /** Commit terpasang ketemu di riwayat remote, jadi daftarnya persis selisihnya. */
   perubahan_pasti?: boolean
+  /** Panjang daftar di atas — berapa commit yang dilompati sekali tekan. */
+  jarak?: number
 }
 
 // Selang polling saat pembaruan jalan. Keluarannya berupa langkah build yang
@@ -67,6 +69,7 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
                 tertinggal: prev.tertinggal,
                 perubahan: prev.perubahan,
                 perubahan_pasti: prev.perubahan_pasti,
+                jarak: prev.jarak,
               },
         )
         setTerputus(false)
@@ -113,7 +116,7 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
     const ok = await confirmDialog({
       title: tr("Jalankan pembaruan panel?"),
       message: tr(
-        "Sumber ditarik ulang dari GitHub, dibangun ulang, lalu kedua service di-restart. Panel akan terputus sebentar di akhir proses, dan build bisa memakan beberapa menit di mesin kecil.",
+        "Sumber ditarik ulang dari GitHub langsung ke versi paling baru — berapa pun commit yang tertinggal, bukan satu per satu — lalu dibangun ulang dan kedua service di-restart. Panel akan terputus sebentar di akhir proses, dan build bisa memakan beberapa menit di mesin kecil.",
       ),
       confirmLabel: tr("Perbarui"),
       danger: true,
@@ -168,6 +171,29 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
                   : st.tertinggal
                     ? trf("Ada versi baru di GitHub: {0}", st.remote)
                     : tr("Sudah versi terbaru.")}
+              </p>
+            )}
+            {!memuat && !!st && st.tertinggal && (
+              /* Janji yang dipegang skrip pembaruan: sasarannya ujung branch,
+                 jadi berapa pun commit yang tertinggal, satu kali tekan
+                 berakhir di versi terakhir — bukan satu commit per tekan.
+                 Jarak dihitung di server dari daftar perubahan; kalau riwayat
+                 lokal dangkal dan tidak menyambung, angkanya batas jendela dan
+                 itu dikatakan apa adanya. */
+              <p className="mt-0.5 text-[11px] text-muted-2">
+                {st.jarak
+                  ? st.perubahan_pasti
+                    ? trf(
+                        "Tertinggal {0} commit — satu kali Perbarui memasang versi terakhir sekaligus, bukan satu per satu.",
+                        st.jarak,
+                      )
+                    : trf(
+                        "Tertinggal sekurang-kurangnya {0} commit — satu kali Perbarui memasang versi terakhir sekaligus.",
+                        st.jarak,
+                      )
+                  : tr(
+                      "Satu kali Perbarui memasang versi terakhir di GitHub sekaligus, berapa pun commit yang tertinggal.",
+                    )}
               </p>
             )}
           </div>
