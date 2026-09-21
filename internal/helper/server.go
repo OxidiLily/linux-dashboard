@@ -96,6 +96,10 @@ func NewServer(socketPath, secretPath, socketGroup string) (*Server, error) {
 	// Port container menyusul di latar: daftarnya hanya bisa diketahui dengan
 	// bertanya ke docker, dan panel tidak boleh menunggu jawabannya saat start.
 	go pengawasPortDocker()
+	// Port komponen ikut dijaga berkala: komponen yang layanannya mati harus
+	// kehilangan izinnya, dan yang hidup harus punya izin — termasuk kalau
+	// aturannya hilang di luar panel (mis. `ufw reset`).
+	go pengawasPortKomponen()
 	return s, nil
 }
 

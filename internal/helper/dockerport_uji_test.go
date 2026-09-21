@@ -220,15 +220,40 @@ func (u *ujiDockerPort) bacaLog(path string) []string {
 // panggilanUfw mengembalikan setiap baris argumen yang diterima ufw tiruan.
 func (u *ujiDockerPort) panggilanUfw() []string { return u.bacaLog(u.ufwLog) }
 
-// izinDibuka adalah panggilan yang MENAMBAH rule.
+// izinDibuka adalah panggilan yang MENAMBAH rule, tanpa label pemiliknya.
+// Sebagian besar test membandingkan bentuk ini: yang diuji adalah rule mana yang
+// dibuka, bukan teks labelnya — labelnya diperiksa lewat labelDibuka.
 func (u *ujiDockerPort) izinDibuka() []string {
 	var out []string
 	for _, p := range u.panggilanUfw() {
 		if strings.HasPrefix(p, "allow ") {
-			out = append(out, strings.TrimPrefix(p, "allow "))
+			out = append(out, tanpaLabel(strings.TrimPrefix(p, "allow ")))
 		}
 	}
 	return out
+}
+
+// labelDibuka adalah label pemilik yang ikut ditulis pada setiap penambahan
+// rule, dalam urutan penulisannya.
+func (u *ujiDockerPort) labelDibuka() []string {
+	var out []string
+	for _, p := range u.panggilanUfw() {
+		if !strings.HasPrefix(p, "allow ") {
+			continue
+		}
+		if i := strings.Index(p, " comment "); i >= 0 {
+			out = append(out, p[i+len(" comment "):])
+		}
+	}
+	return out
+}
+
+// tanpaLabel membuang bagian "comment <label>" dari satu bentuk rule.
+func tanpaLabel(spec string) string {
+	if i := strings.Index(spec, " comment "); i >= 0 {
+		return spec[:i]
+	}
+	return spec
 }
 
 // izinDicabut adalah panggilan yang MENGHAPUS rule.

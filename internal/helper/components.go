@@ -71,9 +71,23 @@ type component struct {
 	// CLI agent, jadi tidak ada nama yang bisa dicari lewat PATH.
 	terpasang func() bool
 	// ports = port masuk yang harus diizinkan firewall agar komponen ini bisa
-	// dipakai dari LAN. Didaftarkan ke ufw saat komponen dipasang dan sekali
-	// lagi sebelum ufw dinyalakan — lihat portkomponen.go.
+	// dipakai dari LAN. Aturannya dijaga reconciler — lihat komponenport.go:
+	// dibuka saat layanannya hidup, dicabut saat mati atau komponennya tidak
+	// ada lagi.
 	ports []portKomponen
+	// Label adalah nama pemilik yang ditulis di rule firewall komponen ini
+	// ("Samba", "CUPS"), supaya `ufw status` menyebut layanan yang dikenal
+	// orang, bukan nama internal katalog yang boleh berubah. Kosong berarti
+	// Name dipakai.
+	Label string
+}
+
+// berlabel menempelkan nama pemilik rule firewall pada komponen yang dibangun
+// lewat aptComponent — bentuk yang tidak punya tempat untuk menulis field
+// tambahan di katalog.
+func berlabel(c *component, label string) *component {
+	c.Label = label
+	return c
 }
 
 // aptComponent membangun entri untuk paket yang tersedia langsung di repo
@@ -167,7 +181,7 @@ var components = map[string]*component{
 	// Port gateway (8000), Postgres (5432), dan pooler (6543) didaftarkan
 	// otomatis ke firewall agar web studio dan koneksi database langsung siap dipakai.
 	"supabase": denganPort(&component{
-		Name: "supabase", Category: katData,
+		Name: "supabase", Category: katData, Label: "Supabase",
 		Description: "Backend self-hosted lengkap (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) di atas Docker Compose, dipasang lewat setup.sh resmi Supabase ke /opt/supabase.",
 		KelolaDi:    "System → Docker",
 		installUser: installSupabase,
@@ -190,7 +204,7 @@ var components = map[string]*component{
 	//
 	// Port MinIO (9002/9003) sengaja tidak ikut didaftarkan — lihat arkon.go.
 	"arkon": denganPort(&component{
-		Name: "arkon", Category: katAI,
+		Name: "arkon", Category: katAI, Label: "Arkon",
 		Description: "Knowledge hub self-hosted + server MCP (FastAPI, Postgres/pgvector, Redis, MinIO, Next.js) di atas Docker Compose. Terpasang, ia otomatis didaftarkan sebagai sumber pengetahuan di setiap sesi AI Agent.",
 		RequiredFor: "AI → AI Agent",
 		KelolaDi:    "System → Docker",
@@ -202,7 +216,7 @@ var components = map[string]*component{
 	}, portKomponen{portAPIArkon, "tcp", "API & endpoint MCP"},
 		portKomponen{portWebArkon, "tcp", "portal admin"}),
 	"tailscale": denganPort(&component{
-		Name: "tailscale", Binary: "tailscale", Service: "tailscaled",
+		Name: "tailscale", Binary: "tailscale", Service: "tailscaled", Label: "Tailscale",
 		Category: katRuntime, Description: "Mesh VPN berbasis WireGuard, akses remote tanpa buka port.",
 		install:   installTailscale,
 		uninstall: uninstallTailscale,
@@ -218,7 +232,7 @@ var components = map[string]*component{
 		version:   func() string { return firstLine(tryRun("cloudflared", "--version")) },
 	},
 	"9router": {
-		Name: "9router", Binary: "9router", Service: "9router",
+		Name: "9router", Binary: "9router", Service: "9router", Label: "9router",
 		Category: katAI, Description: "Gateway API AI lokal + Headroom context compressor (butuh Node.js).",
 		// installUser, bukan install: 9router memindai CLI tool yang terpasang
 		// (Claude Code, Hermes, Codex, …) di dalam $HOME proses-nya sendiri,
@@ -313,7 +327,7 @@ var components = map[string]*component{
 	// 4.22+) membuatnya tidak dipakai hari ini: aturannya menganggur tanpa
 	// biaya, dan sudah siap kalau nmbd dinyalakan untuk klien lama.
 	"samba": wajib(denganPort(&component{
-		Name: "samba", Binary: "smbd", Service: "smbd", Category: katBerbagi,
+		Name: "samba", Binary: "smbd", Service: "smbd", Category: katBerbagi, Label: "Samba",
 		RequiredFor: "File manager → Samba",
 		Description: "Server file sharing SMB/CIFS. Halaman File manager → Samba butuh ini.",
 		install:     installSamba,
@@ -325,8 +339,8 @@ var components = map[string]*component{
 		portKomponen{"139", "tcp", "sesi NetBIOS"},
 		portKomponen{"137:138", "udp", "nama & datagram NetBIOS"}),
 		"File manager → Samba"),
-	"nfs-server": denganPort(aptComponent("nfs-server", "exportfs", "nfs-kernel-server", katBerbagi,
-		"Server NFS untuk klien Linux/Unix.", "nfs-kernel-server"),
+	"nfs-server": denganPort(berlabel(aptComponent("nfs-server", "exportfs", "nfs-kernel-server", katBerbagi,
+		"Server NFS untuk klien Linux/Unix.", "nfs-kernel-server"), "NFS server"),
 		portKomponen{"2049", "tcp", "NFSv4"},
 		portKomponen{"111", "tcp", "rpcbind"},
 		portKomponen{"111", "udp", "rpcbind"}),
@@ -334,8 +348,8 @@ var components = map[string]*component{
 		"Klien NFS untuk me-mount export dari server lain. Bagian Klien NFS di halaman NFS Exports butuh ini.", "nfs-common"),
 	"cifs-utils": aptComponent("cifs-utils", "mount.cifs", "", katBerbagi,
 		"Klien untuk me-mount share SMB dari server lain.", "cifs-utils"),
-	"avahi": denganPort(aptComponent("avahi", "avahi-daemon", "avahi-daemon", katBerbagi,
-		"mDNS/Bonjour — server dikenali sebagai <hostname>.local di LAN.", "avahi-daemon"),
+	"avahi": denganPort(berlabel(aptComponent("avahi", "avahi-daemon", "avahi-daemon", katBerbagi,
+		"mDNS/Bonjour — server dikenali sebagai <hostname>.local di LAN.", "avahi-daemon"), "Avahi (mDNS)"),
 		portKomponen{"5353", "udp", "mDNS"}),
 
 	// Stalwart dipasang lewat skrip resmi vendor (get.stalw.art/install.sh):
@@ -355,7 +369,7 @@ var components = map[string]*component{
 	// URL itu yang dipakai klien mail. Komponen lain di katalog ini tidak ada
 	// yang memakai 443.
 	"stalwart": denganPort(&component{
-		Name: "stalwart", Binary: "stalwart", Service: "stalwart",
+		Name: "stalwart", Binary: "stalwart", Service: "stalwart", Label: "Stalwart",
 		Category:    katEmail,
 		Description: "Server email all-in-one (SMTP, IMAP, POP3, JMAP, CalDAV/CardDAV, WebDAV) dengan WebUI sendiri — dipasang lewat skrip resmi get.stalw.art, config di /etc/stalwart.",
 		install:     installStalwart,
@@ -375,7 +389,7 @@ var components = map[string]*component{
 	// dan yang diunduh skrip itu bukan cuma servernya — runtime ASP.NET Core
 	// ikut dipasang ke /opt/dotnet.
 	"technitium-dns": denganPort(&component{
-		Name: "technitium-dns", Service: "dns", Category: katBerbagi,
+		Name: "technitium-dns", Service: "dns", Category: katBerbagi, Label: "Technitium DNS",
 		Description: "Server DNS lengkap (blocklist, DoH/DoT, cache) — web console di port 5380, login awal admin/admin. Pemasangannya mematikan systemd-resolved.",
 		install:     installTechnitium,
 		uninstall:   uninstallTechnitium,
@@ -395,9 +409,9 @@ var components = map[string]*component{
 	// dan tanpa driver CUPS mendaftarkan antreannya dengan senang hati lalu
 	// setiap cetakan berakhir sebagai halaman kosong atau job yang menggantung.
 	// Gejalanya terbaca sebagai "panel rusak", bukan sebagai driver yang hilang.
-	"print-server": wajib(denganPort(aptComponent("print-server", "cupsd", "cups", katBerbagi,
+	"print-server": wajib(denganPort(berlabel(aptComponent("print-server", "cupsd", "cups", katBerbagi,
 		"Print server CUPS + driver Gutenprint. Halaman Settings → Print server dan menu Print di file manager butuh ini.",
-		"cups", "printer-driver-gutenprint"),
+		"cups", "printer-driver-gutenprint"), "CUPS"),
 		portKomponen{"631", "tcp", "IPP"}),
 		"Settings → Print server"),
 

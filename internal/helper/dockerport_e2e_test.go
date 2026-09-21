@@ -97,7 +97,7 @@ func TestE2EPortContainerKeUfw(t *testing.T) {
 		// sebelum uji. Yang tidak ada sebelum uji saja yang disentuh.
 		for _, e := range bacaStatePortDocker().Rules {
 			if e.Dibuat && !sebelum[kunciPortDocker(e.Port, e.Proto)] {
-				_ = ufwHapusRule(aturanDocker(e.Port, e.Proto))
+				_ = ufwHapusRule(aturanDocker(e.Port, e.Proto, e.Container))
 			}
 		}
 		_ = tulisStatePortDocker(statePortDocker{})

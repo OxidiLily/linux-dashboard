@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -108,7 +107,7 @@ type entriStatePortDocker struct {
 }
 
 type statePortDocker struct {
-	Version int                   `json:"version"`
+	Version int                    `json:"version"`
 	Rules   []entriStatePortDocker `json:"rules"`
 }
 
@@ -126,8 +125,45 @@ func kunciPortDocker(port, proto string) string { return port + "/" + proto }
 // aturanDocker menyusun rule allow Anywhere untuk satu port container, lewat
 // jalur yang sama dengan port komponen supaya bentuk yang ditulis dan bentuk
 // yang dicabut tidak pernah berbeda.
-func aturanDocker(port, proto string) helperproto.UfwRule {
-	return aturanPort(portKomponen{Port: port, Proto: proto}, "")
+//
+// Labelnya menyebut container pemiliknya ("# Docker: cctv-agentdvr-1"), karena
+// port container adalah kelompok rule terbanyak di mesin yang memakai panel ini
+// dan "docker-proxy" tidak memberi tahu layanan apa yang sebenarnya terbuka.
+func aturanDocker(port, proto, container string) helperproto.UfwRule {
+	r := aturanPort(portKomponen{Port: port, Proto: proto}, "")
+	r.Comment = labelDocker(container)
+	return r
+}
+
+// labelDocker menyusun label pemilik rule port container.
+//
+// Nama container datang dari luar panel — compose buatan orang lain, `docker
+// run --name` dari terminal — jadi karakter yang tidak dikenal ufw diganti lebih
+// dulu: label yang ditolak pemeriksaan bentuk akan membatalkan pembuatan
+// rule-nya, dan itu berarti port container tertutup hanya karena namanya aneh.
+func labelDocker(nama string) string {
+	const prefiks = "Docker: "
+	const maksPanjang = 60
+	potong := maksPanjang - len(prefiks)
+	bersih := make([]rune, 0, potong)
+	for _, r := range nama {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			bersih = append(bersih, r)
+		case r == ' ' || r == '.' || r == ',' || r == '_' || r == '(' || r == ')' ||
+			r == '/' || r == '+' || r == ':' || r == '-':
+			bersih = append(bersih, r)
+		default:
+			bersih = append(bersih, '-')
+		}
+		if len(bersih) >= potong {
+			break
+		}
+	}
+	if strings.TrimSpace(string(bersih)) == "" {
+		return "Docker"
+	}
+	return prefiks + string(bersih)
 }
 
 // picuSinkronPortDocker meminta penyelarasan secepatnya. Dipakai sesudah aksi
@@ -410,7 +446,7 @@ func sinkronPortDockerTerkunci() error {
 				// Rule milik panel hilang di luar panel — `ufw reset`, mesin
 				// dipulihkan dari cadangan, atau rule dihapus dari terminal.
 				// Container-nya masih jalan, jadi izinnya dipasang lagi.
-				if err := ufwAdd(aturanDocker(p.Port, p.Proto)); err != nil {
+				if err := ufwAdd(aturanDocker(p.Port, p.Proto, p.Container)); err != nil {
 					log.Printf("firewall: gagal memasang ulang izin %s untuk container %s: %v",
 						k, p.Container, err)
 				} else {
@@ -433,7 +469,7 @@ func sinkronPortDockerTerkunci() error {
 			ubah = true
 			continue
 		}
-		if err := ufwAdd(aturanDocker(p.Port, p.Proto)); err != nil {
+		if err := ufwAdd(aturanDocker(p.Port, p.Proto, p.Container)); err != nil {
 			// Kegagalan mendaftar tidak membatalkan apa pun: container-nya
 			// tetap jalan, dan putaran berikutnya mencoba lagi.
 			log.Printf("firewall: gagal mengizinkan %s untuk container %s: %v", k, p.Container, err)
@@ -464,7 +500,7 @@ func sinkronPortDockerTerkunci() error {
 			// Bukan rule kita, atau sudah tidak ada. Catatannya cukup dibuang.
 			continue
 		}
-		if err := ufwHapusRule(aturanDocker(e.Port, e.Proto)); err != nil {
+		if err := ufwHapusRule(aturanDocker(e.Port, e.Proto, e.Container)); err != nil {
 			log.Printf("firewall: gagal mencabut izin %s (container %s berhenti): %v", k, e.Container, err)
 			// Tetap dicatat supaya putaran berikutnya mencoba lagi.
 			simpan = append(simpan, e)
@@ -550,7 +586,7 @@ func cabutSemuaPortDocker() {
 			if !e.Dibuat {
 				continue
 			}
-			if err := ufwHapusRule(aturanDocker(e.Port, e.Proto)); err != nil {
+			if err := ufwHapusRule(aturanDocker(e.Port, e.Proto, e.Container)); err != nil {
 				log.Printf("firewall: gagal mencabut %s/%s saat docker dicopot: %v", e.Port, e.Proto, err)
 			}
 		}
@@ -600,21 +636,5 @@ func tulisStatePortDocker(st statePortDocker) error {
 		}
 		return a.Container < b.Container
 	})
-	b, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return err
-	}
-	b = append(b, '\n')
-	if err := os.MkdirAll(filepath.Dir(pathStatePortDocker), 0o750); err != nil {
-		return err
-	}
-	sementara := pathStatePortDocker + ".baru"
-	if err := os.WriteFile(sementara, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(sementara, pathStatePortDocker); err != nil {
-		_ = os.Remove(sementara)
-		return err
-	}
-	return nil
+	return tulisJSONAtomik(pathStatePortDocker, st)
 }

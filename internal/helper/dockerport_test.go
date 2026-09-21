@@ -9,7 +9,7 @@ func TestPortDariBarisInspect(t *testing.T) {
 	// Container biasa: satu port container diikat ke 0.0.0.0 DAN :: (v4 + v6).
 	// Keduanya port host yang sama, jadi rule ufw-nya satu.
 	baris := barisInspect("web", "running", "healthy", "bridge_default", map[string][]bindingPortDocker{
-		"80/tcp": append(ikatanDocker("0.0.0.0", "8085"), ikatanDocker("::", "8085")...),
+		"80/tcp":   append(ikatanDocker("0.0.0.0", "8085"), ikatanDocker("::", "8085")...),
 		"3478/udp": ikatanDocker("0.0.0.0", "3478"),
 		// Tidak dipublikasikan ke host: tidak pernah jadi rule.
 		"443/tcp": nil,
@@ -123,6 +123,11 @@ func TestSinkronBukaDanCabutPortContainer(t *testing.T) {
 	u.harusSama("izin dibuka", u.izinDibuka(), []string{"3478/tcp", "3478/udp", "8090/tcp", "8085/tcp"})
 	u.harusKosong("izin dicabut", u.izinDicabut())
 	u.harusSama("rule di ufw", u.ruleUfw(), []string{"3478/tcp", "3478/udp", "8090/tcp", "8085/tcp"})
+	// Label pemilik ikut ditulis: yang membaca `ufw status` di mesin ini harus
+	// tahu port itu milik container mana tanpa membuka catatan panel.
+	u.harusSama("label rule", u.labelDibuka(), []string{
+		"Docker: cctv", "Docker: cctv", "Docker: cctv", "Docker: pdf",
+	})
 
 	st := u.state()
 	if len(st.Rules) != 4 {

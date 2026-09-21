@@ -100,38 +100,40 @@ func aturanPort(p portKomponen, dari string) helperproto.UfwRule {
 	return helperproto.UfwRule{Action: "allow", Port: p.Port, Proto: p.Proto, From: dari}
 }
 
-// daftarkanPortKomponen menambahkan aturan allow untuk setiap port komponen.
-// Aman dipanggil berulang: `ufw allow` yang sudah ada dilewati ufw sendiri.
+// aturanPortKomponen adalah aturanPort plus label pemiliknya. Label inilah yang
+// membuat `ufw status` menjawab "port ini punya siapa" tanpa perlu dibaca dari
+// kode: "445/tcp ALLOW IN Anywhere # Samba".
+func aturanPortKomponen(p portKomponen, dari, label string) helperproto.UfwRule {
+	r := aturanPort(p, dari)
+	r.Comment = label
+	return r
+}
+
+// labelPortKomponen mengembalikan nama pemilik yang ditulis di rule. Dikosongkan
+// berarti pakai Name komponennya.
+func labelPortKomponen(c *component) string {
+	if c.Label != "" {
+		return c.Label
+	}
+	return c.Name
+}
+
+// daftarkanPortKomponen meminta penyelarasan port komponen secepatnya, bukan
+// menulis aturannya sendiri: keputusan "port ini pantas dibuka atau tidak"
+// berada di satu tempat saja — reconciler di komponenport.go, yang memeriksa
+// apakah layanannya benar-benar hidup. Memasang komponen yang service-nya belum
+// jalan tidak boleh membuka portnya lebih dulu.
 func daftarkanPortKomponen(c *component) {
 	if len(c.ports) == 0 {
 		return
 	}
-	// Tidak ada ufw = tidak ada tempat mendaftar. Bukan kesalahan: firewall
-	// memang opsional, dan saat ufw dipasang nanti seluruh port komponen yang
-	// terpasang didaftarkan sekaligus lewat daftarkanPortSemuaKomponen.
-	if _, ada := lookBinary("ufw"); !ada {
-		return
-	}
-	daftarkanPortLangsung(c.Name, c.ports, "")
+	picuSinkronPortKomponen()
 }
 
-// daftarkanPortLangsung menulis aturan allow untuk sekumpulan port. `dari`
-// kosong berarti Anywhere.
-func daftarkanPortLangsung(nama string, ports []portKomponen, dari string) {
-	for _, p := range ports {
-		// Kegagalan mendaftar TIDAK membatalkan instalasi komponen: paketnya
-		// sudah terpasang dan jalan, dan ufw yang belum aktif tidak memblokir
-		// apa pun hari ini. Yang tersisa hanya catatan supaya bisa ditelusuri.
-		if err := ufwAdd(aturanPort(p, dari)); err != nil {
-			log.Printf("firewall: gagal mengizinkan %s/%s (%s) untuk %s: %v",
-				p.Port, p.Proto, p.Guna, nama, err)
-		}
-	}
-}
-
-// hapusPortKomponen membuang aturan yang dibuat daftarkanPortKomponen, supaya
+// hapusPortKomponen membuang aturan yang dibuat panel untuk komponen ini, supaya
 // mencopot komponen tidak meninggalkan lubang di firewall untuk layanan yang
-// sudah tidak ada.
+// sudah tidak ada. Dua bentuk ikut dicabut: Anywhere dan yang terbatas subnet
+// lokal — keduanya pernah ditulis panel pada versi yang berbeda.
 func hapusPortKomponen(c *component) {
 	if len(c.ports) == 0 {
 		return
@@ -139,43 +141,39 @@ func hapusPortKomponen(c *component) {
 	if _, ada := lookBinary("ufw"); !ada {
 		return
 	}
+	label := labelPortKomponen(c)
 	dari := subnetLokal()
 	for _, p := range c.ports {
-		if err := ufwHapusRule(aturanPort(p, "")); err != nil {
+		if err := ufwHapusRule(aturanPortKomponen(p, "", label)); err != nil {
 			log.Printf("firewall: gagal mencabut izin %s/%s untuk %s: %v",
 				p.Port, p.Proto, c.Name, err)
 		}
 		if dari != "" {
+			_ = ufwHapusRule(aturanPortKomponen(p, dari, label))
+		}
+		// Rule lama tanpa label ikut dibersihkan: menghapus rule ufw tidak
+		// membutuhkan labelnya, jadi bentuk mana pun yang cocok akan tercabut.
+		_ = ufwHapusRule(aturanPort(p, ""))
+		if dari != "" {
 			_ = ufwHapusRule(aturanPort(p, dari))
 		}
 	}
+	lupakanPortKomponen(c.Name)
 }
 
-// daftarkanPortSemuaKomponen mendaftarkan port setiap komponen yang benar-benar
-// terpasang. Dipanggil sebelum ufw dinyalakan dan setelah ufw sendiri dipasang:
-// komponen yang sudah ada duluan tidak pernah sempat mendaftar, dan justru
-// merekalah yang paling mungkin sedang dipakai saat firewall dinyalakan.
+// daftarkanPortSemuaKomponen menyelaraskan port seluruh komponen dengan
+// kenyataan layanannya, lalu memastikan akses admin. Dipanggil saat helper
+// mulai dan sebelum ufw dinyalakan: komponen yang sudah ada duluan tidak pernah
+// sempat mendaftar, dan justru merekalah yang paling mungkin sedang dipakai saat
+// firewall dinyalakan.
 func daftarkanPortSemuaKomponen() {
 	if _, ada := lookBinary("ufw"); !ada {
 		return
 	}
-	for _, c := range components {
-		if len(c.ports) == 0 {
-			continue
-		}
-		terpasang := false
-		if c.terpasang != nil {
-			terpasang = c.terpasang()
-		} else if _, ok := lookBinary(c.Binary); ok {
-			terpasang = true
-		}
-		if terpasang {
-			daftarkanPortLangsung(c.Name, c.ports, "")
-		}
+	if err := sinkronkanPortKomponen(); err != nil {
+		log.Printf("firewall: port komponen tidak bisa diselaraskan: %v", err)
 	}
-	// SSH dan panel bukan komponen, tapi merekalah yang paling mahal kalau
-	// ikut tertutup. Sumbernya Anywhere, konsisten dengan akses admin.
-	daftarkanPortLangsung("akses admin", portAksesAdmin(), "")
+	pastikanAksesAdmin()
 }
 
 // pastikanAksesAdmin mendaftarkan port SSH dan panel saja, dipanggil tepat
@@ -184,14 +182,21 @@ func daftarkanPortSemuaKomponen() {
 // Yang TIDAK dilakukannya sama pentingnya: port komponen sengaja tidak
 // didaftarkan ulang di sini. Aturan yang pernah dibuat panel lalu dihapus user
 // adalah keputusan user, dan menyalakan firewall bukan alasan untuk
-// mengembalikannya — panel mendaftarkan sekali saat komponennya dipasang,
-// sesudah itu daftar rule sepenuhnya milik user. Hanya akses admin yang tetap
-// dipaksakan, karena kehilangan itu berarti kehilangan mesinnya.
+// mengembalikannya — reconciler yang menambahkan kembali port komponen saat
+// layanannya memang hidup. Hanya akses admin yang tetap dipaksakan, karena
+// kehilangan itu berarti kehilangan mesinnya.
 func pastikanAksesAdmin() {
 	if _, ada := lookBinary("ufw"); !ada {
 		return
 	}
-	daftarkanPortLangsung("akses admin", portAksesAdmin(), "")
+	for _, p := range portAksesAdmin() {
+		// Labelnya sudah ada di katalog akses admin ("SSH", "panel
+		// linux-dashboard") dan sekaligus jadi penanda pemiliknya di ufw.
+		if err := ufwAdd(aturanPortKomponen(p, "", p.Guna)); err != nil {
+			log.Printf("firewall: gagal mengizinkan %s/%s (%s): %v",
+				p.Port, p.Proto, p.Guna, err)
+		}
+	}
 }
 
 // portAksesAdmin mengembalikan port yang tidak boleh ikut tertutup saat
