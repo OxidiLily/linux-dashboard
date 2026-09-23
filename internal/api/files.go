@@ -416,10 +416,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Jatah = sisa kuota permintaan, tidak pernah lebih dari batas berkas.
-		jatah := int64(uploadMaxBerkas)
-		if sisa := int64(uploadMaxTotal) - total; sisa < jatah {
-			jatah = sisa
-		}
+		jatah := batasUploadBerkas(total)
 		// Satu byte lebih dari jatah dipakai untuk membedakan "pas" dari
 		// "lewat" tanpa menahan berkas di memori.
 		n, copyErr := io.CopyN(stream, part, jatah+1)
@@ -427,15 +424,23 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		if n > jatah {
 			stream.Close()
 			// Berkas parsial dibuang: kalau dibiarkan, kuota disk tetap
-			// terpakai walaupun upload-nya ditolak.
-			_ = s.helper.Call(helperproto.CmdFileRemove, sess.Username,
-				helperproto.PathArgs{Path: dest}, nil)
-			s.store.LogActivity(sess.Username, "file_upload", "upload ditolak: melebihi batas",
-				map[string]any{"path": dest, "berkas_tersimpan": len(saved)}, clientIP(r))
-			writeJSON(w, http.StatusRequestEntityTooLarge, errBody{
-				Error: "Upload melebihi batas " + strconv.Itoa(uploadMaxBerkas>>30) +
-					" GiB per berkas atau " + strconv.Itoa(uploadMaxTotal>>30) +
-					" GiB per permintaan",
+			// terpakai walaupun upload-nya ditolak. Kegagalan hapus tidak
+			// diabaikan diam-diam — kalau ini gagal, berkasnya memang tinggal
+			// di disk dan satu-satunya cara tahu adalah dari log.
+			if err := s.helper.Call(helperproto.CmdFileRemove, sess.Username,
+				helperproto.PathArgs{Path: dest}, nil); err != nil {
+				log.Printf("upload: berkas parsial %s gagal dihapus: %v", dest, err)
+			}
+			alasan := pesanBatasUpload(jatah)
+			// Berkas yang sudah selesai tersimpan pada permintaan yang sama
+			// sengaja TIDAK ikut dihapus (isinya sudah sah milik user), tapi
+			// disebutkan supaya klien tahu apa yang sudah mendarat dan tidak
+			// mengunggah ulang semuanya.
+			s.store.LogActivity(sess.Username, "file_upload", "upload ditolak: "+alasan,
+				map[string]any{"path": dest, "tersimpan": saved}, clientIP(r))
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{
+				"error":     "Upload ditolak: " + alasan,
+				"tersimpan": saved,
 			})
 			return
 		}

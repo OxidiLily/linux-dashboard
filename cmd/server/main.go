@@ -103,10 +103,21 @@ func main() {
 
 // bindLoopback melaporkan apakah alamat bind hanya menerima koneksi dari mesin
 // ini. Alamat tanpa host (":1122") berarti SEMUA antarmuka, jadi bukan loopback.
+//
+// "localhost" diterima sebagai loopback: itu nama yang sama-sama sah untuk
+// 127.0.0.1 dan dipakai orang apa adanya di DASHBOARD_LISTEN, dan menganggapnya
+// bukan loopback memunculkan peringatan "tanpa TLS" yang salah.
 func bindLoopback(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
-	if err != nil || host == "" {
+	if err != nil {
+		// Tanpa port sama sekali ("127.0.0.1", "localhost").
+		host = addr
+	}
+	if host == "" {
 		return false
+	}
+	if host == "localhost" {
+		return true
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()

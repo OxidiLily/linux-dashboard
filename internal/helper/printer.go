@@ -366,6 +366,36 @@ func printJobs() ([]helperproto.PrintJob, error) {
 	return out, nil
 }
 
+// jobMilikUser menyaring antrean ke job milik satu user.
+//
+// Fungsi murni supaya keputusan kepemilikan bisa diuji tanpa CUPS: di mesin uji
+// `lpstat` tidak ada, sehingga printJobs() selalu kosong dan cabang penyaringan
+// ini tidak akan pernah teruji lewat jalur IO.
+func jobMilikUser(jobs []helperproto.PrintJob, u *userInfo) []helperproto.PrintJob {
+	milik := make([]helperproto.PrintJob, 0, len(jobs))
+	for _, j := range jobs {
+		if j.User == u.Name {
+			milik = append(milik, j)
+		}
+	}
+	return milik
+}
+
+// bolehBatalkanJob memutuskan apakah peminta boleh membatalkan satu job,
+// dibaca dari daftar antrean. Fungsi murni, alasan sama dengan jobMilikUser.
+func bolehBatalkanJob(jobs []helperproto.PrintJob, u *userInfo, id string) error {
+	for _, j := range jobs {
+		if j.ID != id {
+			continue
+		}
+		if u == nil || j.User != u.Name {
+			return errDenied("job cetak %s milik user lain", id)
+		}
+		return nil
+	}
+	return errInvalid("job cetak %s tidak ada di antrean", id)
+}
+
 // printJobsUntuk mengembalikan antrean cetak yang boleh dilihat peminta.
 //
 // `lpstat -o` mengembalikan antrean SEMUA user, jadi tanpa penyaringan ini user
@@ -379,27 +409,7 @@ func printJobsUntuk(u *userInfo) ([]helperproto.PrintJob, error) {
 	if u == nil || u.Sudo {
 		return semua, nil
 	}
-	milik := make([]helperproto.PrintJob, 0, len(semua))
-	for _, j := range semua {
-		if j.User == u.Name {
-			milik = append(milik, j)
-		}
-	}
-	return milik, nil
-}
-
-// pemilikJob mencari pemilik satu job dari daftar antrean.
-func pemilikJob(id string) (string, bool, error) {
-	jobs, err := printJobs()
-	if err != nil {
-		return "", false, err
-	}
-	for _, j := range jobs {
-		if j.ID == id {
-			return j.User, true, nil
-		}
-	}
-	return "", false, nil
+	return jobMilikUser(semua, u), nil
 }
 
 // printCancelUntuk membatalkan job milik peminta, atau job siapa pun kalau
@@ -410,15 +420,12 @@ func pemilikJob(id string) (string, bool, error) {
 // mana pun yang tertebak bisa dibatalkan — termasuk cetakan orang lain.
 func printCancelUntuk(u *userInfo, id string) error {
 	if u == nil || !u.Sudo {
-		owner, ada, err := pemilikJob(id)
+		jobs, err := printJobs()
 		if err != nil {
 			return err
 		}
-		if !ada {
-			return errInvalid("job cetak %s tidak ada di antrean", id)
-		}
-		if u == nil || owner != u.Name {
-			return errDenied("job cetak %s milik user lain", id)
+		if err := bolehBatalkanJob(jobs, u, id); err != nil {
+			return err
 		}
 	}
 	return printCancel(id)

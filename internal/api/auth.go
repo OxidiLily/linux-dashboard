@@ -33,9 +33,10 @@ const sessionKey ctxKey = iota
 // — penyerang cukup mengirim belasan percobaan gagal atas nama korban.
 type throttle struct {
 	mu sync.Mutex
-	// attempts di-key "username|ip"; perUser di-key "username".
+	// attempts di-key "username|ip"; perUser di-key username; perIP di-key ip.
 	attempts map[string][]time.Time
 	perUser  map[string][]time.Time
+	perIP    map[string][]time.Time
 }
 
 const (
@@ -43,6 +44,15 @@ const (
 	throttleMax    = 5
 	// throttleUserMax: percobaan gagal per username dari SELURUH alamat.
 	throttleUserMax = 20
+	// throttleIPMax: percobaan gagal dari satu alamat, apa pun username-nya.
+	//
+	// Ini yang menahan penyisipan key palsu. Tanpa batas per alamat, penyerang
+	// bisa mengirim ribuan percobaan dengan username acak: tiap percobaan
+	// membuat key baru, dan karena jumlah key dibatasi, yang terbuang justru
+	// catatan percobaan atas akun korban (yang terakhir dicoba paling lama).
+	// Dengan batas ini, dari satu alamat ia hanya sanggup menyisipkan beberapa
+	// puluh entri sebelum alamatnya sendiri diblokir.
+	throttleIPMax = 50
 	// throttleMaxEntries: batas jumlah key yang disimpan. Tanpa batas ini,
 	// kesalahan login dengan username acak menumbuhkan map selamanya — memori
 	// proses web adalah sumber daya yang bisa dihabiskan tanpa autentikasi.
@@ -50,10 +60,24 @@ const (
 )
 
 func newThrottle() *throttle {
-	return &throttle{attempts: map[string][]time.Time{}, perUser: map[string][]time.Time{}}
+	return &throttle{
+		attempts: map[string][]time.Time{},
+		perUser:  map[string][]time.Time{},
+		perIP:    map[string][]time.Time{},
+	}
 }
 
 func throttleKey(username, ip string) string { return username + "|" + ip }
+
+// reauthThrottleKey memberi namespace sendiri untuk prompt password ulang
+// (reset sesi terminal di system.go).
+//
+// Login dan prompt itu memakai kredensial yang sama, tetapi menyatukan
+// penghitungnya berarti dua puluh salah-ketik pada prompt sudo — dari sesi yang
+// memang sudah login — ikut memblokir LOGIN username tersebut. Batas per alamat
+// (perIP) tetap dipakai bersama, karena yang dijaga di sana adalah laju
+// percobaan dari satu alamat, bukan satu fitur.
+func reauthThrottleKey(username string) string { return "reauth|" + username }
 
 // pruneLocked membuang catatan yang lebih tua dari jendela, dipanggil dengan
 // mu terkunci.
@@ -84,6 +108,19 @@ func (t *throttle) pruneLocked(now time.Time) {
 			continue
 		}
 		t.perUser[k] = kept
+	}
+	for k, list := range t.perIP {
+		kept := list[:0]
+		for _, at := range list {
+			if at.After(cutoff) {
+				kept = append(kept, at)
+			}
+		}
+		if len(kept) == 0 {
+			delete(t.perIP, k)
+			continue
+		}
+		t.perIP[k] = kept
 	}
 }
 
@@ -116,6 +153,19 @@ func (t *throttle) evictLocked() {
 		}
 		delete(t.perUser, oldestKey)
 	}
+	for len(t.perIP) > throttleMaxEntries {
+		oldestKey, varOldest := "", time.Time{}
+		for k, list := range t.perIP {
+			last := list[len(list)-1]
+			if varOldest.IsZero() || last.Before(varOldest) {
+				oldestKey, varOldest = k, last
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		delete(t.perIP, oldestKey)
+	}
 }
 
 // allowedAt melaporkan apakah percobaan berikutnya masih boleh, tanpa mencatat.
@@ -130,6 +180,9 @@ func (t *throttle) allowedAt(username, ip string, now time.Time) (bool, time.Dur
 	if list := t.perUser[username]; len(list) >= throttleUserMax {
 		return false, time.Until(list[0].Add(throttleWindow))
 	}
+	if list := t.perIP[ip]; len(list) >= throttleIPMax {
+		return false, time.Until(list[0].Add(throttleWindow))
+	}
 	return true, 0
 }
 
@@ -140,6 +193,7 @@ func (t *throttle) recordAt(username, ip string, now time.Time) {
 	key := throttleKey(username, ip)
 	t.attempts[key] = append(t.attempts[key], now)
 	t.perUser[username] = append(t.perUser[username], now)
+	t.perIP[ip] = append(t.perIP[ip], now)
 	t.evictLocked()
 }
 
@@ -162,6 +216,10 @@ func (t *throttle) reset(username, ip string) {
 	defer t.mu.Unlock()
 	delete(t.attempts, throttleKey(username, ip))
 	delete(t.perUser, username)
+	// perIP sengaja TIDAK dihapus saat satu login berhasil: kalau dihapus,
+	// pemegang satu kredensial sah bisa terus mengosongkan kuota alamatnya
+	// sendiri dan menghapus jejak percobaan gagal dari alamat itu. Catatannya
+	// hilang sendiri setelah jendelanya lewat.
 }
 
 type loginRequest struct {

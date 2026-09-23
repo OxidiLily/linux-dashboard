@@ -135,7 +135,15 @@ func (s *Server) handleUserModify(w http.ResponseWriter, r *http.Request) {
 	// Atribut akun (termasuk keanggotaan grup sudo) bisa berubah di sini, dan
 	// status sudo disalin ke dalam sesi saat login. Sesi lama target dicabut
 	// supaya hak barunya dihitung ulang, bukan diwarisi dari nilai saat login.
-	_ = s.store.DeleteSessionsByUsername(body.Username)
+	//
+	// Kalau admin mengubah akunnya SENDIRI, sesi yang sedang dipakai disisakan
+	// — sama seperti ganti password sendiri. Tanpa pembedaan ini, admin
+	// terlempar keluar tepat setelah menyimpan perubahannya sendiri.
+	if body.Username == sess.Username {
+		_ = s.store.DeleteSessionsExcept(body.Username, sess.ID)
+	} else {
+		_ = s.store.DeleteSessionsByUsername(body.Username)
+	}
 	s.store.LogActivity(sess.Username, "user_modify", "ubah user",
 		map[string]any{"username": body.Username}, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

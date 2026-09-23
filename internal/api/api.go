@@ -349,9 +349,12 @@ func queryInt(r *http.Request, key string, def int) int {
 // Lihat catatan di Routes(): header forwarded bisa ditulis klien, jadi
 // nilainya tidak boleh dipakai sebagai identitas maupun sebagai key pembatas.
 func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
-	return host
+	// Tanpa port. Kurung siku pada bentuk IPv6 harus tetap dilepas di sini:
+	// kalau tidak, "[::1]" dan "::1" menjadi dua key berbeda untuk klien yang
+	// sama, dan pembatas per alamat bisa dilewati hanya dengan mengganti
+	// bentuk penulisan alamat.
+	return strings.Trim(r.RemoteAddr, "[]")
 }
