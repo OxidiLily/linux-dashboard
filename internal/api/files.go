@@ -352,7 +352,10 @@ func (e *jsonError) Error() string { return e.msg }
 // bisa menulis apa-apa lagi — termasuk menulis log kegagalannya sendiri.
 // Angkanya sengaja longgar (ini file manager rumah, bukan penyimpanan
 // sementara): yang ditegakkan adalah "ada batasnya", bukan kuota ketat.
-const (
+//
+// Variabel, bukan konstanta, supaya jalur penolakannya bisa diuji tanpa
+// mengirim 16 GiB: test menurunkannya ke beberapa byte.
+var (
 	uploadMaxBerkas = 16 << 30 // 16 GiB per berkas
 	uploadMaxTotal  = 64 << 30 // 64 GiB per permintaan
 	uploadMaxPart   = 500      // jumlah berkas per permintaan
