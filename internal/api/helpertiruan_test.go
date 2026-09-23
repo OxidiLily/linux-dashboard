@@ -3,9 +3,11 @@ package api
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"linux-dashboard/OxidiLily/internal/helperclient"
@@ -15,13 +17,40 @@ import (
 // helperTiruan mencatat command yang benar-benar diterima, lalu membalas
 // dengan nilai yang disuntikkan test.
 type helperTiruan struct {
+	mu       sync.Mutex
 	cmd      string
 	username string
 	args     []byte
+	// cmds mencatat SEMUA command yang diterima, berurutan. Satu permintaan
+	// HTTP bisa memanggil helper lebih dari sekali (mis. upload: file.write
+	// per berkas, lalu file.remove untuk berkas parsial), dan yang justru
+	// perlu diuji adalah panggilan terakhir itu.
+	cmds []string
+	// paths mencatat argumen path dari tiap command, berurutan.
+	paths []string
 	// balas adalah Data yang dikirim balik helper (di-marshal ke JSON).
 	balas any
 	// balasE, kalau diisi, dikirim sebagai kegagalan helper berkode.
 	balasE error
+}
+
+// catat menyimpan satu command yang diterima.
+func (h *helperTiruan) catat(cmd, username string, args []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cmd, h.username, h.args = cmd, username, args
+	h.cmds = append(h.cmds, cmd)
+	var pa helperproto.PathArgs
+	if json.Unmarshal(args, &pa) == nil && pa.Path != "" {
+		h.paths = append(h.paths, pa.Path)
+	}
+}
+
+// riwayat mengembalikan salinan daftar command yang diterima.
+func (h *helperTiruan) riwayat() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.cmds...)
 }
 
 // pasangHelperTiruan menjalankan helper daemon TIRUAN di Unix socket
@@ -73,12 +102,12 @@ func layaniTiruan(conn net.Conn, tiruan *helperTiruan) {
 	}
 	// Framing: "<hex-hmac> <json-request>\n". Signature tidak diverifikasi —
 	// yang diuji adalah sisi KLIEN-nya, bukan kerahasiaannya.
+	var cmd string
 	if _, payload, ok := cutSpasi(line); ok {
 		var req helperproto.Request
 		if json.Unmarshal(payload, &req) == nil {
-			tiruan.cmd = req.Cmd
-			tiruan.username = req.Username
-			tiruan.args = req.Args
+			cmd = req.Cmd
+			tiruan.catat(req.Cmd, req.Username, req.Args)
 		}
 	}
 	resp := helperproto.Response{OK: true}
@@ -101,6 +130,16 @@ func layaniTiruan(conn net.Conn, tiruan *helperTiruan) {
 	}
 	b, _ := json.Marshal(resp)
 	_, _ = conn.Write(append(b, '\n'))
+
+	// Jalur stream (file.write): setelah response awal, klien mengirim byte
+	// berkas sampai menutup arah tulis, lalu MENUNGGU konfirmasi akhir.
+	// Tanpa meniru dua fase ini, Stream.Selesai() di klien menggantung dan
+	// jalur upload tidak bisa diuji sama sekali.
+	if cmd == helperproto.CmdFileWrite {
+		_, _ = io.Copy(io.Discard, br)
+		akh, _ := json.Marshal(helperproto.Response{OK: true})
+		_, _ = conn.Write(append(akh, '\n'))
+	}
 }
 
 func cutSpasi(b []byte) (string, []byte, bool) {

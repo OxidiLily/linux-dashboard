@@ -35,7 +35,7 @@ func buatServerCron(t *testing.T, tiruan *helperTiruan) (http.Handler, *store.St
 
 	hc := pasangHelperTiruan(t, tiruan)
 	// Socket/secret tidak dipakai karena helperclient sudah diganti.
-	cfg := config.Config{Listen: "127.0.0.1:0", SocketPath: filepath.Join(dir, "x.sock"), SecretPath: filepath.Join(dir, "x.key")}
+	cfg := config.Config{Listen: "127.0.0.1:0", SocketPath: filepath.Join(dir, "x.sock"), SecretPath: filepath.Join(dir, "x.key"), SessionTTLHours: 12}
 	srv := New(cfg, st, hc, metrics.NewCollector(), http.NotFoundHandler())
 	return srv.Routes(), st
 }
