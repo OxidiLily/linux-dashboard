@@ -99,7 +99,7 @@ func (s *Server) handleSambaList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var shares []helperproto.SambaShare
-	if err := s.helper.Call(helperproto.CmdSambaList, sessionFrom(r).Username, nil, &shares); err != nil {
+	if err := s.helper.Call(helperproto.CmdSambaList, sessionFrom(r).HelperToken, nil, &shares); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -119,7 +119,7 @@ func (s *Server) handleSambaSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdSambaSave, sess.Username, share, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdSambaSave, sess.HelperToken, share, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -135,7 +135,7 @@ func (s *Server) handleSambaDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	name := chi.URLParam(r, "name")
-	if err := s.helper.Call(helperproto.CmdSambaDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdSambaDelete, sess.HelperToken,
 		helperproto.PathArgs{Path: name}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -155,7 +155,7 @@ func (s *Server) handleSambaUserList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var users []helperproto.SambaUser
-	if err := s.helper.Call(helperproto.CmdSambaUserList, sessionFrom(r).Username, nil, &users); err != nil {
+	if err := s.helper.Call(helperproto.CmdSambaUserList, sessionFrom(r).HelperToken, nil, &users); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -178,7 +178,7 @@ func (s *Server) handleSambaUserSave(w http.ResponseWriter, r *http.Request) {
 	if name := chi.URLParam(r, "name"); name != "" {
 		args.Username = name
 	}
-	if err := s.helper.Call(helperproto.CmdSambaUserSet, sess.Username, args, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdSambaUserSet, sess.HelperToken, args, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -194,7 +194,7 @@ func (s *Server) handleSambaUserDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	name := chi.URLParam(r, "name")
-	if err := s.helper.Call(helperproto.CmdSambaUserDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdSambaUserDelete, sess.HelperToken,
 		helperproto.SambaUserArgs{Username: name}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -211,7 +211,7 @@ func (s *Server) handleNFSList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []helperproto.NFSExport
-	if err := s.helper.Call(helperproto.CmdNFSList, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdNFSList, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -231,7 +231,7 @@ func (s *Server) handleNFSSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdNFSSave, sess.Username, e, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdNFSSave, sess.HelperToken, e, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -246,7 +246,7 @@ func (s *Server) handleNFSDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	path := r.URL.Query().Get("path")
-	if err := s.helper.Call(helperproto.CmdNFSDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdNFSDelete, sess.HelperToken,
 		helperproto.PathArgs{Path: path}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -263,7 +263,7 @@ func (s *Server) handleNFSMountList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []helperproto.NFSMount
-	if err := s.helper.Call(helperproto.CmdNFSMountList, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdNFSMountList, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -283,7 +283,7 @@ func (s *Server) handleNFSMountSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdNFSMountSave, sess.Username, m, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdNFSMountSave, sess.HelperToken, m, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -304,7 +304,7 @@ func (s *Server) handleNFSMountToggle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdNFSMountToggle, sess.Username, body, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdNFSMountToggle, sess.HelperToken, body, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -330,7 +330,7 @@ func (s *Server) handleNFSDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []helperproto.NFSRemoteExport
-	if err := s.helper.Call(helperproto.CmdNFSMountDiscover, sessionFrom(r).Username, body, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdNFSMountDiscover, sessionFrom(r).HelperToken, body, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -346,7 +346,7 @@ func (s *Server) handleNFSMountDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	mount := r.URL.Query().Get("mountpoint")
-	if err := s.helper.Call(helperproto.CmdNFSMountDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdNFSMountDelete, sess.HelperToken,
 		helperproto.PathArgs{Path: mount}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -363,7 +363,7 @@ func (s *Server) handleFail2banList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []helperproto.Fail2banJail
-	if err := s.helper.Call(helperproto.CmdFail2banList, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdFail2banList, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -383,7 +383,7 @@ func (s *Server) handleFail2banSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdFail2banSave, sess.Username, j, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdFail2banSave, sess.HelperToken, j, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -398,7 +398,7 @@ func (s *Server) handleFail2banDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	nama := chi.URLParam(r, "jail")
-	if err := s.helper.Call(helperproto.CmdFail2banDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdFail2banDelete, sess.HelperToken,
 		helperproto.PathArgs{Path: nama}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -417,7 +417,7 @@ func (s *Server) handleFail2banUnban(w http.ResponseWriter, r *http.Request) {
 		Jail: chi.URLParam(r, "jail"),
 		IP:   r.URL.Query().Get("ip"),
 	}
-	if err := s.helper.Call(helperproto.CmdFail2banUnban, sess.Username, args, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdFail2banUnban, sess.HelperToken, args, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -441,7 +441,7 @@ func (s *Server) handleDiskPrepare(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdDiskPrepare, sess.Username, args, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdDiskPrepare, sess.HelperToken, args, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -464,7 +464,7 @@ func (s *Server) handleDiskUnmount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdDiskUnmount, sess.Username, args, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdDiskUnmount, sess.HelperToken, args, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -484,7 +484,7 @@ func (s *Server) handleMergerfsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var pools []helperproto.MergerfsPool
-	if err := s.helper.Call(helperproto.CmdMergerfsList, sessionFrom(r).Username, nil, &pools); err != nil {
+	if err := s.helper.Call(helperproto.CmdMergerfsList, sessionFrom(r).HelperToken, nil, &pools); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -504,7 +504,7 @@ func (s *Server) handleMergerfsSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdMergerfsSave, sess.Username, pool, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdMergerfsSave, sess.HelperToken, pool, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -525,7 +525,7 @@ func (s *Server) handleMergerfsMount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdMergerfsMount, sess.Username, body, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdMergerfsMount, sess.HelperToken, body, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -544,7 +544,7 @@ func (s *Server) handleMergerfsDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	mount := r.URL.Query().Get("mountpoint")
-	if err := s.helper.Call(helperproto.CmdMergerfsDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdMergerfsDelete, sess.HelperToken,
 		helperproto.PathArgs{Path: mount}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -672,7 +672,7 @@ func (s *Server) handleComponents(w http.ResponseWriter, r *http.Request) {
 	// ?fresh=1 datang dari tombol Refresh manual; pemuatan halaman biasa
 	// tetap boleh dilayani dari cache helper.
 	fresh := r.URL.Query().Get("fresh") == "1"
-	if err := s.helper.Call(helperproto.CmdComponentStatusAll, sessionFrom(r).Username,
+	if err := s.helper.Call(helperproto.CmdComponentStatusAll, sessionFrom(r).HelperToken,
 		helperproto.ComponentArgs{Name: "all", Fresh: fresh}, &out); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -692,7 +692,7 @@ func (s *Server) handleComponentProgress(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var out helperproto.ComponentProgress
-	if err := s.helper.Call(helperproto.CmdComponentProgress, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdComponentProgress, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -720,7 +720,7 @@ func (s *Server) componentAction(w http.ResponseWriter, r *http.Request, cmd, la
 	name := chi.URLParam(r, "name")
 	var st helperproto.ComponentStatus
 	args := helperproto.ComponentArgs{Name: name, Purge: purge}
-	if err := s.helper.Call(cmd, sess.Username, args, &st); err != nil {
+	if err := s.helper.Call(cmd, sess.HelperToken, args, &st); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -735,7 +735,7 @@ func (s *Server) handleComponentService(w http.ResponseWriter, r *http.Request) 
 	}
 	sess := sessionFrom(r)
 	name, action := chi.URLParam(r, "name"), chi.URLParam(r, "action")
-	if err := s.helper.Call(helperproto.CmdComponentService, sess.Username,
+	if err := s.helper.Call(helperproto.CmdComponentService, sess.HelperToken,
 		helperproto.ComponentArgs{Name: name, Action: action}, nil); err != nil {
 		writeHelperErr(w, err)
 		return

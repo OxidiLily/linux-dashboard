@@ -260,7 +260,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var res helperproto.LoginResult
-	err := s.helper.Call(helperproto.CmdAuthLogin, req.Username,
+	// Token kosong: auth.login tidak butuh token (ia justru yang menerbitkannya).
+	err := s.helper.Call(helperproto.CmdAuthLogin, "",
 		helperproto.LoginArgs{Username: req.Username, Password: req.Password}, &res)
 	if err != nil {
 		// Kegagalan infrastruktur (helper mati, socket tidak terjangkau) TIDAK
@@ -281,9 +282,22 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "Username atau password salah")
 		return
 	}
+	// Helper yang menjawab OK tapi tanpa token berarti versi helper-nya tidak
+	// sepakat dengan web app (mis. helper lama saat panel baru dipasang).
+	// Sesi yang dibuat tanpa token akan ditolak helper pada SETIAP permintaan
+	// berikutnya, jadi lebih jujur dilaporkan sebagai masalah layanan
+	// sekarang daripada membuat sesi yang mati sejak lahir.
+	if res.Token == "" {
+		log.Printf("login %q: helper tidak menerbitkan token sesi (versi helper tidak cocok?)", req.Username)
+		s.store.LogActivity(req.Username, "login_failed", "system_error",
+			map[string]any{"reason": "helper tidak menerbitkan token sesi"}, ip)
+		writeErr(w, http.StatusServiceUnavailable,
+			"Layanan autentikasi tidak tersedia. Cek status linux-dashboard-helper.service.")
+		return
+	}
 	s.throttle.reset(key, ip)
 
-	sess, err := s.store.CreateSession(req.Username, res.Home, ip, res.Sudo,
+	sess, err := s.store.CreateSession(req.Username, res.Home, ip, res.Sudo, res.Token,
 		time.Duration(s.cfg.SessionTTLHours)*time.Hour)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "gagal membuat session: "+err.Error())
@@ -352,9 +366,26 @@ func expiredSessionCookie(secure bool) *http.Cookie {
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	_ = s.store.DeleteSession(sess.ID)
+	// Sesi panelnya mati, jadi token helper-nya ikut dicabut. Tanpa ini token
+	// tetap sah sampai kedaluwarsa walaupun cookie-nya sudah dibuang.
+	s.cabutTokenHelper(sess.HelperToken)
 	http.SetCookie(w, expiredSessionCookie(s.cfg.SecureCookie))
 	s.store.LogActivity(sess.Username, "logout", "", nil, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// cabutTokenHelper meminta helper daemon mencabut satu token capability.
+//
+// Kegagalan TIDAK boleh menggagalkan aksi pemanggilnya: logout harus tetap
+// berhasil walau helper-nya sedang mati, dan token yang tidak tercabut akan
+// kedaluwarsa sendiri seperti sesi panelnya (keduanya 12 jam).
+func (s *Server) cabutTokenHelper(token string) {
+	if token == "" || s.helper == nil {
+		return
+	}
+	if err := s.helper.Call(helperproto.CmdAuthLogout, token, nil, nil); err != nil {
+		log.Printf("cabut token sesi di helper gagal: %v", err)
+	}
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {

@@ -66,9 +66,15 @@ func TestCronAPIKirimIdentitasSesi(t *testing.T) {
 	if tiruan.cmd != helperproto.CmdCronGet {
 		t.Fatalf("command helper = %q, harap %q", tiruan.cmd, helperproto.CmdCronGet)
 	}
-	// Identitas yang dikirim harus datang dari sesi, bukan dari body klien.
-	if tiruan.username != "ani" {
-		t.Fatalf("username ke helper = %q, harap \"ani\"", tiruan.username)
+	// Otorisasi helper datang dari TOKEN sesi, bukan dari nama user yang
+	// diklaim web app: yang harus terkirim adalah token yang tersimpan di
+	// sesi, apa pun isi body klien.
+	ses, ok := st.GetSession(sess)
+	if !ok {
+		t.Fatal("sesi hilang dari store")
+	}
+	if tiruan.token != ses.HelperToken || tiruan.token == "" {
+		t.Fatalf("token ke helper = %q, harap token sesi %q", tiruan.token, ses.HelperToken)
 	}
 }
 
@@ -242,9 +248,14 @@ func TestJumlahBarisTidakMenghitungElemenKosongSesudahNewline(t *testing.T) {
 }
 
 // buatSesi membuat sesi di store dan mengembalikan id cookie-nya.
+//
+// Token helper ikut dibuat (bukan kosong): sesi yang tokennya kosong ditolak
+// helper, jadi sesi uji tanpa token tidak akan pernah bisa memanggil helper
+// sama sekali — bukan bentuk yang perlu diuji di sini, dan ada test tersendiri
+// untuk kasus itu.
 func buatSesi(t *testing.T, st *store.Store, username string, sudo bool) string {
 	t.Helper()
-	sess, err := st.CreateSession(username, "/home/"+username, "127.0.0.1", sudo, time.Hour)
+	sess, err := st.CreateSession(username, "/home/"+username, "127.0.0.1", sudo, "tok-"+username, time.Hour)
 	if err != nil {
 		t.Fatalf("buat sesi: %v", err)
 	}

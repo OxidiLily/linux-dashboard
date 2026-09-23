@@ -17,10 +17,16 @@ import (
 // helperTiruan mencatat command yang benar-benar diterima, lalu membalas
 // dengan nilai yang disuntikkan test.
 type helperTiruan struct {
-	mu       sync.Mutex
-	cmd      string
+	mu  sync.Mutex
+	cmd string
+	// username adalah field klaim yang dikirim klien. Helper sungguhan TIDAK
+	// memakainya lagi untuk memutuskan hak; ia hanya dicatat supaya test bisa
+	// membuktikan klien tidak lagi mengandalkannya.
 	username string
-	args     []byte
+	// token adalah capability token yang dikirim klien. Inilah yang dipakai
+	// helper sungguhan untuk menentukan identitas pemanggil.
+	token string
+	args  []byte
 	// cmds mencatat SEMUA command yang diterima, berurutan. Satu permintaan
 	// HTTP bisa memanggil helper lebih dari sekali (mis. upload: file.write
 	// per berkas, lalu file.remove untuk berkas parsial), dan yang justru
@@ -32,18 +38,34 @@ type helperTiruan struct {
 	balas any
 	// balasE, kalau diisi, dikirim sebagai kegagalan helper berkode.
 	balasE error
+	// periksaToken, kalau dinyalakan, membuat tiruan ini berperilaku seperti
+	// helper sungguhan: permintaan non-login dengan token tidak dikenal
+	// ditolak sebagai session_invalid. Bawaan mati supaya test lama yang
+	// sengaja membuat sesi tanpa token tetap menguji hal lain.
+	periksaToken bool
+	// tokenSah adalah daftar token yang diterima saat periksaToken menyala.
+	tokenSah map[string]bool
 }
 
 // catat menyimpan satu command yang diterima.
-func (h *helperTiruan) catat(cmd, username string, args []byte) {
+func (h *helperTiruan) catat(cmd, username, token string, args []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.cmd, h.username, h.args = cmd, username, args
+	h.cmd, h.username, h.token, h.args = cmd, username, token, args
 	h.cmds = append(h.cmds, cmd)
 	var pa helperproto.PathArgs
 	if json.Unmarshal(args, &pa) == nil && pa.Path != "" {
 		h.paths = append(h.paths, pa.Path)
 	}
+}
+
+// tolakToken melaporkan apakah token yang diterima harus ditolak. Dijalankan
+// dengan mu terkunci oleh pemanggil.
+func (h *helperTiruan) tolakToken(cmd, token string) bool {
+	if !h.periksaToken || cmd == helperproto.CmdAuthLogin {
+		return false
+	}
+	return !h.tokenSah[token]
 }
 
 // riwayat mengembalikan salinan daftar command yang diterima.
@@ -103,15 +125,25 @@ func layaniTiruan(conn net.Conn, tiruan *helperTiruan) {
 	// Framing: "<hex-hmac> <json-request>\n". Signature tidak diverifikasi —
 	// yang diuji adalah sisi KLIEN-nya, bukan kerahasiaannya.
 	var cmd string
+	var tolak bool
 	if _, payload, ok := cutSpasi(line); ok {
 		var req helperproto.Request
 		if json.Unmarshal(payload, &req) == nil {
 			cmd = req.Cmd
-			tiruan.catat(req.Cmd, req.Username, req.Args)
+			tiruan.mu.Lock()
+			tolak = tiruan.tolakToken(req.Cmd, req.Token)
+			tiruan.mu.Unlock()
+			tiruan.catat(req.Cmd, req.Username, req.Token, req.Args)
 		}
 	}
 	resp := helperproto.Response{OK: true}
-	if tiruan.balasE != nil {
+	if tolak {
+		// Perilaku helper sungguhan: klaim username diabaikan, token yang
+		// tidak dikenal ditolak sebagai sesi tidak sah.
+		resp.OK = false
+		resp.Code = helperproto.ErrSesiTidakValid
+		resp.Error = "sesi tidak valid atau sudah berakhir — login ulang diperlukan"
+	} else if tiruan.balasE != nil {
 		var he *helperclient.Error
 		if ok := asClientErr(tiruan.balasE, &he); ok {
 			resp.OK = false

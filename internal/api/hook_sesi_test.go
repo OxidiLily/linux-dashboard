@@ -23,6 +23,10 @@ func TestCookieLogoutSamaDenganCookieLogin(t *testing.T) {
 	tiruan := &helperTiruan{balas: helperproto.LoginResult{
 		UID: 1000, GID: 1000, Home: "/home/ani", Shell: "/bin/bash", Sudo: true,
 		Groups: []string{"ani", "sudo"},
+		// Token ikut diisi: helper sungguhan selalu menerbitkannya saat PAM
+		// berhasil, dan web app menolak login tanpa token (sesi tanpa token
+		// akan ditolak helper pada setiap permintaan berikutnya).
+		Token: "tok-ani",
 	}}
 	r, _ := buatServerCron(t, tiruan)
 

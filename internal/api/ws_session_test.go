@@ -22,7 +22,7 @@ func TestPantauSesiMenutupKoneksiSaatSesiDicabut(t *testing.T) {
 	defer st.Close()
 
 	srv := New(config.Config{}, st, nil, nil, nil)
-	sess, err := st.CreateSession("alice", "/home/alice", "192.0.2.1", false, time.Hour)
+	sess, err := st.CreateSession("alice", "/home/alice", "192.0.2.1", false, "tok-alice", time.Hour)
 	if err != nil {
 		t.Fatalf("buat sesi: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestPantauSesiStopIdempoten(t *testing.T) {
 	defer st.Close()
 
 	srv := New(config.Config{}, st, nil, nil, nil)
-	sess, _ := st.CreateSession("alice", "/home/alice", "192.0.2.1", false, time.Hour)
+	sess, _ := st.CreateSession("alice", "/home/alice", "192.0.2.1", false, "tok-alice", time.Hour)
 
 	stop := srv.pantauSesi(context.Background(), sess, func() {})
 	stop()

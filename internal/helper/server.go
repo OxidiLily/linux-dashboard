@@ -34,6 +34,12 @@ type Server struct {
 	// seenNonce menolak replay dalam jendela waktu yang diterima.
 	mu        sync.Mutex
 	seenNonce map[string]time.Time
+
+	// tokens menyimpan capability token yang diterbitkan saat login PAM
+	// berhasil: token → identitas yang sudah diverifikasi. Ini sumber
+	// kebenaran otorisasi untuk semua permintaan non-login; lihat token.go.
+	tokenMu sync.Mutex
+	tokens  map[string]*sesiToken
 }
 
 // maxClockSkew adalah umur maksimum request yang masih diterima.
@@ -111,8 +117,10 @@ func NewServer(socketPath, secretPath, legacySecretPath, socketGroup string) (*S
 		secret:     secret,
 		ln:         ln,
 		seenNonce:  map[string]time.Time{},
+		tokens:     map[string]*sesiToken{},
 	}
 	go s.gcNonces()
+	go s.gcTokens()
 	go daftarkanPortSemuaKomponen()
 	// Port container menyusul di latar: daftarnya hanya bisa diketahui dengan
 	// bertanya ke docker, dan panel tidak boleh menunggu jawabannya saat start.
@@ -299,17 +307,23 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	// auth.login adalah satu-satunya command yang identitasnya belum terverifikasi.
+	// auth.login adalah satu-satunya command yang identitasnya belum
+	// terverifikasi — ia justru yang menghasilkan token identitas itu.
 	if req.Cmd == helperproto.CmdAuthLogin {
 		s.handleLogin(conn, req)
 		return
 	}
 
-	u, err := lookupUser(req.Username)
-	if err != nil {
-		fail(conn, errDenied("identitas tidak dikenal"))
+	// Sejak sini identitas TIDAK PERNAH diambil dari req.Username. Klaim apa
+	// pun di field itu diabaikan; identitas datang dari token yang hanya bisa
+	// diterbitkan oleh login PAM yang berhasil. Tanpa token yang sah,
+	// permintaan ditolak (fail-closed) — termasuk auth.logout.
+	tokenUser, ok := s.tokenUser(req.Token)
+	if !ok {
+		fail(conn, errSesiTidakValid())
 		return
 	}
+	u := tokenUser
 	if sudoRequired[req.Cmd] && !u.Sudo {
 		fail(conn, errRequiresSudo())
 		return
@@ -349,12 +363,32 @@ func decodeArgs[T any](req helperproto.Request) (T, error) {
 
 func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage, error) {
 	switch req.Cmd {
+	case helperproto.CmdAuthLogout:
+		// Mencabut token yang dipakai permintaan ini. Token yang tidak sah
+		// sudah ditolak sebelum sampai ke sini, jadi baris ini hanya berjalan
+		// untuk sesi yang memang sah.
+		s.cabutToken(req.Token)
+		return nil, nil
+
 	case helperproto.CmdAuthPasswd:
 		args, err := decodeArgs[helperproto.PasswdArgs](req)
 		if err != nil {
 			return nil, err
 		}
-		return nil, s.changePassword(u, args)
+		if err := s.changePassword(u, args); err != nil {
+			return nil, err
+		}
+		// Password berubah → token lama tidak boleh hidup lebih lama daripada
+		// password yang melahirkannya. Dua kasus dibedakan seperti sesi panel
+		// di store: ganti password sendiri menyisakan token yang sedang
+		// dipakai, sedangkan reset password user lain mencabut SEMUA token
+		// target — sesi yang mungkin sudah dipegang penyerang.
+		if args.Target == "" || args.Target == u.Name {
+			s.cabutTokenUserKecuali(u.Name, req.Token)
+		} else {
+			s.cabutTokenUser(args.Target)
+		}
+		return nil, nil
 
 	case helperproto.CmdSysHostnameSet:
 		args, err := decodeArgs[helperproto.PathArgs](req)
@@ -643,13 +677,31 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		return nil, modifyLinuxUser(args)
+		if err := modifyLinuxUser(args); err != nil {
+			return nil, err
+		}
+		// Keanggotaan grup (termasuk grup sudo) bisa berubah di sini, dan
+		// status sudo tersalin ke dalam token saat login. Token lama target
+		// dicabut supaya hak barunya dihitung ulang, bukan diwarisi dari
+		// keadaan saat login — token milik admin yang mengubah akunnya
+		// sendiri disisakan supaya ia tidak terlempar keluar.
+		if args.Username == u.Name {
+			s.cabutTokenUserKecuali(u.Name, req.Token)
+		} else {
+			s.cabutTokenUser(args.Username)
+		}
+		return nil, nil
 	case helperproto.CmdUserDelete:
 		args, err := decodeArgs[helperproto.UserDeleteArgs](req)
 		if err != nil {
 			return nil, err
 		}
-		return nil, deleteLinuxUser(args)
+		if err := deleteLinuxUser(args); err != nil {
+			return nil, err
+		}
+		// Akun sudah tidak ada; token yang menunjuk ke sana pasti tidak sah.
+		s.cabutTokenUser(args.Username)
+		return nil, nil
 
 	case helperproto.CmdComponentStatusAll:
 		// Tombol Refresh di halaman Components harus benar-benar memeriksa

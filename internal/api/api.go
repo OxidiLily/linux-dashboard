@@ -308,6 +308,12 @@ func writeHelperErr(w http.ResponseWriter, err error) {
 	code := helperclient.Code(err)
 	status := http.StatusInternalServerError
 	switch code {
+	// Sesi helper tidak lagi sah: tokennya hilang, dicabut, atau kedaluwarsa
+	// (mis. sesi panel sudah berumur lebih dari masa hidup tokennya). 401 —
+	// bukan 403, bukan 500 — supaya frontend mengembalikan user ke halaman
+	// login alih-alih menampilkan "terjadi kesalahan pada server".
+	case helperproto.ErrSesiTidakValid:
+		status = http.StatusUnauthorized
 	case helperproto.ErrRequiresSudo, helperproto.ErrDenied, helperproto.ErrDiLuarHome, helperproto.ErrSymlinkKeluar:
 		status = http.StatusForbidden
 	case helperproto.ErrNotFound, helperproto.ErrFolderTidakAda, helperproto.ErrKomponenTidakAda:

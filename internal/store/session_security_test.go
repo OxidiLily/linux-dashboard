@@ -20,15 +20,15 @@ func bukaStoreUji(t *testing.T) *Store {
 // berlaku: penyerang yang sudah memegang sesi cukup menunggu sampai TTL habis.
 func TestDeleteSessionsByUsernameMencabutSemuaSesiUserItu(t *testing.T) {
 	s := bukaStoreUji(t)
-	a1, err := s.CreateSession("alice", "/home/alice", "192.0.2.1", false, time.Hour)
+	a1, err := s.CreateSession("alice", "/home/alice", "192.0.2.1", false, "tok-alice-1", time.Hour)
 	if err != nil {
 		t.Fatalf("sesi alice 1: %v", err)
 	}
-	a2, err := s.CreateSession("alice", "/home/alice", "192.0.2.2", true, time.Hour)
+	a2, err := s.CreateSession("alice", "/home/alice", "192.0.2.2", true, "tok-alice-2", time.Hour)
 	if err != nil {
 		t.Fatalf("sesi alice 2: %v", err)
 	}
-	b, err := s.CreateSession("bob", "/home/bob", "192.0.2.3", false, time.Hour)
+	b, err := s.CreateSession("bob", "/home/bob", "192.0.2.3", false, "tok-bob", time.Hour)
 	if err != nil {
 		t.Fatalf("sesi bob: %v", err)
 	}
@@ -51,11 +51,11 @@ func TestDeleteSessionsByUsernameMencabutSemuaSesiUserItu(t *testing.T) {
 // perangkat lain mati.
 func TestDeleteSessionsExceptMenyisakanSesiBerjalan(t *testing.T) {
 	s := bukaStoreUji(t)
-	ini, err := s.CreateSession("alice", "/home/alice", "192.0.2.1", false, time.Hour)
+	ini, err := s.CreateSession("alice", "/home/alice", "192.0.2.1", false, "tok-ini", time.Hour)
 	if err != nil {
 		t.Fatalf("sesi berjalan: %v", err)
 	}
-	lain, err := s.CreateSession("alice", "/home/alice", "192.0.2.9", false, time.Hour)
+	lain, err := s.CreateSession("alice", "/home/alice", "192.0.2.9", false, "tok-lain", time.Hour)
 	if err != nil {
 		t.Fatalf("sesi lain: %v", err)
 	}

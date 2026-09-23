@@ -48,8 +48,14 @@ func TestCariFileKirimIdentitasDanHasilRel(t *testing.T) {
 	if tiruan.cmd != helperproto.CmdFileSearch {
 		t.Fatalf("command helper = %q, harap %q", tiruan.cmd, helperproto.CmdFileSearch)
 	}
-	if tiruan.username != "ani" {
-		t.Fatalf("username ke helper = %q, harap \"ani\"", tiruan.username)
+	// Identitas yang dipakai helper adalah TOKEN sesi — nama user yang
+	// diklaim pemanggil tidak lagi menentukan hak apa pun.
+	ses, ok := st.GetSession(sess)
+	if !ok {
+		t.Fatal("sesi hilang dari store")
+	}
+	if tiruan.token != ses.HelperToken || tiruan.token == "" {
+		t.Fatalf("token ke helper = %q, harap token sesi %q", tiruan.token, ses.HelperToken)
 	}
 	var args helperproto.SearchArgs
 	if err := json.Unmarshal(tiruan.args, &args); err != nil {

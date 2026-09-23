@@ -26,7 +26,7 @@ type cronBody struct {
 
 func (s *Server) handleCronGet(w http.ResponseWriter, r *http.Request) {
 	var hasil helperproto.CronHasil
-	if err := s.helper.Call(helperproto.CmdCronGet, sessionFrom(r).Username, nil, &hasil); err != nil {
+	if err := s.helper.Call(helperproto.CmdCronGet, sessionFrom(r).HelperToken, nil, &hasil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -50,7 +50,7 @@ func (s *Server) handleCronSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var hasil helperproto.CronHasil
-	if err := s.helper.Call(helperproto.CmdCronPut, sess.Username,
+	if err := s.helper.Call(helperproto.CmdCronPut, sess.HelperToken,
 		helperproto.CronArgs{Isi: body.Isi, Previous: body.Previous}, &hasil); err != nil {
 		writeHelperErr(w, err)
 		return

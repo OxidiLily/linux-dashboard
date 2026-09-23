@@ -19,7 +19,7 @@ import (
 
 func (s *Server) handlePrinterList(w http.ResponseWriter, r *http.Request) {
 	var out []helperproto.Printer
-	if err := s.helper.Call(helperproto.CmdPrinterList, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrinterList, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -39,7 +39,7 @@ func (s *Server) handlePrinterAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdPrinterAdd, sess.Username, a, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrinterAdd, sess.HelperToken, a, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -54,7 +54,7 @@ func (s *Server) handlePrinterDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	name := chi.URLParam(r, "name")
-	if err := s.helper.Call(helperproto.CmdPrinterDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdPrinterDelete, sess.HelperToken,
 		helperproto.PrinterNameArgs{Name: name}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -70,7 +70,7 @@ func (s *Server) handlePrinterDefault(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	name := chi.URLParam(r, "name")
-	if err := s.helper.Call(helperproto.CmdPrinterDefault, sess.Username,
+	if err := s.helper.Call(helperproto.CmdPrinterDefault, sess.HelperToken,
 		helperproto.PrinterNameArgs{Name: name}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -91,7 +91,7 @@ func (s *Server) handlePrinterEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.Name = chi.URLParam(r, "name")
-	if err := s.helper.Call(helperproto.CmdPrinterEnable, sess.Username, a, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrinterEnable, sess.HelperToken, a, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -109,7 +109,7 @@ func (s *Server) handlePrinterDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []helperproto.PrinterDevice
-	if err := s.helper.Call(helperproto.CmdPrinterDevices, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrinterDevices, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -124,7 +124,7 @@ func (s *Server) handlePrinterModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []helperproto.PrinterModel
-	if err := s.helper.Call(helperproto.CmdPrinterModels, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrinterModels, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -142,7 +142,7 @@ func (s *Server) handlePrinterDeteksi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []helperproto.PrinterDeteksi
-	if err := s.helper.Call(helperproto.CmdPrinterDeteksi, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrinterDeteksi, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -165,7 +165,7 @@ func (s *Server) handlePrinterDriverInstall(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdPrinterDriverInstall, sess.Username, a, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrinterDriverInstall, sess.HelperToken, a, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -176,7 +176,7 @@ func (s *Server) handlePrinterDriverInstall(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handlePrintJobs(w http.ResponseWriter, r *http.Request) {
 	var out []helperproto.PrintJob
-	if err := s.helper.Call(helperproto.CmdPrintJobs, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrintJobs, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -189,7 +189,7 @@ func (s *Server) handlePrintJobs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePrintCancel(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	id := chi.URLParam(r, "id")
-	if err := s.helper.Call(helperproto.CmdPrintCancel, sess.Username,
+	if err := s.helper.Call(helperproto.CmdPrintCancel, sess.HelperToken,
 		helperproto.PrinterNameArgs{Name: id}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -207,7 +207,7 @@ func (s *Server) handlePrintFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var hasil helperproto.PrintFileHasil
-	if err := s.helper.Call(helperproto.CmdPrintFile, sess.Username, a, &hasil); err != nil {
+	if err := s.helper.Call(helperproto.CmdPrintFile, sess.HelperToken, a, &hasil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
