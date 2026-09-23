@@ -202,7 +202,7 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	stream, err := s.helper.Stream(helperproto.CmdTerminalStart, sess.Username,
+	stream, err := s.helper.Stream(helperproto.CmdTerminalStart, sess.HelperToken,
 		helperproto.TerminalArgs{Cols: cols, Rows: rows, Command: execCmd})
 	if err != nil {
 		// Lepaskan slot sebelum tulis close code agar tidak bocor.

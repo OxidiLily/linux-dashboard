@@ -112,9 +112,15 @@ func trimNewline(b []byte) []byte {
 }
 
 // dial membuka koneksi dan mengirim request bertanda tangan.
+//
+// token adalah capability yang diterbitkan helper saat login. Ia ikut di
+// SETIAP permintaan karena helper tidak lagi mempercayai klaim identitas dari
+// pemanggil: satu-satunya hal yang menentukan user mana yang dijalani command
+// ini adalah token tersebut. token kosong selalu ditolak helper.
+//
 // Mengembalikan koneksi + reader yang sudah membaca baris response, supaya
 // pemanggil bisa melanjutkan sebagai stream kalau perlu.
-func (c *Client) dial(cmd, username string, args any) (net.Conn, *bufio.Reader, *helperproto.Response, error) {
+func (c *Client) dial(cmd, token string, args any) (net.Conn, *bufio.Reader, *helperproto.Response, error) {
 	var raw json.RawMessage
 	if args != nil {
 		b, err := json.Marshal(args)
@@ -128,11 +134,11 @@ func (c *Client) dial(cmd, username string, args any) (net.Conn, *bufio.Reader, 
 		return nil, nil, nil, err
 	}
 	req := helperproto.Request{
-		Cmd:      cmd,
-		Username: username,
-		Args:     raw,
-		TS:       time.Now().Unix(),
-		Nonce:    hex.EncodeToString(nonce),
+		Cmd:   cmd,
+		Token: token,
+		Args:  raw,
+		TS:    time.Now().Unix(),
+		Nonce: hex.EncodeToString(nonce),
 	}
 	payload, err := json.Marshal(req)
 	if err != nil {
@@ -173,8 +179,12 @@ func (c *Client) dial(cmd, username string, args any) (net.Conn, *bufio.Reader, 
 }
 
 // Call menjalankan command non-stream dan mengurai hasilnya ke out.
-func (c *Client) Call(cmd, username string, args any, out any) error {
-	conn, _, resp, err := c.dial(cmd, username, args)
+//
+// token adalah capability sesi dari helper (LoginResult.Token). Ia wajib
+// dikirim untuk semua command kecuali auth.login; helper menolak permintaan
+// dengan token kosong/tidak dikenal/kedaluwarsa sebagai session_invalid.
+func (c *Client) Call(cmd, token string, args any, out any) error {
+	conn, _, resp, err := c.dial(cmd, token, args)
 	if err != nil {
 		return err
 	}
@@ -231,8 +241,8 @@ func (s *Stream) Selesai() error {
 	return nil
 }
 
-func (c *Client) Stream(cmd, username string, args any) (*Stream, error) {
-	conn, br, resp, err := c.dial(cmd, username, args)
+func (c *Client) Stream(cmd, token string, args any) (*Stream, error) {
+	conn, br, resp, err := c.dial(cmd, token, args)
 	if err != nil {
 		return nil, err
 	}

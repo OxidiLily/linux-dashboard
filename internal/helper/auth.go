@@ -80,9 +80,21 @@ func (s *Server) handleLogin(conn net.Conn, req helperproto.Request) {
 		fail(conn, errDenied("username atau password salah"))
 		return
 	}
+	// Autentikasi berhasil → terbitkan token capability. Ini satu-satunya
+	// tempat token dibuat, dan satu-satunya bukti identitas yang dipakai
+	// helper pada permintaan-permintaan berikutnya.
+	token, _ := s.terbitkanToken(u, sesiTTL)
+	if token == "" {
+		// crypto/rand gagal: ini kegagalan infrastruktur, bukan kredensial
+		// salah. Kode `internal` membuat web app melaporkannya sebagai
+		// masalah layanan (bukan menyuruh user mengetik ulang password yang
+		// sebenarnya benar).
+		fail(conn, &helperErr{code: helperproto.ErrInternal, msg: "gagal menerbitkan token sesi"})
+		return
+	}
 	res := helperproto.LoginResult{
 		UID: u.UID, GID: u.GID, Home: u.Home, Shell: u.Shell,
-		Sudo: u.Sudo, Groups: u.Names,
+		Sudo: u.Sudo, Groups: u.Names, Token: token,
 	}
 	data, _ := json.Marshal(res)
 	writeResp(conn, helperproto.Response{OK: true, Data: data})

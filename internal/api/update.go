@@ -23,7 +23,7 @@ func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 		Rinci: r.URL.Query().Get("rinci") == "1",
 	}
 	var st helperproto.UpdateStatus
-	if err := s.helper.Call(helperproto.CmdUpdateStatus, sessionFrom(r).Username, args, &st); err != nil {
+	if err := s.helper.Call(helperproto.CmdUpdateStatus, sessionFrom(r).HelperToken, args, &st); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -36,7 +36,7 @@ func (s *Server) handleUpdateStart(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	var st helperproto.UpdateStatus
-	if err := s.helper.Call(helperproto.CmdUpdateStart, sess.Username, nil, &st); err != nil {
+	if err := s.helper.Call(helperproto.CmdUpdateStart, sess.HelperToken, nil, &st); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -57,7 +57,7 @@ func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdUninstall, sess.Username, body, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdUninstall, sess.HelperToken, body, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -73,7 +73,7 @@ func (s *Server) handleReboot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	if err := s.helper.Call(helperproto.CmdReboot, sess.Username, nil, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdReboot, sess.HelperToken, nil, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}

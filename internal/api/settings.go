@@ -33,7 +33,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "Password baru minimal 8 karakter")
 		return
 	}
-	err := s.helper.Call(helperproto.CmdAuthPasswd, sess.Username, helperproto.PasswdArgs{
+	err := s.helper.Call(helperproto.CmdAuthPasswd, sess.HelperToken, helperproto.PasswdArgs{
 		OldPassword: body.OldPassword, NewPassword: body.NewPassword,
 	}, nil)
 	if err != nil {
@@ -63,7 +63,7 @@ func (s *Server) handleSetHostname(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdSysHostnameSet, sess.Username,
+	if err := s.helper.Call(helperproto.CmdSysHostnameSet, sess.HelperToken,
 		helperproto.PathArgs{Path: body.Hostname}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -80,7 +80,7 @@ func (s *Server) handleUserList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var users []helperproto.LinuxUser
-	if err := s.helper.Call(helperproto.CmdUserList, sessionFrom(r).Username, nil, &users); err != nil {
+	if err := s.helper.Call(helperproto.CmdUserList, sessionFrom(r).HelperToken, nil, &users); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -106,7 +106,7 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.MakeHome = true
-	if err := s.helper.Call(helperproto.CmdUserCreate, sess.Username, body, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdUserCreate, sess.HelperToken, body, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -128,7 +128,7 @@ func (s *Server) handleUserModify(w http.ResponseWriter, r *http.Request) {
 	// UID/GID sengaja tidak bisa diubah: UID adalah identitas permanen yang
 	// menentukan kepemilikan file — mengubahnya merusak ownership yang sudah ada.
 	body.Username = chi.URLParam(r, "name")
-	if err := s.helper.Call(helperproto.CmdUserModify, sess.Username, body, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdUserModify, sess.HelperToken, body, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -160,7 +160,7 @@ func (s *Server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	removeHome := r.URL.Query().Get("remove_home") == "true"
-	if err := s.helper.Call(helperproto.CmdUserDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdUserDelete, sess.HelperToken,
 		helperproto.UserDeleteArgs{Username: target, RemoveHome: removeHome}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -187,7 +187,7 @@ func (s *Server) handleUserResetPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	target := chi.URLParam(r, "name")
-	if err := s.helper.Call(helperproto.CmdAuthPasswd, sess.Username, helperproto.PasswdArgs{
+	if err := s.helper.Call(helperproto.CmdAuthPasswd, sess.HelperToken, helperproto.PasswdArgs{
 		Target: target, NewPassword: body.NewPassword,
 	}, nil); err != nil {
 		writeHelperErr(w, err)
@@ -269,7 +269,7 @@ func (s *Server) handleIfaceConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var cfg helperproto.IfaceConfig
-	if err := s.helper.Call(helperproto.CmdNetIfaceGet, sessionFrom(r).Username,
+	if err := s.helper.Call(helperproto.CmdNetIfaceGet, sessionFrom(r).HelperToken,
 		helperproto.PathArgs{Path: chi.URLParam(r, "name")}, &cfg); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -288,7 +288,7 @@ func (s *Server) handleIfaceConfigSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Iface = chi.URLParam(r, "name")
-	if err := s.helper.Call(helperproto.CmdNetIfaceSet, sess.Username, body, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdNetIfaceSet, sess.HelperToken, body, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -349,7 +349,7 @@ func (s *Server) handleSetDNS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.helper.Call(helperproto.CmdSysDNSSet, sess.Username,
+	if err := s.helper.Call(helperproto.CmdSysDNSSet, sess.HelperToken,
 		helperproto.DNSArgs{Nameservers: body.Nameservers}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -364,7 +364,7 @@ func (s *Server) handleVPNStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []helperproto.VPNStatus
-	if err := s.helper.Call(helperproto.CmdVPNStatus, sessionFrom(r).Username, nil, &out); err != nil {
+	if err := s.helper.Call(helperproto.CmdVPNStatus, sessionFrom(r).HelperToken, nil, &out); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -383,7 +383,7 @@ func (s *Server) handleVPNConfigure(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Name = chi.URLParam(r, "name")
 	var st helperproto.VPNStatus
-	if err := s.helper.Call(helperproto.CmdVPNConfigure, sess.Username, body, &st); err != nil {
+	if err := s.helper.Call(helperproto.CmdVPNConfigure, sess.HelperToken, body, &st); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -403,7 +403,7 @@ func (s *Server) handleFirewallList(w http.ResponseWriter, r *http.Request) {
 		Enabled bool                  `json:"enabled"`
 		Rules   []helperproto.UfwRule `json:"rules"`
 	}
-	if err := s.helper.Call(helperproto.CmdUfwStatus, sessionFrom(r).Username, nil, &st); err != nil {
+	if err := s.helper.Call(helperproto.CmdUfwStatus, sessionFrom(r).HelperToken, nil, &st); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -423,7 +423,7 @@ func (s *Server) handleFirewallAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdUfwAdd, sess.Username, rule, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdUfwAdd, sess.HelperToken, rule, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -451,7 +451,7 @@ func (s *Server) handleFirewallUpdate(w http.ResponseWriter, r *http.Request) {
 		Spec: r.URL.Query().Get("spec"),
 		Rule: rule,
 	}
-	if err := s.helper.Call(helperproto.CmdUfwUpdate, sess.Username, args, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdUfwUpdate, sess.HelperToken, args, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -468,7 +468,7 @@ func (s *Server) handleFirewallDelete(w http.ResponseWriter, r *http.Request) {
 	num := chi.URLParam(r, "num")
 	// spec dipakai saat ufw nonaktif — rule tidak punya nomor di kondisi itu.
 	spec := r.URL.Query().Get("spec")
-	if err := s.helper.Call(helperproto.CmdUfwDelete, sess.Username,
+	if err := s.helper.Call(helperproto.CmdUfwDelete, sess.HelperToken,
 		helperproto.UfwDeleteArgs{Num: num, Spec: spec}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -491,7 +491,7 @@ func (s *Server) handleFirewallToggle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdUfwToggle, sess.Username, body, nil); err != nil {
+	if err := s.helper.Call(helperproto.CmdUfwToggle, sess.HelperToken, body, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}

@@ -59,4 +59,10 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 # lewat nama. Test ini menjaga agar symlink/`..`/path absolut tidak bisa
 # menembus home dari dalam worker.
 !internal/helper/worker_beneath_test.go
+# Token capability helper (audit 2026-09-23): helper tidak lagi mempercayai
+# klaim Username dari web app. Test ini menjaga agar jalur itu tidak dibuka
+# kembali tanpa ada yang gagal.
+!internal/helper/token_test.go
+!internal/helperclient/token_test.go
+!internal/api/sesi_token_test.go
 web/dist.bak/

@@ -22,6 +22,10 @@ import (
 const (
 	CmdAuthLogin  = "auth.login"
 	CmdAuthPasswd = "auth.passwd"
+	// CmdAuthLogout mencabut token yang dipakai mengirim permintaan ini. Dipakai
+	// web app saat logout, saat sesi dicabut, dan saat password diganti, supaya
+	// token sesi lama tidak hidup lebih lama dari sesi panelnya.
+	CmdAuthLogout = "auth.logout"
 
 	CmdSysHostnameSet = "sys.hostname_set"
 	CmdSysDNSSet      = "sys.dns_set"
@@ -184,16 +188,27 @@ const (
 	ErrDenied       = "denied"
 	ErrInvalid      = "invalid"
 	ErrInternal     = "internal"
+	// ErrSesiTidakValid: token capability yang dikirim tidak ada, sudah
+	// dicabut, atau sudah kedaluwarsa. Dipisahkan dari ErrDenied supaya layer
+	// API bisa memetakannya ke HTTP 401 (sesi tidak sah) alih-alih 403 —
+	// "sesi Anda sudah berakhir" dan "aksi ini butuh sudo" adalah dua hal
+	// berbeda bagi user, dan yang pertama harus memaksanya login ulang.
+	ErrSesiTidakValid = "session_invalid"
 )
 
 type Request struct {
 	Cmd string `json:"cmd"`
-	// Username adalah identitas Linux user yang login, diambil dari session
-	// server-side — tidak pernah dari input client.
-	Username string          `json:"username"`
-	Args     json.RawMessage `json:"args,omitempty"`
-	TS       int64           `json:"ts"`
-	Nonce    string          `json:"nonce"`
+	// Username TIDAK LAGI dipakai untuk memutuskan hak apa pun. Ia hanya
+	// keterangan untuk log. Otorisasi diambil dari Token.
+	Username string `json:"username,omitempty"`
+	// Token adalah capability opaque yang diterbitkan helper saat login PAM
+	// berhasil (lihat LoginResult.Token). Helper menentukan identitas — dan
+	// karenanya seluruh hak — dari token ini, bukan dari klaim pemanggil.
+	// Permintaan tanpa token yang sah selalu ditolak.
+	Token string          `json:"token,omitempty"`
+	Args  json.RawMessage `json:"args,omitempty"`
+	TS    int64           `json:"ts"`
+	Nonce string          `json:"nonce"`
 }
 
 type Response struct {
@@ -220,6 +235,10 @@ type LoginResult struct {
 	Shell  string   `json:"shell"`
 	Sudo   bool     `json:"sudo"`
 	Groups []string `json:"groups"`
+	// Token adalah capability opaque yang harus dikirim balik pada setiap
+	// permintaan berikutnya. Web app menyimpannya bersama sesinya; ia tidak
+	// pernah dikirim ke browser.
+	Token string `json:"token"`
 }
 
 type PasswdArgs struct {

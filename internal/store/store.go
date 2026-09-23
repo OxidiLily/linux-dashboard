@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   home TEXT,
   ip_address TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  expires_at DATETIME NOT NULL
+  expires_at DATETIME NOT NULL,
+  helper_token TEXT
 );
 `
 
@@ -131,6 +132,11 @@ func Open(path string) (*Store, error) {
 	for _, kolom := range []string{
 		`ALTER TABLE user_preferences ADD COLUMN timezone TEXT DEFAULT ''`,
 		`ALTER TABLE user_preferences ADD COLUMN language TEXT DEFAULT 'id'`,
+		// Sesi lama (dibuat sebelum helper menerbitkan token) tidak punya
+		// token. Kolomnya dibiarkan NULL/kosong: permintaan yang memakai sesi
+		// itu akan ditolak helper sebagai sesi tidak sah, dan user diminta
+		// login ulang — bukan diperlakukan sebagai user mana pun.
+		`ALTER TABLE sessions ADD COLUMN helper_token TEXT`,
 	} {
 		if _, err := db.Exec(kolom); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrasi kolom preferensi: %w", err)
@@ -158,6 +164,11 @@ type Session struct {
 	Sudo     bool
 	Home     string
 	Expires  time.Time
+	// HelperToken adalah capability token yang diterbitkan helper daemon saat
+	// login berhasil. Ia disimpan bersama sesi (bukan di cookie) dan dikirim
+	// ke helper pada setiap permintaan — helper memakai token itu, bukan nama
+	// user, untuk memutuskan identitas dan hak pemanggil.
+	HelperToken string
 }
 
 func newID() string {
@@ -166,20 +177,24 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-func (s *Store) CreateSession(username, home, ip string, sudo bool, ttl time.Duration) (Session, error) {
-	sess := Session{ID: newID(), Username: username, Sudo: sudo, Home: home, Expires: time.Now().Add(ttl)}
+func (s *Store) CreateSession(username, home, ip string, sudo bool, helperToken string, ttl time.Duration) (Session, error) {
+	sess := Session{
+		ID: newID(), Username: username, Sudo: sudo, Home: home,
+		Expires: time.Now().Add(ttl), HelperToken: helperToken,
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO sessions(id, username, sudo, home, ip_address, expires_at) VALUES(?,?,?,?,?,?)`,
-		sess.ID, username, boolInt(sudo), home, ip, sess.Expires)
+		`INSERT INTO sessions(id, username, sudo, home, ip_address, expires_at, helper_token) VALUES(?,?,?,?,?,?,?)`,
+		sess.ID, username, boolInt(sudo), home, ip, sess.Expires, helperToken)
 	return sess, err
 }
 
 func (s *Store) GetSession(id string) (Session, bool) {
 	var sess Session
 	var sudo int
+	var token sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, username, sudo, home, expires_at FROM sessions WHERE id = ?`, id,
-	).Scan(&sess.ID, &sess.Username, &sudo, &sess.Home, &sess.Expires)
+		`SELECT id, username, sudo, home, expires_at, helper_token FROM sessions WHERE id = ?`, id,
+	).Scan(&sess.ID, &sess.Username, &sudo, &sess.Home, &sess.Expires, &token)
 	if err != nil {
 		return Session{}, false
 	}
@@ -188,6 +203,7 @@ func (s *Store) GetSession(id string) (Session, bool) {
 		return Session{}, false
 	}
 	sess.Sudo = sudo == 1
+	sess.HelperToken = token.String
 	return sess, true
 }
 

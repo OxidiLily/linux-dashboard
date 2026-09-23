@@ -56,12 +56,12 @@ func dataDirs(home string) []string {
 // mkdir dijalankan lewat helper supaya prosesnya berjalan sebagai user itu
 // sendiri: folder yang dibuat root akan jadi milik root di dalam home orang.
 // `MkdirAll` idempoten — folder yang sudah ada tidak diubah izinnya.
-func (s *Server) siapkanDataDirs(username, home string, dirs []string) {
+func (s *Server) siapkanDataDirs(username, token, home string, dirs []string) {
 	if home == "" || home == "/" {
 		return
 	}
 	for _, d := range dirs {
-		if err := s.helper.Call(helperproto.CmdFileMkdir, username,
+		if err := s.helper.Call(helperproto.CmdFileMkdir, token,
 			helperproto.PathArgs{Path: d}, nil); err != nil {
 			log.Printf("membuat %s untuk %s gagal: %v", d, username, err)
 		}
@@ -73,15 +73,15 @@ func (s *Server) siapkanDataDirs(username, home string, dirs []string) {
 func (s *Server) handleFileRoots(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	dirs := dataDirs(sess.Home)
-	s.siapkanDataDirs(sess.Username, sess.Home, dirs)
+	s.siapkanDataDirs(sess.Username, sess.HelperToken, sess.Home, dirs)
 	roots := []fileRoot{{Name: "Home", Path: sess.Home}}
 	for _, d := range dirs {
 		roots = append(roots, fileRoot{Name: filepath.Base(d), Path: d})
 	}
 	if sess.Sudo {
 		roots = append(roots, fileRoot{Name: "Root (/)", Path: "/"})
-		roots = append(roots, poolRoots(s, sess.Username)...)
-		roots = append(roots, nfsRoots(s, sess.Username)...)
+		roots = append(roots, poolRoots(s, sess.HelperToken)...)
+		roots = append(roots, nfsRoots(s, sess.HelperToken)...)
 	}
 	writeJSON(w, http.StatusOK, roots)
 }
@@ -94,9 +94,9 @@ func (s *Server) handleFileRoots(w http.ResponseWriter, r *http.Request) {
 // Gagal membaca daftar pool sengaja tidak menggagalkan permintaan: mergerfs
 // bisa saja belum terpasang, dan file manager tetap harus bisa dipakai tanpa
 // pintasan ini.
-func poolRoots(s *Server, username string) []fileRoot {
+func poolRoots(s *Server, token string) []fileRoot {
 	var pools []helperproto.MergerfsPool
-	if err := s.helper.Call(helperproto.CmdMergerfsList, username, nil, &pools); err != nil {
+	if err := s.helper.Call(helperproto.CmdMergerfsList, token, nil, &pools); err != nil {
 		return nil
 	}
 	out := make([]fileRoot, 0, len(pools))
@@ -126,9 +126,9 @@ func poolRoots(s *Server, username string) []fileRoot {
 // Mount yang dipasang di luar panel ikut dapat pintasan: yang menentukan
 // berguna atau tidaknya sebuah pintasan adalah foldernya ada dan bisa dibuka,
 // bukan siapa yang memasangnya.
-func nfsRoots(s *Server, username string) []fileRoot {
+func nfsRoots(s *Server, token string) []fileRoot {
 	var mounts []helperproto.NFSMount
-	if err := s.helper.Call(helperproto.CmdNFSMountList, username, nil, &mounts); err != nil {
+	if err := s.helper.Call(helperproto.CmdNFSMountList, token, nil, &mounts); err != nil {
 		return nil
 	}
 	out := make([]fileRoot, 0, len(mounts))
@@ -166,7 +166,7 @@ func (s *Server) handleFileList(w http.ResponseWriter, r *http.Request) {
 		path = sess.Home
 	}
 	var entries []helperproto.FileEntry
-	if err := s.helper.Call(helperproto.CmdFileList, sess.Username,
+	if err := s.helper.Call(helperproto.CmdFileList, sess.HelperToken,
 		helperproto.PathArgs{Path: path}, &entries); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -201,7 +201,7 @@ func (s *Server) handleFileSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var hasil helperproto.SearchHasil
-	if err := s.helper.Call(helperproto.CmdFileSearch, sess.Username,
+	if err := s.helper.Call(helperproto.CmdFileSearch, sess.HelperToken,
 		helperproto.SearchArgs{Path: path, Query: kueri}, &hasil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -242,7 +242,7 @@ func (s *Server) simpleFileOp(w http.ResponseWriter, r *http.Request, cmd, opNam
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(cmd, sess.Username, helperproto.PathArgs{Path: body.Path}, nil); err != nil {
+	if err := s.helper.Call(cmd, sess.HelperToken, helperproto.PathArgs{Path: body.Path}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -271,7 +271,7 @@ func (s *Server) twoPathOp(w http.ResponseWriter, r *http.Request, cmd, opName s
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(cmd, sess.Username,
+	if err := s.helper.Call(cmd, sess.HelperToken,
 		helperproto.TwoPathArgs{Source: body.Source, Dest: body.Dest}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -304,14 +304,14 @@ func (s *Server) handlePermissions(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := s.helper.Call(helperproto.CmdFileChmod, sess.Username,
+		if err := s.helper.Call(helperproto.CmdFileChmod, sess.HelperToken,
 			helperproto.ChmodArgs{Path: body.Path, Mode: mode}, nil); err != nil {
 			writeHelperErr(w, err)
 			return
 		}
 	}
 	if body.Owner != "" || body.Group != "" {
-		if err := s.helper.Call(helperproto.CmdFileChown, sess.Username,
+		if err := s.helper.Call(helperproto.CmdFileChown, sess.HelperToken,
 			helperproto.ChownArgs{Path: body.Path, Owner: body.Owner, Group: body.Group, Recursive: body.Recursive}, nil); err != nil {
 			writeHelperErr(w, err)
 			return
@@ -404,14 +404,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		// ada lebih dulu. Dibuat lewat helper supaya kepemilikannya tetap milik
 		// user yang login, bukan user service web.
 		if sub := filepath.Dir(rel); sub != "." {
-			if err := s.helper.Call(helperproto.CmdFileMkdir, sess.Username,
+			if err := s.helper.Call(helperproto.CmdFileMkdir, sess.HelperToken,
 				helperproto.PathArgs{Path: filepath.Dir(dest)}, nil); err != nil {
 				part.Close()
 				writeHelperErr(w, err)
 				return
 			}
 		}
-		stream, err := s.helper.Stream(helperproto.CmdFileWrite, sess.Username,
+		stream, err := s.helper.Stream(helperproto.CmdFileWrite, sess.HelperToken,
 			helperproto.WriteArgs{Path: dest})
 		if err != nil {
 			part.Close()
@@ -430,7 +430,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			// terpakai walaupun upload-nya ditolak. Kegagalan hapus tidak
 			// diabaikan diam-diam — kalau ini gagal, berkasnya memang tinggal
 			// di disk dan satu-satunya cara tahu adalah dari log.
-			if err := s.helper.Call(helperproto.CmdFileRemove, sess.Username,
+			if err := s.helper.Call(helperproto.CmdFileRemove, sess.HelperToken,
 				helperproto.PathArgs{Path: dest}, nil); err != nil {
 				log.Printf("upload: berkas parsial %s gagal dihapus: %v", dest, err)
 			}
@@ -519,12 +519,12 @@ func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
 	src := zipSumber{
 		list: func(path string) ([]helperproto.FileEntry, error) {
 			var entries []helperproto.FileEntry
-			err := s.helper.Call(helperproto.CmdFileList, sess.Username,
+			err := s.helper.Call(helperproto.CmdFileList, sess.HelperToken,
 				helperproto.PathArgs{Path: path}, &entries)
 			return entries, err
 		},
 		read: func(path string) (io.ReadCloser, error) {
-			return s.helper.Stream(helperproto.CmdFileRead, sess.Username,
+			return s.helper.Stream(helperproto.CmdFileRead, sess.HelperToken,
 				helperproto.PathArgs{Path: path})
 		},
 	}
@@ -698,11 +698,11 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	hasil, segar, ada := s.usage.ambil(sess.Username, path, time.Now())
 	if ada {
 		if !segar {
-			s.perbaruiUsage(sess.Username, path)
+			s.perbaruiUsage(sess.Username, sess.HelperToken, path)
 		}
 	} else {
 		var err error
-		hasil, err = s.hitungUsage(sess.Username, path)
+		hasil, err = s.hitungUsage(sess.Username, sess.HelperToken, path)
 		if err != nil {
 			writeHelperErr(w, err)
 			return
@@ -734,7 +734,7 @@ func (s *Server) handleFileContent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "parameter path wajib diisi")
 		return
 	}
-	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.Username,
+	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.HelperToken,
 		helperproto.PathArgs{Path: path})
 	if err != nil {
 		writeHelperErr(w, err)
@@ -782,7 +782,7 @@ func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "Isi melebihi 1 MB")
 		return
 	}
-	stream, err := s.helper.Stream(helperproto.CmdFileWrite, sess.Username,
+	stream, err := s.helper.Stream(helperproto.CmdFileWrite, sess.HelperToken,
 		helperproto.WriteArgs{Path: body.Path})
 	if err != nil {
 		writeHelperErr(w, err)
@@ -902,7 +902,7 @@ func (s *Server) streamFile(w http.ResponseWriter, r *http.Request, asAttachment
 	}
 
 	buka := func(offset, length int64) (*helperclient.Stream, helperproto.FileEntry, error) {
-		st, err := s.helper.Stream(helperproto.CmdFileRead, sess.Username,
+		st, err := s.helper.Stream(helperproto.CmdFileRead, sess.HelperToken,
 			helperproto.ReadArgs{Path: path, Offset: offset, Length: length})
 		if err != nil {
 			return nil, helperproto.FileEntry{}, err
@@ -1010,9 +1010,9 @@ func (s *Server) streamFile(w http.ResponseWriter, r *http.Request, asAttachment
 	}
 }
 
-func (s *Server) hitungUsage(username, path string) (helperproto.UsageHasil, error) {
+func (s *Server) hitungUsage(username, token, path string) (helperproto.UsageHasil, error) {
 	var hasil helperproto.UsageHasil
-	if err := s.helper.Call(helperproto.CmdFileUsage, username,
+	if err := s.helper.Call(helperproto.CmdFileUsage, token,
 		helperproto.PathArgs{Path: path}, &hasil); err != nil {
 		return hasil, err
 	}
@@ -1023,13 +1023,13 @@ func (s *Server) hitungUsage(username, path string) (helperproto.UsageHasil, err
 // perbaruiUsage menghitung ulang di latar. Permintaan yang memicunya sudah
 // dijawab dengan angka lama, jadi kegagalan di sini cukup meninggalkan entri
 // lama — percobaan berikutnya akan mencoba lagi.
-func (s *Server) perbaruiUsage(username, path string) {
+func (s *Server) perbaruiUsage(username, token, path string) {
 	if !s.usage.mulaiLatar(username, path) {
 		return
 	}
 	go func() {
 		defer s.usage.selesaiLatar(username, path)
-		_, _ = s.hitungUsage(username, path)
+		_, _ = s.hitungUsage(username, token, path)
 	}()
 }
 

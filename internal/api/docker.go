@@ -32,9 +32,9 @@ type container struct {
 	Ports  string `json:"ports"`
 }
 
-func (s *Server) dockerRun(username string, dir string, args ...string) (helperproto.ExecResult, error) {
+func (s *Server) dockerRun(token string, dir string, args ...string) (helperproto.ExecResult, error) {
 	var res helperproto.ExecResult
-	err := s.helper.Call(helperproto.CmdDockerExec, username,
+	err := s.helper.Call(helperproto.CmdDockerExec, token,
 		helperproto.DockerExecArgs{Args: args, Dir: dir}, &res)
 	return res, err
 }
@@ -43,7 +43,7 @@ func (s *Server) handleDockerContainers(w http.ResponseWriter, r *http.Request) 
 	if !requireSudo(w, r) {
 		return
 	}
-	res, err := s.dockerRun(sessionFrom(r).Username, "", "ps", "-a", "--format", "{{json .}}")
+	res, err := s.dockerRun(sessionFrom(r).HelperToken, "", "ps", "-a", "--format", "{{json .}}")
 	if err != nil {
 		writeHelperErr(w, err)
 		return
@@ -100,12 +100,12 @@ func (s *Server) handleContainerAction(w http.ResponseWriter, r *http.Request) {
 	// `docker start` pada container yang sudah jalan keluar dengan status 0
 	// tanpa melakukan apa pun — tanpa cek ini UI melaporkan "berhasil" untuk
 	// aksi yang sebenarnya tidak terjadi.
-	if action == "start" && s.containerBerjalan(sess.Username, id) {
+	if action == "start" && s.containerBerjalan(sess.HelperToken, id) {
 		writeErr(w, http.StatusConflict, "container sudah berjalan")
 		return
 	}
 	args := append(append([]string{}, argsAwal...), id)
-	if _, err := s.dockerRun(sess.Username, "", args...); err != nil {
+	if _, err := s.dockerRun(sess.HelperToken, "", args...); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -114,8 +114,8 @@ func (s *Server) handleContainerAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) containerBerjalan(username, id string) bool {
-	res, err := s.dockerRun(username, "", "inspect", "-f", "{{.State.Running}}", id)
+func (s *Server) containerBerjalan(token, id string) bool {
+	res, err := s.dockerRun(token, "", "inspect", "-f", "{{.State.Running}}", id)
 	if err != nil {
 		return false
 	}
@@ -143,7 +143,7 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	if tail > maxTailLog {
 		tail = maxTailLog
 	}
-	res, err := s.dockerRun(sess.Username, "", "logs", "--tail", strconv.Itoa(tail), id)
+	res, err := s.dockerRun(sess.HelperToken, "", "logs", "--tail", strconv.Itoa(tail), id)
 	if err != nil {
 		writeHelperErr(w, err)
 		return
@@ -188,8 +188,8 @@ type composeLsRow struct {
 
 // daftarComposeLs membaca seluruh project compose yang dikenal Docker,
 // termasuk yang container-nya sedang berhenti (--all).
-func (s *Server) daftarComposeLs(username string) []composeLsRow {
-	res, err := s.dockerRun(username, "", "compose", "ls", "--all", "--format", "json")
+func (s *Server) daftarComposeLs(token string) []composeLsRow {
+	res, err := s.dockerRun(token, "", "compose", "ls", "--all", "--format", "json")
 	if err != nil {
 		return nil
 	}
@@ -384,13 +384,13 @@ func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 	stacks = s.sinkronStackKomponen(stacks)
 	// Satu kali `compose ls` untuk seluruh daftar: dipakai menentukan project
 	// tiap stack terdaftar DAN menemukan stack yang belum terdaftar.
-	lsRows := s.daftarComposeLs(sess.Username)
+	lsRows := s.daftarComposeLs(sess.HelperToken)
 	pemegang := proyekBerjalan(lsRows)
 	out := make([]stackView, 0, len(stacks))
 	for _, st := range stacks {
 		v := stackView{ID: st.ID, Name: st.Name, ComposePath: st.ComposePath, Description: st.Description}
 		args := argsStatusStack(st, pemegang)
-		res, err := s.dockerRun(sess.Username, filepath.Dir(st.ComposePath), args...)
+		res, err := s.dockerRun(sess.HelperToken, filepath.Dir(st.ComposePath), args...)
 		if err != nil {
 			v.Error = err.Error()
 		} else {
@@ -626,8 +626,8 @@ func (s *Server) handleStackAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "stack tidak ditemukan")
 		return
 	}
-	args := append(argsCompose(st, proyekBerjalan(s.daftarComposeLs(sess.Username))), extra...)
-	res, err := s.dockerRun(sess.Username, filepath.Dir(st.ComposePath), args...)
+	args := append(argsCompose(st, proyekBerjalan(s.daftarComposeLs(sess.HelperToken))), extra...)
+	res, err := s.dockerRun(sess.HelperToken, filepath.Dir(st.ComposePath), args...)
 	if err != nil {
 		writeHelperErr(w, err)
 		return
@@ -654,14 +654,14 @@ func (s *Server) handleStackEnvGet(w http.ResponseWriter, r *http.Request) {
 	}
 	envPath := filepath.Join(filepath.Dir(st.ComposePath), ".env")
 	w.Header().Set("Cache-Control", "no-store")
-	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.Username,
+	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.HelperToken,
 		helperproto.PathArgs{Path: envPath})
 	if helperclient.Code(err) == helperproto.ErrDenied {
 		// Instalasi lama dapat meninggalkan .env Arkon 0600 milik root.
 		// Gunakan aturan kepemilikan yang sama dengan Simpan, tanpa membuka
 		// rahasia ke user lain atau mengambil berkas milik admin lain.
-		s.serahkanKonfigStack(sess.Username, envPath)
-		stream, err = s.helper.Stream(helperproto.CmdFileRead, sess.Username,
+		s.serahkanKonfigStack(sess.Username, sess.HelperToken, envPath)
+		stream, err = s.helper.Stream(helperproto.CmdFileRead, sess.HelperToken,
 			helperproto.PathArgs{Path: envPath})
 	}
 	if err != nil {
@@ -744,12 +744,12 @@ func dirSistem(p string) bool {
 // HanyaMilikRoot menjaga supaya ini tidak pernah jadi pengambilalihan: berkas
 // yang sudah milik admin lain didiamkan, dan penyimpanannya gagal seperti
 // sebelumnya — dengan pesan izin yang memang benar.
-func (s *Server) serahkanKonfigStack(username string, path ...string) {
+func (s *Server) serahkanKonfigStack(username, token string, path ...string) {
 	for _, p := range path {
 		if p == "" || dirSistem(p) {
 			continue
 		}
-		if err := s.helper.Call(helperproto.CmdFileChown, username,
+		if err := s.helper.Call(helperproto.CmdFileChown, token,
 			helperproto.ChownArgs{Path: p, Owner: username, HanyaMilikRoot: true}, nil); err != nil {
 			// Bukan alasan membatalkan penyimpanan: kalau memang tidak bisa,
 			// penulisannya sendiri yang akan melapor dengan pesan yang tepat.
@@ -777,8 +777,8 @@ func (s *Server) handleStackEnvSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envPath := filepath.Join(filepath.Dir(st.ComposePath), ".env")
-	s.serahkanKonfigStack(sess.Username, filepath.Dir(st.ComposePath), envPath)
-	if err := s.tulisFile(sess.Username, envPath, body.Content); err != nil {
+	s.serahkanKonfigStack(sess.Username, sess.HelperToken, filepath.Dir(st.ComposePath), envPath)
+	if err := s.tulisFile(sess.HelperToken, envPath, body.Content); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -801,7 +801,7 @@ func (s *Server) handleStackComposeGet(w http.ResponseWriter, r *http.Request) {
 	}
 	// Path TIDAK diambil dari request — hanya dari baris stack di SQLite, supaya
 	// endpoint ini tidak bisa dipakai membaca file sembarangan.
-	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.Username,
+	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.HelperToken,
 		helperproto.PathArgs{Path: st.ComposePath})
 	if err != nil {
 		writeHelperErr(w, err)
@@ -834,20 +834,20 @@ func (s *Server) handleStackComposeSet(w http.ResponseWriter, r *http.Request) {
 	// Cadangannya ikut diserahkan: `.bak` milik root yang sudah ada akan
 	// menolak ditimpa oleh salinan berikutnya, dan kegagalan itu terjadi
 	// SESUDAH compose barunya lolos validasi.
-	s.serahkanKonfigStack(sess.Username,
+	s.serahkanKonfigStack(sess.Username, sess.HelperToken,
 		filepath.Dir(st.ComposePath), st.ComposePath, st.ComposePath+".bak")
 
 	// Urutan wajib: tulis ke file sementara → validasi → backup → ganti.
 	// Menulis langsung ke file asli berarti compose yang salah ketik sudah
 	// merusak stack sebelum sempat divalidasi.
 	tmp := st.ComposePath + ".lindash-tmp"
-	if err := s.tulisFile(sess.Username, tmp, body.Content); err != nil {
+	if err := s.tulisFile(sess.HelperToken, tmp, body.Content); err != nil {
 		writeErr(w, http.StatusInternalServerError, "gagal menulis file sementara: "+err.Error())
 		return
 	}
-	if res, err := s.dockerRun(sess.Username, filepath.Dir(st.ComposePath),
+	if res, err := s.dockerRun(sess.HelperToken, filepath.Dir(st.ComposePath),
 		"compose", "-f", tmp, "config", "-q"); err != nil {
-		_ = s.helper.Call(helperproto.CmdFileRemove, sess.Username, helperproto.PathArgs{Path: tmp}, nil)
+		_ = s.helper.Call(helperproto.CmdFileRemove, sess.HelperToken, helperproto.PathArgs{Path: tmp}, nil)
 		pesan := strings.TrimSpace(res.Stderr)
 		if pesan == "" {
 			pesan = err.Error()
@@ -856,9 +856,9 @@ func (s *Server) handleStackComposeSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Backup versi lama sebelum ditimpa; menimpa backup sebelumnya disengaja.
-	_ = s.helper.Call(helperproto.CmdFileCopy, sess.Username,
+	_ = s.helper.Call(helperproto.CmdFileCopy, sess.HelperToken,
 		helperproto.TwoPathArgs{Source: st.ComposePath, Dest: st.ComposePath + ".bak"}, nil)
-	if err := s.helper.Call(helperproto.CmdFileMove, sess.Username,
+	if err := s.helper.Call(helperproto.CmdFileMove, sess.HelperToken,
 		helperproto.TwoPathArgs{Source: tmp, Dest: st.ComposePath}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
@@ -872,8 +872,8 @@ func (s *Server) handleStackComposeSet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) tulisFile(username, path, content string) error {
-	stream, err := s.helper.Stream(helperproto.CmdFileWrite, username, helperproto.WriteArgs{Path: path})
+func (s *Server) tulisFile(token, path, content string) error {
+	stream, err := s.helper.Stream(helperproto.CmdFileWrite, token, helperproto.WriteArgs{Path: path})
 	if err != nil {
 		return err
 	}
@@ -970,7 +970,7 @@ func (s *Server) handleDockerImages(w http.ResponseWriter, r *http.Request) {
 	if !requireSudo(w, r) {
 		return
 	}
-	res, err := s.dockerRun(sessionFrom(r).Username, "", "image", "ls", "--format", "{{json .}}")
+	res, err := s.dockerRun(sessionFrom(r).HelperToken, "", "image", "ls", "--format", "{{json .}}")
 	if err != nil {
 		writeHelperErr(w, err)
 		return
@@ -994,7 +994,7 @@ func (s *Server) handleDockerVolumes(w http.ResponseWriter, r *http.Request) {
 	if !requireSudo(w, r) {
 		return
 	}
-	res, err := s.dockerRun(sessionFrom(r).Username, "", "volume", "ls", "--format", "{{json .}}")
+	res, err := s.dockerRun(sessionFrom(r).HelperToken, "", "volume", "ls", "--format", "{{json .}}")
 	if err != nil {
 		writeHelperErr(w, err)
 		return
@@ -1018,7 +1018,7 @@ func (s *Server) handleDockerNetworks(w http.ResponseWriter, r *http.Request) {
 	if !requireSudo(w, r) {
 		return
 	}
-	res, err := s.dockerRun(sessionFrom(r).Username, "", "network", "ls", "--format", "{{json .}}")
+	res, err := s.dockerRun(sessionFrom(r).HelperToken, "", "network", "ls", "--format", "{{json .}}")
 	if err != nil {
 		writeHelperErr(w, err)
 		return
@@ -1073,7 +1073,7 @@ func (s *Server) handleDockerDiskUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	// `system df` menjalankan template SEKALI PER JENIS, jadi keluarannya
 	// empat objek JSON berbaris — bentuk yang sama dengan `ls --format`.
-	res, err := s.dockerRun(sessionFrom(r).Username, "", "system", "df", "--format", "{{json .}}")
+	res, err := s.dockerRun(sessionFrom(r).HelperToken, "", "system", "df", "--format", "{{json .}}")
 	if err != nil {
 		writeHelperErr(w, err)
 		return
@@ -1138,7 +1138,7 @@ func (s *Server) handleDockerDayaDelete(w http.ResponseWriter, r *http.Request) 
 	// Tanpa -f: daemon menolak menghapus image/volume/network yang masih
 	// dipakai, dan penolakan itu justru pengaman yang paling berguna di sini.
 	// Memaksanya berarti container yang sedang jalan kehilangan datanya.
-	if _, err := s.dockerRun(sess.Username, "", daya, "rm", id); err != nil {
+	if _, err := s.dockerRun(sess.HelperToken, "", daya, "rm", id); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
@@ -1172,7 +1172,7 @@ func (s *Server) handleDockerDayaPrune(w http.ResponseWriter, r *http.Request) {
 	if semua {
 		args = append(args, "-a")
 	}
-	res, err := s.dockerRun(sess.Username, "", args...)
+	res, err := s.dockerRun(sess.HelperToken, "", args...)
 	if err != nil {
 		writeHelperErr(w, err)
 		return

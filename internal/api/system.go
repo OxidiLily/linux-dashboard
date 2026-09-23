@@ -165,8 +165,11 @@ func (s *Server) handleTerminalReset(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	err := s.helper.Call(helperproto.CmdAuthLogin, sess.Username,
-		helperproto.LoginArgs{Username: sess.Username, Password: body.Password}, nil)
+	var res helperproto.LoginResult
+	// Ini verifikasi ulang password, bukan sesi panel baru — jadi tidak ada
+	// token yang dipakai (auth.login tidak butuh token).
+	err := s.helper.Call(helperproto.CmdAuthLogin, "",
+		helperproto.LoginArgs{Username: sess.Username, Password: body.Password}, &res)
 	if err != nil {
 		// Sama seperti login: hanya `denied` dari PAM yang berarti password
 		// salah. Helper mati dilaporkan apa adanya supaya user tidak mengetik
@@ -181,6 +184,10 @@ func (s *Server) handleTerminalReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.throttle.reset(key, ip)
+	// Token yang diterbitkan untuk verifikasi ini tidak dipakai siapa pun —
+	// sesi yang sedang berjalan tetap memakai tokennya sendiri. Dicabut di
+	// sini supaya verifikasi berulang tidak menumpuk token di memori helper.
+	s.cabutTokenHelper(res.Token)
 
 	n := s.terminals.CloseAll()
 	s.store.LogActivity(sess.Username, "terminal_reset", "hapus semua sesi terminal",
@@ -259,7 +266,7 @@ func (s *Server) handleKillProcess(w http.ResponseWriter, r *http.Request) {
 	}
 	// Helper daemon yang memutuskan self-vs-sudo: kill proses sendiri tidak
 	// butuh sudo (izin Unix standar), kill milik user lain butuh.
-	err = s.helper.Call(helperproto.CmdProcKill, sess.Username,
+	err = s.helper.Call(helperproto.CmdProcKill, sess.HelperToken,
 		helperproto.KillArgs{PID: pid, Signal: req.Signal}, nil)
 	if err != nil {
 		writeHelperErr(w, err)
@@ -325,7 +332,7 @@ func (s *Server) handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	name, action := chi.URLParam(r, "name"), chi.URLParam(r, "action")
-	err := s.helper.Call(helperproto.CmdSvcAction, sess.Username,
+	err := s.helper.Call(helperproto.CmdSvcAction, sess.HelperToken,
 		helperproto.ServiceArgs{Name: name, Action: action}, nil)
 	if err != nil {
 		writeHelperErr(w, err)
