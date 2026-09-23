@@ -21,7 +21,7 @@ import (
 // sesiPeriksa: seberapa sering koneksi WebSocket yang sudah terbuka memeriksa
 // ulang sesi pemiliknya. Variabel, bukan konstanta, supaya perilakunya bisa
 // diuji tanpa menunggu 15 detik.
-var sesiPeriksa = 15 * time.Second
+var sesiPeriksa = 5 * time.Second
 
 // pantauSesi menutup koneksi WebSocket begitu sesinya tidak lagi sah (logout,
 // password diganti, akun dihapus, atau TTL habis).

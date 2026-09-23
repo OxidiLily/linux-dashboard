@@ -66,7 +66,9 @@ func cobaJalankanWorker(jailHome string, op workerOp, stdin []byte) (workerResul
 		}
 		jail = os.NewFile(uintptr(fd), jailHome)
 		files = append(files, jail)
-		env = append(env, jailHomeEnv+"="+jailHome)
+		env = append(env, modeEnv+"="+modeJail, jailHomeEnv+"="+jailHome)
+	} else {
+		env = append(env, modeEnv+"="+modeSudo)
 	}
 
 	cmd := exec.Command(os.Args[0], WorkerArg)
@@ -350,16 +352,43 @@ func TestWorkerTanpaJailTetapBisaPathLuarHome(t *testing.T) {
 
 // ---- satuan: resolver & penjaga ----
 
-// Tanpa penanda jail, worker memakai jalur lama (resolusi berbasis nama).
-// Itulah yang membuat jalur sudo tetap utuh.
-func TestPenjagaWorkerTanpaPenandaBerartiTanpaJail(t *testing.T) {
+// Mode sudo = resolusi berbasis nama tanpa jail. Itulah yang membuat jalur
+// sudo tetap utuh (path-nya memang di luar home).
+func TestPenjagaWorkerModeSudoTanpaJail(t *testing.T) {
+	t.Setenv(modeEnv, modeSudo)
 	t.Setenv(jailHomeEnv, "")
 	p, err := penjagaWorker()
 	if err != nil {
-		t.Fatalf("tanpa penanda tidak boleh error: %v", err)
+		t.Fatalf("mode sudo tidak boleh error: %v", err)
 	}
 	if p != nil {
-		t.Fatal("tanpa penanda tidak boleh ada jail")
+		t.Fatal("mode sudo tidak boleh menghasilkan jail")
+	}
+}
+
+// Mode yang tidak dikirim adalah kegagalan, bukan "anggap saja jalur sudo":
+// situs spawn baru yang lupa menyatakan kontraknya akan tampak seperti jalur
+// sudo padahal op-nya milik user non-sudo — penjagaan hilang tanpa suara.
+func TestPenjagaWorkerTanpaModeGagalKeras(t *testing.T) {
+	t.Setenv(modeEnv, "")
+	t.Setenv(jailHomeEnv, "")
+	if _, err := penjagaWorker(); err == nil {
+		t.Fatal("mode yang tidak dikirim harus gagal")
+	}
+
+	t.Setenv(modeEnv, "mode-karangan")
+	if _, err := penjagaWorker(); err == nil {
+		t.Fatal("mode yang tidak dikenal harus gagal")
+	}
+}
+
+// Mode sudo tidak boleh membawa penanda jail: dua kontrak yang saling
+// bertentangan berarti parent dan worker tidak sepakat soal penjagaan.
+func TestPenjagaWorkerModeSudoDenganPenandaJailGagal(t *testing.T) {
+	t.Setenv(modeEnv, modeSudo)
+	t.Setenv(jailHomeEnv, t.TempDir())
+	if _, err := penjagaWorker(); err == nil {
+		t.Fatal("mode sudo + penanda jail harus gagal")
 	}
 }
 
@@ -370,6 +399,7 @@ func TestPenjagaWorkerPenandaTanpaFdGagal(t *testing.T) {
 	if err := syscall.Fstat(fdJail, &st); err == nil {
 		t.Skipf("fd %d kebetulan terbuka di proses test", fdJail)
 	}
+	t.Setenv(modeEnv, modeJail)
 	t.Setenv(jailHomeEnv, t.TempDir())
 	if _, err := penjagaWorker(); err == nil {
 		t.Fatal("penanda jail tanpa fd harus gagal")
@@ -379,6 +409,7 @@ func TestPenjagaWorkerPenandaTanpaFdGagal(t *testing.T) {
 // Akar jail "/" ditolak: RESOLVE_BENEATH di atas "/" tidak menjepit apa pun,
 // jadi itu bukan jail.
 func TestPenjagaWorkerTolakAkarRoot(t *testing.T) {
+	t.Setenv(modeEnv, modeJail)
 	t.Setenv(jailHomeEnv, "/")
 	if _, err := penjagaWorker(); err == nil {
 		t.Fatal("akar jail \"/\" harus ditolak")
@@ -665,14 +696,20 @@ func TestPerintahWorkerMembawaJailHanyaUntukNonSudo(t *testing.T) {
 	if cmd.ExtraFiles[2] != jail {
 		t.Fatal("fd jail harus di posisi ketiga (fd 5)")
 	}
-	var adaPenanda bool
+	var adaPenanda, adaMode bool
 	for _, e := range cmd.Env {
 		if e == jailHomeEnv+"="+home {
 			adaPenanda = true
 		}
+		if e == modeEnv+"="+modeJail {
+			adaMode = true
+		}
 	}
 	if !adaPenanda {
 		t.Fatalf("env worker harus memuat %s=%s, dapat %v", jailHomeEnv, home, cmd.Env)
+	}
+	if !adaMode {
+		t.Fatalf("env worker harus menyatakan %s=%s, dapat %v", modeEnv, modeJail, cmd.Env)
 	}
 
 	// Sudoer: tanpa jail sama sekali. Kalau penanda ikut terkirim tanpa fd,
@@ -681,10 +718,17 @@ func TestPerintahWorkerMembawaJailHanyaUntukNonSudo(t *testing.T) {
 	if len(cmdSudo.ExtraFiles) != 2 {
 		t.Fatalf("worker sudoer harus menerima 2 fd, dapat %d", len(cmdSudo.ExtraFiles))
 	}
+	var adaModeSudo bool
 	for _, e := range cmdSudo.Env {
 		if strings.HasPrefix(e, jailHomeEnv+"=") {
 			t.Fatalf("worker sudoer tidak boleh membawa penanda jail: %v", cmdSudo.Env)
 		}
+		if e == modeEnv+"="+modeSudo {
+			adaModeSudo = true
+		}
+	}
+	if !adaModeSudo {
+		t.Fatalf("worker sudoer harus menyatakan %s=%s, dapat %v", modeEnv, modeSudo, cmdSudo.Env)
 	}
 }
 

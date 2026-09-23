@@ -324,9 +324,18 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 	u := tokenUser
-	if sudoRequired[req.Cmd] && !u.Sudo {
-		fail(conn, errRequiresSudo())
-		return
+	if sudoRequired[req.Cmd] {
+		if !u.Sudo {
+			fail(conn, errRequiresSudo())
+			return
+		}
+		// Hak sudo diperiksa ULANG dari keadaan akun saat ini: token
+		// membuktikan siapa pemanggilnya, bukan bahwa keanggotaan grupnya
+		// masih sama seperti saat login.
+		if !sudoMasihAda(u) {
+			fail(conn, errRequiresSudo())
+			return
+		}
 	}
 
 	switch req.Cmd {
