@@ -38,4 +38,14 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/helper/komponenport_e2e_test.go
 !internal/helper/stalwart_test.go
 !internal/helper/update_test.go
+
+# Test regresi keamanan (audit 2026-09-23). Sama alasannya dengan blok di atas:
+# perbaikan keamanan tidak boleh hanya hijau di mesin pengembang lalu hilang
+# dari clone bersih.
+!internal/config/config_security_test.go
+!internal/store/session_security_test.go
+!internal/api/security_test.go
+!internal/api/ws_session_test.go
+!internal/helper/secret_test.go
+!internal/helperclient/frame_test.go
 web/dist.bak/

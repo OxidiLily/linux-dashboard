@@ -154,8 +154,8 @@ func (s *Server) handleTerminalReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := clientIP(r)
-	key := sess.Username + "|" + ip
-	if ok, retry := s.throttle.allowed(key); !ok {
+	key := sess.Username
+	if ok, retry := s.throttle.allowed(key, ip); !ok {
 		writeJSON(w, http.StatusTooManyRequests, errBody{
 			Error: "Terlalu banyak percobaan. Coba lagi dalam " + retry.Round(time.Second).String(),
 		})
@@ -172,11 +172,11 @@ func (s *Server) handleTerminalReset(w http.ResponseWriter, r *http.Request) {
 				"Layanan autentikasi tidak tersedia. Cek status linux-dashboard-helper.service.")
 			return
 		}
-		s.throttle.record(key)
+		s.throttle.record(key, ip)
 		writeErr(w, http.StatusUnauthorized, "Password salah")
 		return
 	}
-	s.throttle.reset(key)
+	s.throttle.reset(key, ip)
 
 	n := s.terminals.CloseAll()
 	s.store.LogActivity(sess.Username, "terminal_reset", "hapus semua sesi terminal",

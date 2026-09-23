@@ -22,50 +22,146 @@ type ctxKey int
 
 const sessionKey ctxKey = iota
 
-// throttle membatasi percobaan login per kombinasi user+IP.
-// PAM tidak menyediakan proteksi brute force, jadi harus di layer aplikasi.
+// throttle membatasi percobaan login.
+//
+// Dua dimensi dihitung terpisah karena keduanya menutup serangan berbeda:
+// per (user|IP) menahan tebak-tebakan password satu akun dari satu alamat,
+// dan per user menahan tebakan yang menyebar ke banyak alamat (IPv6 /64,
+// botnet, atau header forwarded di depan reverse proxy yang tidak dikonfigurasi
+// untuk mengganti alamat asal). Batas per user sengaja lebih longgar daripada
+// per IP: angka yang terlalu kecil justru jadi alat penguncian akun orang lain
+// — penyerang cukup mengirim belasan percobaan gagal atas nama korban.
 type throttle struct {
-	mu       sync.Mutex
+	mu sync.Mutex
+	// attempts di-key "username|ip"; perUser di-key "username".
 	attempts map[string][]time.Time
+	perUser  map[string][]time.Time
 }
 
 const (
 	throttleWindow = 5 * time.Minute
 	throttleMax    = 5
+	// throttleUserMax: percobaan gagal per username dari SELURUH alamat.
+	throttleUserMax = 20
+	// throttleMaxEntries: batas jumlah key yang disimpan. Tanpa batas ini,
+	// kesalahan login dengan username acak menumbuhkan map selamanya — memori
+	// proses web adalah sumber daya yang bisa dihabiskan tanpa autentikasi.
+	throttleMaxEntries = 2000
 )
 
 func newThrottle() *throttle {
-	return &throttle{attempts: map[string][]time.Time{}}
+	return &throttle{attempts: map[string][]time.Time{}, perUser: map[string][]time.Time{}}
 }
 
-// allowed melaporkan apakah percobaan berikutnya masih boleh, tanpa mencatat.
-func (t *throttle) allowed(key string) (bool, time.Duration) {
+func throttleKey(username, ip string) string { return username + "|" + ip }
+
+// pruneLocked membuang catatan yang lebih tua dari jendela, dipanggil dengan
+// mu terkunci.
+func (t *throttle) pruneLocked(now time.Time) {
+	cutoff := now.Add(-throttleWindow)
+	for k, list := range t.attempts {
+		kept := list[:0]
+		for _, at := range list {
+			if at.After(cutoff) {
+				kept = append(kept, at)
+			}
+		}
+		if len(kept) == 0 {
+			delete(t.attempts, k)
+			continue
+		}
+		t.attempts[k] = kept
+	}
+	for k, list := range t.perUser {
+		kept := list[:0]
+		for _, at := range list {
+			if at.After(cutoff) {
+				kept = append(kept, at)
+			}
+		}
+		if len(kept) == 0 {
+			delete(t.perUser, k)
+			continue
+		}
+		t.perUser[k] = kept
+	}
+}
+
+// evictLocked membuang key dengan percobaan terakhir paling lama sampai jumlah
+// key kembali di bawah batas. Dipanggil dengan mu terkunci.
+func (t *throttle) evictLocked() {
+	for len(t.attempts) > throttleMaxEntries {
+		oldestKey, varOldest := "", time.Time{}
+		for k, list := range t.attempts {
+			last := list[len(list)-1]
+			if varOldest.IsZero() || last.Before(varOldest) {
+				oldestKey, varOldest = k, last
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		delete(t.attempts, oldestKey)
+	}
+	for len(t.perUser) > throttleMaxEntries {
+		oldestKey, varOldest := "", time.Time{}
+		for k, list := range t.perUser {
+			last := list[len(list)-1]
+			if varOldest.IsZero() || last.Before(varOldest) {
+				oldestKey, varOldest = k, last
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		delete(t.perUser, oldestKey)
+	}
+}
+
+// allowedAt melaporkan apakah percobaan berikutnya masih boleh, tanpa mencatat.
+func (t *throttle) allowedAt(username, ip string, now time.Time) (bool, time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	cutoff := time.Now().Add(-throttleWindow)
-	kept := t.attempts[key][:0]
-	for _, at := range t.attempts[key] {
-		if at.After(cutoff) {
-			kept = append(kept, at)
-		}
+	t.pruneLocked(now)
+	key := throttleKey(username, ip)
+	if list := t.attempts[key]; len(list) >= throttleMax {
+		return false, time.Until(list[0].Add(throttleWindow))
 	}
-	t.attempts[key] = kept
-	if len(kept) >= throttleMax {
-		return false, time.Until(kept[0].Add(throttleWindow))
+	if list := t.perUser[username]; len(list) >= throttleUserMax {
+		return false, time.Until(list[0].Add(throttleWindow))
 	}
 	return true, 0
 }
 
-func (t *throttle) record(key string) {
+func (t *throttle) recordAt(username, ip string, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.attempts[key] = append(t.attempts[key], time.Now())
+	t.pruneLocked(now)
+	key := throttleKey(username, ip)
+	t.attempts[key] = append(t.attempts[key], now)
+	t.perUser[username] = append(t.perUser[username], now)
+	t.evictLocked()
 }
 
-func (t *throttle) reset(key string) {
+// gc membuang seluruh catatan yang sudah kedaluwarsa. Dipanggil berkala dari
+// server supaya key yang tidak pernah dicoba lagi tidak menetap di memori.
+func (t *throttle) gc(now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	delete(t.attempts, key)
+	t.pruneLocked(now)
+}
+
+func (t *throttle) allowed(username, ip string) (bool, time.Duration) {
+	return t.allowedAt(username, ip, time.Now())
+}
+
+func (t *throttle) record(username, ip string) { t.recordAt(username, ip, time.Now()) }
+
+func (t *throttle) reset(username, ip string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.attempts, throttleKey(username, ip))
+	delete(t.perUser, username)
 }
 
 type loginRequest struct {
@@ -95,8 +191,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := clientIP(r)
-	key := req.Username + "|" + ip
-	if ok, retry := s.throttle.allowed(key); !ok {
+	key := req.Username
+	if ok, retry := s.throttle.allowed(key, ip); !ok {
 		s.store.LogActivity(req.Username, "login_failed", "throttled",
 			map[string]any{"reason": "rate limit"}, ip)
 		writeJSON(w, http.StatusTooManyRequests, errBody{
@@ -122,12 +218,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 				"Layanan autentikasi tidak tersedia. Cek status linux-dashboard-helper.service.")
 			return
 		}
-		s.throttle.record(key)
+		s.throttle.record(key, ip)
 		s.store.LogActivity(req.Username, "login_failed", "", map[string]any{"reason": err.Error()}, ip)
 		writeErr(w, http.StatusUnauthorized, "Username atau password salah")
 		return
 	}
-	s.throttle.reset(key)
+	s.throttle.reset(key, ip)
 
 	sess, err := s.store.CreateSession(req.Username, res.Home, ip, res.Sudo,
 		time.Duration(s.cfg.SessionTTLHours)*time.Hour)
@@ -179,12 +275,26 @@ func passwordMustChange(username string) bool {
 	return false
 }
 
+func expiredSessionCookie(secure bool) *http.Cookie {
+	return &http.Cookie{
+		Name:     sessionCookie,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+		// Expires ikut dikirim: sebagian browser (dan klien non-browser)
+		// mengabaikan MaxAge pada cookie Secure di koneksi HTTP, sehingga
+		// cookie sesi tetap terkirim setelah "logout".
+		Expires: time.Unix(0, 0),
+	}
+}
+
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	_ = s.store.DeleteSession(sess.ID)
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
-	})
+	http.SetCookie(w, expiredSessionCookie(s.cfg.SecureCookie))
 	s.store.LogActivity(sess.Username, "logout", "", nil, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

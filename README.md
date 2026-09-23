@@ -882,14 +882,15 @@ Semua lewat environment variable; nilai di bawah adalah default.
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `DASHBOARD_LISTEN` | `0.0.0.0:1122` | Alamat bind web app |
+| `DASHBOARD_LISTEN` | `127.0.0.1:8080` | Alamat bind web app; unit systemd bawaan menyetel `0.0.0.0:1122` |
 | `DASHBOARD_TLS_CERT` | kosong | Sertifikat TLS; kosongkan kalau pakai reverse proxy |
 | `DASHBOARD_TLS_KEY` | kosong | Private key TLS; harus diisi bersama `DASHBOARD_TLS_CERT` |
 | `DASHBOARD_RUN_DIR` | `/run/linux-dashboard` | Lokasi socket helper |
-| `DASHBOARD_STATE_DIR` | `/var/lib/linux-dashboard` | Lokasi SQLite + `secret.key` |
+| `DASHBOARD_STATE_DIR` | `/var/lib/linux-dashboard` | Lokasi SQLite web app |
 | `DASHBOARD_SOCKET` | `$RUN_DIR/helper.sock` | Path socket helper (override penuh) |
 | `DASHBOARD_SOCKET_GROUP` | `linux-dashboard` | Grup yang boleh mengakses socket |
-| `DASHBOARD_SECRET` | `$STATE_DIR/secret.key` | File HMAC secret helper (0600, milik root) |
+| `DASHBOARD_SECRET_DIR` | `/var/lib/linux-dashboard-helper` | Direktori secret helper — sengaja terpisah dari state dir web, karena user service web tidak boleh bisa mengganti isi secret |
+| `DASHBOARD_SECRET` | `$SECRET_DIR/secret.key` | File HMAC secret helper (0640, milik root, grup web app hanya boleh membaca) |
 | `DASHBOARD_DB` | `$STATE_DIR/lindash.db` | Path database SQLite |
 | `DASHBOARD_SESSION_TTL_HOURS` | `12` | Umur session |
 | `DASHBOARD_SECURE_COOKIE` | `false` | Set `true` kalau diakses lewat HTTPS |

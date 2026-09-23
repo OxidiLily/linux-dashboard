@@ -37,7 +37,7 @@ func main() {
 	}
 
 	cfg := config.Load()
-	srv, err := helper.NewServer(cfg.SocketPath, cfg.SecretPath, cfg.SocketGroup)
+	srv, err := helper.NewServer(cfg.SocketPath, cfg.SecretPath, cfg.LegacySecretPath, cfg.SocketGroup)
 	if err != nil {
 		log.Fatalf("gagal start: %v", err)
 	}

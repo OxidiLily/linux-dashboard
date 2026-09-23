@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,7 +41,7 @@ type Server struct {
 }
 
 func New(cfg config.Config, st *store.Store, hc *helperclient.Client, col *metrics.Collector, static http.Handler) *Server {
-	return &Server{
+	s := &Server{
 		cfg:         cfg,
 		store:       st,
 		helper:      hc,
@@ -51,11 +52,30 @@ func New(cfg config.Config, st *store.Store, hc *helperclient.Client, col *metri
 		static:      static,
 		wsIntervals: map[int64]time.Duration{},
 	}
+	go s.gcThrottle()
+	return s
+}
+
+// gcThrottle menyapu catatan percobaan login yang sudah lewat jendelanya.
+// Penyapuan juga terjadi saat ada percobaan baru, tapi key milik username acak
+// yang tidak pernah dicoba lagi hanya hilang kalau disapu dari sini.
+func (s *Server) gcThrottle() {
+	t := time.NewTicker(10 * time.Minute)
+	for range t.C {
+		s.throttle.gc(time.Now())
+	}
 }
 
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RealIP)
+	// middleware.RealIP SENGAJA tidak dipakai. Middleware itu menimpa
+	// r.RemoteAddr dengan isi X-Forwarded-For / X-Real-IP / True-Client-IP
+	// tanpa daftar proxy tepercaya, dan tiga header itu bisa ditulis siapa
+	// saja yang bisa menjangkau port ini. Akibatnya pembatas percobaan login
+	// cukup dilewati dengan mengganti header tiap lima percobaan, dan alamat
+	// yang tercatat di log bisa dibuat-buat. Yang dipakai adalah alamat peer
+	// TCP; di belakang reverse proxy itu alamat proxy, dan itu memang yang
+	// benar untuk dijadikan key pembatas.
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
 	r.Use(sameOriginOnly)
@@ -325,10 +345,13 @@ func queryInt(r *http.Request, key string, def int) int {
 	return def
 }
 
+// clientIP mengambil alamat peer TCP dari RemoteAddr — bukan from header.
+// Lihat catatan di Routes(): header forwarded bisa ditulis klien, jadi
+// nilainya tidak boleh dipakai sebagai identitas maupun sebagai key pembatas.
 func clientIP(r *http.Request) string {
-	ip := r.RemoteAddr
-	if host, _, ok := strings.Cut(ip, ":"); ok && strings.Count(ip, ":") == 1 {
-		return host
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
 	}
-	return ip
+	return host
 }

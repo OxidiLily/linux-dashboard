@@ -13,7 +13,18 @@ RestartSec=2
 
 RuntimeDirectory=linux-dashboard
 RuntimeDirectoryMode=0750
-StateDirectory=linux-dashboard
+# Dua state directory dengan peran berbeda:
+#   linux-dashboard        = data kerja helper (stack docker, dsb) — juga
+#                            dipakai web app untuk DB-nya, jadi JANGAN dipakai
+#                            menyimpan secret.
+#   linux-dashboard-helper = HANYA secret HMAC. Web app bisa membaca isinya
+#                            (harus, untuk menandatangani request) tapi tidak
+#                            boleh menulis ke direktorinya. Kalau secret
+#                            disimpan di state dir web, user service web bisa
+#                            menggantinya dan helper memakai secret penyerang
+#                            saat restart — dari situ request bisa mengaku
+#                            sebagai sudoer.
+StateDirectory=linux-dashboard linux-dashboard-helper
 StateDirectoryMode=0750
 
 # Daemon ini memang butuh root untuk useradd/systemctl/ufw dan untuk mem-fork

@@ -196,6 +196,25 @@ func (s *Store) DeleteSession(id string) error {
 	return err
 }
 
+// DeleteSessionsByUsername mencabut SELURUH sesi milik satu user. Dipanggil
+// saat password direset, akun dihapus, atau keanggotaan grupnya berubah: cookie
+// yang sudah terlanjur dicuri tidak boleh tetap berlaku setelah kredensial atau
+// hak aksesnya berubah. Sesi lama yang dibiarkan hidup membuat "ganti password"
+// hanya jadi upacara tanpa akibat bagi penyerang.
+func (s *Store) DeleteSessionsByUsername(username string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE username = ?`, username)
+	return err
+}
+
+// DeleteSessionsExcept mencabut semua sesi seorang user KECUALI satu id.
+// Dipakai saat user mengganti password sendiri: sesi yang sedang dipakai tetap
+// hidup (kalau tidak, ia terlempar keluar dari halaman yang sedang dibukanya),
+// sementara sesi lain di perangkat lain mati.
+func (s *Store) DeleteSessionsExcept(username, keepID string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE username = ? AND id <> ?`, username, keepID)
+	return err
+}
+
 func (s *Store) PurgeExpiredSessions() {
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE expires_at < CURRENT_TIMESTAMP`)
 }

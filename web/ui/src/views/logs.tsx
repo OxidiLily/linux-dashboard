@@ -98,6 +98,7 @@ export function LogsView() {
               <th className="pb-2 font-medium">{tr("User")}</th>
               <th className="pb-2 font-medium">{tr("Status")}</th>
               <th className="pb-2 font-medium">{tr("Pesan")}</th>
+              <th className="pb-2 font-medium">{tr("Detail")}</th>
               <th className="pb-2 font-medium">{tr("Halaman")}</th>
             </tr>
           </thead>
@@ -113,28 +114,20 @@ export function LogsView() {
                     <Badge tone={toneBadge[l.tone] ?? "muted"}>{tr(labelNada[l.tone] ?? "") || l.tone}</Badge>
                   </div>
                 </td>
-                <td data-label={tr("Pesan")} className="max-w-lg break-words py-2">
-                  {l.message}
-                  {/* Detail = keluaran mentah (stderr apt, journal). Dipendam
-                      di <details> supaya satu baris log panjang tidak
-                      mendorong seluruh tabel. */}
-                  {l.detail && (
-                    <details className="mt-1">
-                      <summary className="cursor-pointer text-[10px] text-muted-foreground">
-                        {tr("Detail")}
-                      </summary>
-                      <pre className="num mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-surface-2 p-2 text-[10px] text-muted-foreground">
-                        {l.detail}
-                      </pre>
-                    </details>
-                  )}
+                <td data-label={tr("Pesan")} className="max-w-lg break-words py-2">{l.message}</td>
+                <td data-label={tr("Detail")} className="max-w-xl py-2">
+                  {l.detail ? (
+                    <pre className="num max-h-40 overflow-auto whitespace-pre-wrap rounded bg-surface-2 p-2 text-[10px] text-muted-foreground">
+                      {l.detail}
+                    </pre>
+                  ) : "—"}
                 </td>
                 <td data-label={tr("Halaman")} className="num py-2 text-muted-foreground">{l.page || "—"}</td>
               </tr>
             ))}
             {logs.length === 0 && !loading && (
               <tr>
-                <td data-label="" colSpan={5} className="py-6 text-center text-muted-foreground">
+                <td data-label="" colSpan={6} className="py-6 text-center text-muted-foreground">
                   {nada
                     ? trf("Belum ada alert dengan status {0}.", tr(labelNada[nada] ?? nada))
                     : tr("Belum ada alert yang tercatat.")}

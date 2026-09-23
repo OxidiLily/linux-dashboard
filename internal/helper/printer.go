@@ -366,6 +366,64 @@ func printJobs() ([]helperproto.PrintJob, error) {
 	return out, nil
 }
 
+// printJobsUntuk mengembalikan antrean cetak yang boleh dilihat peminta.
+//
+// `lpstat -o` mengembalikan antrean SEMUA user, jadi tanpa penyaringan ini user
+// biasa bisa melihat judul berkas yang sedang dicetak akun lain — dan nomor
+// job-nya sekalian, yang cukup untuk membatalkannya.
+func printJobsUntuk(u *userInfo) ([]helperproto.PrintJob, error) {
+	semua, err := printJobs()
+	if err != nil {
+		return nil, err
+	}
+	if u == nil || u.Sudo {
+		return semua, nil
+	}
+	milik := make([]helperproto.PrintJob, 0, len(semua))
+	for _, j := range semua {
+		if j.User == u.Name {
+			milik = append(milik, j)
+		}
+	}
+	return milik, nil
+}
+
+// pemilikJob mencari pemilik satu job dari daftar antrean.
+func pemilikJob(id string) (string, bool, error) {
+	jobs, err := printJobs()
+	if err != nil {
+		return "", false, err
+	}
+	for _, j := range jobs {
+		if j.ID == id {
+			return j.User, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// printCancelUntuk membatalkan job milik peminta, atau job siapa pun kalau
+// pemintanya sudo.
+//
+// Kepemilikan dibaca dari daftar antrean, bukan dipercaya dari argumen:
+// `cancel` dijalankan helper sebagai root, jadi tanpa pemeriksaan ini id job
+// mana pun yang tertebak bisa dibatalkan — termasuk cetakan orang lain.
+func printCancelUntuk(u *userInfo, id string) error {
+	if u == nil || !u.Sudo {
+		owner, ada, err := pemilikJob(id)
+		if err != nil {
+			return err
+		}
+		if !ada {
+			return errInvalid("job cetak %s tidak ada di antrean", id)
+		}
+		if u == nil || owner != u.Name {
+			return errDenied("job cetak %s milik user lain", id)
+		}
+	}
+	return printCancel(id)
+}
+
 func printCancel(id string) error {
 	if !cupsAda() {
 		return errCupsBelumAda()
