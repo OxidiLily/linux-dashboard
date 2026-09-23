@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,13 +33,26 @@ func main() {
 
 	cfg := config.Load()
 
+	// Panel bicara HTTP polos kalau tidak diberi sertifikat. Di alamat yang
+	// bisa dijangkau jaringan lain, itu berarti password dan cookie sesi
+	// (termasuk sesi sudo) lewat apa adanya. Peringatannya di sini, bukan
+	// larangan: panel di belakang reverse proxy HTTPS memang harus tetap bisa
+	// jalan tanpa TLS sendiri, dan operator yang tahu apa yang dilakukannya
+	// tidak boleh dihalangi.
+	if !cfg.SecureCookie && !bindLoopback(cfg.Listen) {
+		log.Printf("PERINGATAN: DASHBOARD_LISTEN=%s tanpa TLS dan tanpa Secure cookie — "+
+			"password serta cookie sesi lewat jaringan apa adanya. Pakai HTTPS "+
+			"(DASHBOARD_TLS_CERT/DASHBOARD_TLS_KEY) atau taruh di belakang reverse proxy, "+
+			"lalu set DASHBOARD_SECURE_COOKIE=true.", cfg.Listen)
+	}
+
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("gagal membuka database: %v", err)
 	}
 	defer st.Close()
 
-	hc, err := helperclient.New(cfg.SocketPath, cfg.SecretPath)
+	hc, err := helperclient.New(cfg.SocketPath, cfg.SecretPath, cfg.LegacySecretPath)
 	if err != nil {
 		log.Fatalf("gagal menyiapkan client helper: %v", err)
 	}
@@ -54,9 +68,10 @@ func main() {
 	httpSrv := &http.Server{
 		Addr:    cfg.Listen,
 		Handler: srv.Routes(),
-		// ReadTimeout sengaja TIDAK dipasang: upload file besar (unlimited)
-		// bisa berjalan berjam-jam. ReadHeaderTimeout tetap ada supaya
-		// koneksi yang menggantung sebelum mengirim header tidak menumpuk.
+		// ReadTimeout sengaja TIDAK dipasang: upload file besar (dibatasi
+		// ukuran total di handler, tapi tetap bisa berjalan lama) tidak boleh
+		// diputus di tengah jalan. ReadHeaderTimeout tetap ada supaya koneksi
+		// yang menggantung sebelum mengirim header tidak menumpuk.
 		ReadHeaderTimeout: 20 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -84,6 +99,17 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
+}
+
+// bindLoopback melaporkan apakah alamat bind hanya menerima koneksi dari mesin
+// ini. Alamat tanpa host (":1122") berarti SEMUA antarmuka, jadi bukan loopback.
+func bindLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // purgeSessions membuang session kedaluwarsa DAN catatan log yang sudah lewat

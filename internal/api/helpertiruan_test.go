@@ -56,7 +56,8 @@ func pasangHelperTiruan(t *testing.T, tiruan *helperTiruan) *helperclient.Client
 		}
 	}()
 
-	hc, err := helperclient.New(sock, secretPath)
+	// Tanpa lokasi lama: helper tiruan ini selalu menulis secret di path uji.
+	hc, err := helperclient.New(sock, secretPath, "")
 	if err != nil {
 		t.Fatalf("client helper: %v", err)
 	}

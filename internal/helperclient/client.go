@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"time"
@@ -20,6 +21,34 @@ import (
 type Client struct {
 	socket string
 	secret []byte
+}
+
+// batasFrameResp membatasi satu baris response helper. Request sudah dibatasi
+// 2 MiB di sisi helper, response tidak — padahal isinya keluaran command yang
+// berjalan sebagai root (metadata docker, daftar paket, lpstat) dan panjangnya
+// ditentukan mesin, bukan oleh pemanggil. Tanpa batas, satu command yang
+// keluarannya membengkak cukup untuk menghabiskan memori proses web.
+const batasFrameResp = 8 << 20
+
+// bacaBarisResp membaca satu baris response dengan batas ukuran. ReadBytes
+// akan mengalokasikan sebesar apa pun sampai ketemu newline, jadi pemotongan
+// harus terjadi saat membaca, bukan sesudahnya.
+func bacaBarisResp(br *bufio.Reader) ([]byte, error) {
+	var buf []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		buf = append(buf, chunk...)
+		if len(buf) > batasFrameResp {
+			return nil, fmt.Errorf("response helper melebihi %d byte", batasFrameResp)
+		}
+		if err == nil {
+			return buf, nil
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		return nil, err
+	}
 }
 
 // Error membawa kode terstruktur dari helper daemon supaya handler API bisa
@@ -50,9 +79,26 @@ func Code(err error) string {
 	return ""
 }
 
-func New(socketPath, secretPath string) (*Client, error) {
+// New menyiapkan client helper dari berkas secret yang dibaca web app.
+//
+// legacySecretPath adalah lokasi secret versi lama (satu direktori dengan state
+// dir web). Ia dibaca hanya kalau secretPath belum ada. Helper daemon punya
+// fallback yang sama, dan keduanya harus sepakat: kalau salah satu sisi menolak
+// jalan sementara sisi lain jalan, pembaruan panel berakhir dengan web app yang
+// tidak bisa menghubungi helper sama sekali. Migrasi tetap disarankan dan
+// diperingatkan lewat log — selama secret ada di state dir web, user service web
+// bisa menggantinya.
+func New(socketPath, secretPath, legacySecretPath string) (*Client, error) {
 	secret, err := os.ReadFile(secretPath)
 	if err != nil {
+		if legacySecretPath != "" && legacySecretPath != secretPath {
+			if b, legacyErr := os.ReadFile(legacySecretPath); legacyErr == nil {
+				log.Printf("peringatan: secret helper dibaca dari lokasi lama %s — pindahkan ke %s "+
+					"(lalu hapus yang lama): selama ada di sana, user service web bisa menggantinya",
+					legacySecretPath, secretPath)
+				return &Client{socket: socketPath, secret: trimNewline(b)}, nil
+			}
+		}
 		return nil, fmt.Errorf("baca secret helper: %w", err)
 	}
 	return &Client{socket: socketPath, secret: trimNewline(secret)}, nil
@@ -108,7 +154,7 @@ func (c *Client) dial(cmd, username string, args any) (net.Conn, *bufio.Reader, 
 	}
 
 	br := bufio.NewReader(conn)
-	respLine, err := br.ReadBytes('\n')
+	respLine, err := bacaBarisResp(br)
 	if err != nil {
 		conn.Close()
 		return nil, nil, nil, fmt.Errorf("baca response helper: %w", err)

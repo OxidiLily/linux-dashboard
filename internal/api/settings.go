@@ -40,6 +40,11 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeHelperErr(w, err)
 		return
 	}
+	// Sesi lain milik user ini dicabut: cookie yang sudah dicuri sebelum
+	// password diganti tidak boleh tetap bisa dipakai. Sesi yang sedang
+	// dipakai (ini) tetap hidup supaya user tidak terlempar dari halaman
+	// yang sedang dibukanya.
+	_ = s.store.DeleteSessionsExcept(sess.Username, sess.ID)
 	s.store.LogActivity(sess.Username, "password_change", "ganti password sendiri", nil, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -127,6 +132,10 @@ func (s *Server) handleUserModify(w http.ResponseWriter, r *http.Request) {
 		writeHelperErr(w, err)
 		return
 	}
+	// Atribut akun (termasuk keanggotaan grup sudo) bisa berubah di sini, dan
+	// status sudo disalin ke dalam sesi saat login. Sesi lama target dicabut
+	// supaya hak barunya dihitung ulang, bukan diwarisi dari nilai saat login.
+	_ = s.store.DeleteSessionsByUsername(body.Username)
 	s.store.LogActivity(sess.Username, "user_modify", "ubah user",
 		map[string]any{"username": body.Username}, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -148,6 +157,8 @@ func (s *Server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 		writeHelperErr(w, err)
 		return
 	}
+	// Akun sudah tidak ada; sesi yang masih menunjuk ke sana pasti tidak sah.
+	_ = s.store.DeleteSessionsByUsername(target)
 	s.store.LogActivity(sess.Username, "user_delete", "hapus user",
 		map[string]any{"username": target, "remove_home": removeHome}, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -174,6 +185,9 @@ func (s *Server) handleUserResetPassword(w http.ResponseWriter, r *http.Request)
 		writeHelperErr(w, err)
 		return
 	}
+	// Password target berubah karena tindakan admin: semua sesi target —
+	// yang mungkin sudah dipegang penyerang — dicabut saat itu juga.
+	_ = s.store.DeleteSessionsByUsername(target)
 	s.store.LogActivity(sess.Username, "user_password_reset", "reset password user lain",
 		map[string]any{"username": target}, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

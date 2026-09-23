@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -51,10 +52,30 @@ func bacaFrame(br *bufio.Reader) ([]byte, error) {
 	return line, err
 }
 
-func NewServer(socketPath, secretPath, socketGroup string) (*Server, error) {
-	secret, err := loadOrCreateSecret(secretPath, socketGroup)
+// NewServer menyiapkan helper daemon: memuat secret HMAC, menyiapkan socket,
+// dan menyerahkan kepemilikan socket (beserta direktorinya) ke grup web app.
+//
+// legacySecretPath adalah lokasi secret versi lama; hanya dipakai untuk
+// migrasi, lihat loadOrCreateSecret.
+func NewServer(socketPath, secretPath, legacySecretPath, socketGroup string) (*Server, error) {
+	secret, err := loadOrCreateSecret(secretPath, legacySecretPath, socketGroup)
 	if err != nil {
 		return nil, err
+	}
+	// Direktori secret: milik root, grup web app hanya boleh menelusuri dan
+	// membacanya (r-x, tanpa w). systemd membuat StateDirectory sebagai
+	// root:root 0750, jadi tanpa penyesuaian ini web app tidak bisa membuka
+	// berkas secret di dalamnya; sebaliknya, kalau grupnya diberi hak tulis,
+	// user service web bisa mengganti nama/mengganti isi secret itu — persis
+	// jalur yang membuatnya bisa mengaku sebagai root ke helper.
+	if gid, err := lookupGroupID(socketGroup); err == nil {
+		dir := filepath.Dir(secretPath)
+		if err := os.Chmod(dir, 0o750); err != nil {
+			log.Printf("peringatan: chmod direktori secret %s gagal: %v", dir, err)
+		}
+		if err := os.Chown(dir, 0, gid); err != nil {
+			log.Printf("peringatan: chown direktori secret %s ke grup %s gagal: %v", dir, socketGroup, err)
+		}
 	}
 	socketDir := filepath.Dir(socketPath)
 	if err := os.MkdirAll(socketDir, 0o750); err != nil {
@@ -111,27 +132,52 @@ func lookupGroupID(name string) (int, error) {
 	return strconv.Atoi(g.Gid)
 }
 
-func loadOrCreateSecret(path, group string) ([]byte, error) {
-	b, err := os.ReadFile(path)
-	if err == nil && len(bytes.TrimSpace(b)) >= 32 {
-		return bytes.TrimSpace(b), nil
-	}
-	if !errors.Is(err, os.ErrNotExist) && err != nil {
+// loadOrCreateSecret memuat secret HMAC helper, atau membuatnya kalau belum ada.
+//
+// Pemuatan memakai loadSecretFile yang menolak symlink, berkas yang bisa
+// ditulis pihak lain, dan berkas yang bukan milik proses ini. Kalau berkasnya
+// ada tapi tidak lolos syarat itu, helper sengaja GAGAL start dengan pesan yang
+// menyebut sebabnya — memperbaiki mode/owner berkas adalah tindakan sadar
+// operator, bukan sesuatu yang boleh dilewati diam-diam.
+//
+// legacyPath adalah lokasi versi lama (satu direktori dengan state dir web).
+// Ia masih dibaca supaya pembaruan panel tidak memutus web dari helper, tapi
+// hanya sebagai jalur migrasi dan selalu disertai peringatan: selama secret
+// berada di sana, user service web bisa menggantinya.
+func loadOrCreateSecret(path, legacyPath, group string) ([]byte, error) {
+	if b, err := loadSecretFile(path, os.Getuid()); err == nil {
+		return b, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, err
+
+	if legacyPath != "" && legacyPath != path && secretLegacyAda(legacyPath) {
+		if b, err := loadSecretFile(legacyPath, os.Getuid()); err == nil {
+			// Salin ke lokasi baru. Tanpa salinan ini tidak ada yang pernah
+			// memindahkan secret: instalasi lama akan memakai lokasi tidak aman
+			// itu selamanya walau sudah diperingatkan, dan user service web tetap
+			// bisa menggantinya. Berkas lama TIDAK dihapus otomatis — rollback ke
+			// versi panel sebelumnya butuh berkas itu — tapi sudah tidak dibaca
+			// lagi setelah salinannya ada.
+			if err := tulisSecretBaru(path, b, group); err != nil {
+				log.Printf("peringatan: gagal menyalin secret ke %s: %v — panel tetap memakai %s",
+					path, err, legacyPath)
+			} else {
+				log.Printf("secret helper disalin dari %s ke %s", legacyPath, path)
+				log.Printf("peringatan: hapus %s setelah yakin panel berjalan normal — selama "+
+					"berkasnya ada di sana, user service web bisa menggantinya", legacyPath)
+			}
+			return b, nil
+		}
 	}
+
 	secret := make([]byte, 48)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, err
 	}
 	hexSecret := []byte(hex.EncodeToString(secret))
-	if err := os.WriteFile(path, hexSecret, 0o640); err != nil {
-		return nil, err
-	}
-	if gid, err := lookupGroupID(group); err == nil {
-		_ = os.Chown(path, 0, gid)
+	if err := tulisSecretBaru(path, hexSecret, group); err != nil {
+		return nil, fmt.Errorf("buat secret %s: %w", path, err)
 	}
 	log.Printf("secret helper dibuat di %s", path)
 	return hexSecret, nil
@@ -492,13 +538,13 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return nil, printerDriverInstall(args.Vendor)
 	case helperproto.CmdPrintJobs:
-		return jsonOf(printJobs())
+		return jsonOf(printJobsUntuk(u))
 	case helperproto.CmdPrintCancel:
 		args, err := decodeArgs[helperproto.PrinterNameArgs](req)
 		if err != nil {
 			return nil, err
 		}
-		return nil, printCancel(args.Name)
+		return nil, printCancelUntuk(u, args.Name)
 	case helperproto.CmdPrintFile:
 		// Satu-satunya perintah printer yang memakai identitas user login:
 		// berkasnya diperiksa dan dibaca dengan hak user itu, bukan hak root.

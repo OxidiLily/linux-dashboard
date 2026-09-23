@@ -29,6 +29,10 @@ type Config struct {
 	// SecretPath: file berisi HMAC secret (permission 0600, owner root,
 	// group web app supaya bisa dibaca).
 	SecretPath string
+	// LegacySecretPath: lokasi secret versi lama (di dalam state dir web).
+	// Dibaca hanya kalau SecretPath belum ada, supaya pembaruan panel tidak
+	// memutus hubungan web dengan helper di mesin yang belum dipindahkan.
+	LegacySecretPath string
 	// SocketGroup: grup yang boleh mengakses socket.
 	SocketGroup string
 
@@ -51,14 +55,32 @@ func env(key, def string) string {
 func Load() Config {
 	runDir := env("DASHBOARD_RUN_DIR", "/run/linux-dashboard")
 	stateDir := env("DASHBOARD_STATE_DIR", "/var/lib/linux-dashboard")
+	// Direktori secret helper SENGAJA dipisah dari state dir web. Kalau
+	// keduanya satu direktori, user service web (pemilik state dir) bisa
+	// mengganti nama berkas secret lalu mengisi miliknya sendiri, dan helper
+	// memakai secret penyerang begitu ia restart — jalur itu berujung pada
+	// pemalsuan identitas RPC menjadi root. Direktori terpisah ini milik root
+	// dan grup web hanya boleh membacanya.
+	secretDir := env("DASHBOARD_SECRET_DIR", "/var/lib/linux-dashboard-helper")
 	c := Config{
-		Listen:      env("DASHBOARD_LISTEN", "0.0.0.0:8080"),
+		// Bind ke loopback secara bawaan. Panel ini bicara HTTP polos kalau
+		// tidak diberi sertifikat, dan HTTP polos di 0.0.0.0 berarti password
+		// serta cookie sesi (termasuk sesi sudo) lewat begitu saja di jaringan
+		// yang sama. Instalasi yang memang ingin dijangkau dari perangkat lain
+		// menyalakannya sendiri di /etc/default/linux-dashboard (unit systemd
+		// bawaan sudah memakai DASHBOARD_LISTEN=0.0.0.0:1122).
+		Listen:      env("DASHBOARD_LISTEN", "127.0.0.1:8080"),
 		TLSCert:     os.Getenv("DASHBOARD_TLS_CERT"),
 		TLSKey:      os.Getenv("DASHBOARD_TLS_KEY"),
 		SocketPath:  env("DASHBOARD_SOCKET", filepath.Join(runDir, "helper.sock")),
-		SecretPath:  env("DASHBOARD_SECRET", filepath.Join(stateDir, "secret.key")),
+		SecretPath:  env("DASHBOARD_SECRET", filepath.Join(secretDir, "secret.key")),
 		SocketGroup: env("DASHBOARD_SOCKET_GROUP", "linux-dashboard"),
 		DBPath:      env("DASHBOARD_DB", filepath.Join(stateDir, "lindash.db")),
+		// Jalur lama (satu direktori dengan state web) tetap dibaca supaya
+		// instalasi yang belum dipindahkan tidak mati setelah pembaruan.
+		// Helper memperingatkan saat ini terjadi.
+		LegacySecretPath: filepath.Join(stateDir, "secret.key"),
+
 		// Nilai yang tidak bisa diurai (mis. "dua belas") jatuh ke default,
 		// bukan nol: session ber-TTL 0 jam akan membuat semua login langsung
 		// kedaluwarsa.

@@ -25,7 +25,7 @@ import { pesanError } from "@/lib/pesan-error"
 import "@/lib/terjemahan-en"
 import { tr, trf } from "@/stores/i18n"
 import { simpanBahasaPralogin, usePrefs } from "@/stores/prefs"
-import { cariBerkas, rootAktif } from "@/views/files"
+import { cariBerkas, detailItemLog, rootAktif } from "@/views/files"
 import { bacaCrontab, cariJadwal, ukuranByte, ukuranCrontabTersimpan } from "@/views/cron"
 
 const gagal: string[] = []
@@ -116,6 +116,19 @@ cek(String(cariBerkas(berkas, ".pdf").length), "2", "cari/titik-literal")
 // regex. Kalau ini diperlakukan sebagai pola, setiap berkas akan cocok.
 cek(String(cariBerkas(berkas, "*").length), "0", "cari/bintang-literal")
 cek(String(cariBerkas(berkas, "2024").length), "1", "cari/angka")
+
+// Log operasi jamak harus menyebut item yang benar-benar diproses. Ringkasan
+// jumlah saja tidak cukup untuk audit setelah toast hilang.
+cek(
+  detailItemLog(["/home/ani/a.txt", "/home/ani/foto"]),
+  "/home/ani/a.txt\n/home/ani/foto",
+  "log/detail-item",
+)
+cek(detailItemLog([]), "", "log/detail-item-kosong")
+const detailPanjang = detailItemLog(Array.from({ length: 500 }, (_, i) => `/home/ani/foto-${i}-😀.jpg`))
+cek(String(new TextEncoder().encode(detailPanjang).length <= 4000), "true", "log/detail-batas-byte")
+cek(String(detailPanjang.includes("item lain tidak ditampilkan")), "true", "log/detail-sebut-terpotong")
+cek(String(detailPanjang.includes("�")), "false", "log/detail-unicode-utuh")
 
 // Cronjob: pembacaan crontab. Bagian yang paling halus adalah memecah lima
 // kolom jadwal dari perintahnya — jadwal yang salah pecah tetap tampil rapi —
@@ -246,6 +259,10 @@ const bacaSumber = (jalur: string): string => {
     return `__GAGAL_BACA__ ${String(e)}`
   }
 }
+
+const sumberToast = bacaSumber("src/components/ui/toast.tsx")
+cek(String(sumberToast.includes("detailGagal?: (e: unknown) => string | undefined")), "true", "log/detail-gagal-api")
+cek(String(sumberToast.includes('rekam("err", teks, rinci)')), "true", "log/detail-gagal-direkam")
 
 const pemeriksaLapisan: [string, [string, string, string][]][] = [
   ["src/components/ui/confirm.tsx", []],

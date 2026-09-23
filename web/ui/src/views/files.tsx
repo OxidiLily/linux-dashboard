@@ -180,6 +180,21 @@ export function cariBerkas<T extends { name: string }>(entries: T[], query: stri
   return entries.filter((e) => e.name.toLowerCase().includes(q))
 }
 
+// Satu path per baris. Batasi di klien supaya backend tidak memotong byte UTF-8
+// di tengah karakter dan selalu jelaskan kalau daftar tidak muat seluruhnya.
+export function detailItemLog(paths: string[]): string {
+  const utuh = paths.join("\n")
+  if (new TextEncoder().encode(utuh).length <= 4000) return utuh
+
+  const tampil: string[] = []
+  for (const path of paths) {
+    const calon = [...tampil, path].join("\n")
+    if (new TextEncoder().encode(calon).length > 3900) break
+    tampil.push(path)
+  }
+  return [...tampil, `… ${paths.length - tampil.length} item lain tidak ditampilkan.`].join("\n")
+}
+
 // Hasil pencarian rekursif dari server. Bentuknya sengaja tidak sama dengan
 // FileEntry: yang dibutuhkan baris hasil hanyalah nama, lokasi, dan ukuran,
 // dan `rel` (lokasi relatif ke folder awal) hanya ada di sini.
@@ -623,6 +638,8 @@ export function FileManagerView() {
         jalan: trf("Menghapus {0}…", entry.name),
         sukses: trf("{0} dihapus.", entry.name),
         gagal: (e) => trf("Gagal menghapus: {0}", pesanError(e)),
+        detail: () => entry.path,
+        detailGagal: () => entry.path,
       })
       loadDir(currentPath)
     } catch {
@@ -910,6 +927,7 @@ export function FileManagerView() {
     const url = clipboard.kind === "copy" ? "/api/files/copy" : "/api/files/move"
     const salin = clipboard.kind === "copy"
     const jumlah = clipboard.items.length
+    const hasilItem: string[] = []
     // Seluruh perulangan dibungkus SATU promise supaya toast-nya berputar dari
     // item pertama sampai item terakhir. Menyalin folder besar berjalan
     // menit-menitan; tanpa ini layar diam sepanjang itu dan hasilnya baru
@@ -917,13 +935,13 @@ export function FileManagerView() {
     const kerjakan = async () => {
       let gagal = 0
       for (const it of clipboard.items) {
+        const dest = `${currentPath}/${it.name}`.replace(/\/+/g, "/")
         try {
-          await apiSend(url, "POST", {
-            source: it.path,
-            dest: `${currentPath}/${it.name}`.replace(/\/+/g, "/"),
-          })
+          await apiSend(url, "POST", { source: it.path, dest })
+          hasilItem.push(`✓ ${it.path} → ${dest}`)
         } catch {
           gagal++
+          hasilItem.push(`✗ ${it.path} → ${dest}`)
         }
       }
       // Dilempar, bukan dikembalikan: kegagalan sebagian tidak boleh tampil
@@ -936,6 +954,8 @@ export function FileManagerView() {
         jalan: salin ? trf("Menyalin {0} item…", jumlah) : trf("Memindahkan {0} item…", jumlah),
         sukses: salin ? trf("{0} item disalin.", jumlah) : trf("{0} item dipindahkan.", jumlah),
         gagal: (e) => pesanError(e),
+        detail: () => detailItemLog(hasilItem),
+        detailGagal: () => detailItemLog(hasilItem),
       })
       // Cut baru dianggap selesai kalau semuanya pindah; sisanya masih di
       // tempat lama dan tetap butuh clipboard-nya.
@@ -1010,6 +1030,7 @@ export function FileManagerView() {
     })
     if (!ok) return
     const jumlah = pilihan.length
+    const hasilItem: string[] = []
     // ponytail: hapus satu per satu lewat endpoint yang sudah ada; endpoint
     // batch baru sepadan kalau seleksi ribuan berkas jadi hal biasa.
     const kerjakan = async () => {
@@ -1017,8 +1038,10 @@ export function FileManagerView() {
       for (const e of pilihan) {
         try {
           await apiSend("/api/files/delete", "POST", { path: e.path })
+          hasilItem.push(`✓ ${e.path}`)
         } catch {
           gagal++
+          hasilItem.push(`✗ ${e.path}`)
         }
       }
       if (gagal) throw new Error(trf("{0} item gagal dihapus.", gagal))
@@ -1029,6 +1052,8 @@ export function FileManagerView() {
         jalan: trf("Menghapus {0} item…", jumlah),
         sukses: trf("{0} item dihapus.", jumlah),
         gagal: (e) => pesanError(e),
+        detail: () => detailItemLog(hasilItem),
+        detailGagal: () => detailItemLog(hasilItem),
       })
     } catch {
       // Pesan gagalnya sudah ditampilkan notify.tugas.

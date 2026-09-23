@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"mime"
@@ -346,9 +347,20 @@ type jsonError struct{ msg string }
 
 func (e *jsonError) Error() string { return e.msg }
 
+// Batas upload per request. Tanpa batas, satu stream tak berujung dari akun
+// yang sah pun cukup untuk memenuhi disk sampai helper dan web sama-sama tidak
+// bisa menulis apa-apa lagi — termasuk menulis log kegagalannya sendiri.
+// Angkanya sengaja longgar (ini file manager rumah, bukan penyimpanan
+// sementara): yang ditegakkan adalah "ada batasnya", bukan kuota ketat.
+const (
+	uploadMaxBerkas = 16 << 30 // 16 GiB per berkas
+	uploadMaxTotal  = 64 << 30 // 64 GiB per permintaan
+	uploadMaxPart   = 500      // jumlah berkas per permintaan
+)
+
 // handleUpload menerima multipart secara streaming: tiap part disalin langsung
-// ke helper → disk. Tidak ada batas ukuran, dan tidak ada file yang ditahan
-// penuh di RAM (ParseMultipartForm sengaja tidak dipakai).
+// ke helper → disk, dibatasi per berkas dan per permintaan. Tidak ada file yang
+// ditahan penuh di RAM (ParseMultipartForm sengaja tidak dipakai).
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	dir := r.URL.Query().Get("path")
@@ -361,6 +373,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var saved []string
+	var total int64
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
@@ -368,6 +381,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "gagal membaca part: "+err.Error())
+			return
+		}
+		if len(saved) >= uploadMaxPart {
+			part.Close()
+			writeJSON(w, http.StatusRequestEntityTooLarge, errBody{
+				Error: "Terlalu banyak berkas dalam satu permintaan (maks " +
+					strconv.Itoa(uploadMaxPart) + ")",
+			})
 			return
 		}
 		rel := uploadRelPath(partFileName(part))
@@ -394,14 +415,39 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			writeHelperErr(w, err)
 			return
 		}
-		_, copyErr := io.Copy(stream, part)
+		// Jatah = sisa kuota permintaan, tidak pernah lebih dari batas berkas.
+		jatah := int64(uploadMaxBerkas)
+		if sisa := int64(uploadMaxTotal) - total; sisa < jatah {
+			jatah = sisa
+		}
+		// Satu byte lebih dari jatah dipakai untuk membedakan "pas" dari
+		// "lewat" tanpa menahan berkas di memori.
+		n, copyErr := io.CopyN(stream, part, jatah+1)
 		part.Close()
+		if n > jatah {
+			stream.Close()
+			// Berkas parsial dibuang: kalau dibiarkan, kuota disk tetap
+			// terpakai walaupun upload-nya ditolak.
+			_ = s.helper.Call(helperproto.CmdFileRemove, sess.Username,
+				helperproto.PathArgs{Path: dest}, nil)
+			s.store.LogActivity(sess.Username, "file_upload", "upload ditolak: melebihi batas",
+				map[string]any{"path": dest, "berkas_tersimpan": len(saved)}, clientIP(r))
+			writeJSON(w, http.StatusRequestEntityTooLarge, errBody{
+				Error: "Upload melebihi batas " + strconv.Itoa(uploadMaxBerkas>>30) +
+					" GiB per berkas atau " + strconv.Itoa(uploadMaxTotal>>30) +
+					" GiB per permintaan",
+			})
+			return
+		}
+		total += n
 		// Selesai memberi EOF ke helper lalu menunggu konfirmasi bahwa berkasnya
 		// benar-benar tertulis; tanpa menunggu, upload yang ditolak izin tetap
 		// dilaporkan berhasil.
 		doneErr := stream.Selesai()
 		stream.Close()
-		if copyErr != nil {
+		// io.EOF di sini berarti part-nya lebih pendek dari jatah — itu normal,
+		// bukan kegagalan.
+		if copyErr != nil && !errors.Is(copyErr, io.EOF) {
 			writeErr(w, http.StatusInternalServerError, "upload gagal: "+copyErr.Error())
 			return
 		}

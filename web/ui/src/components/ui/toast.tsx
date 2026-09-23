@@ -107,6 +107,8 @@ export const notify = {
       gagal: string | ((e: unknown) => string)
       /** Keluaran mentah untuk blok monospace di toast sukses. */
       detail?: (hasil: T) => string | undefined
+      /** Detail item/proses yang tetap direkam bila pekerjaan gagal. */
+      detailGagal?: (e: unknown) => string | undefined
     },
   ): Promise<T> => {
     sonner.promise(kerja, {
@@ -125,8 +127,9 @@ export const notify = {
       },
       error: (e: unknown) => {
         const teks = typeof pesan.gagal === "function" ? pesan.gagal(e) : pesan.gagal
-        rekam("err", teks)
-        return { message: teks, duration: TTL.err }
+        const rinci = pesan.detailGagal?.(e)
+        rekam("err", teks, rinci)
+        return { message: teks, description: detailNode(rinci), duration: TTL.err }
       },
     })
     return kerja

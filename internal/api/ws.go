@@ -8,13 +8,55 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
+	"linux-dashboard/OxidiLily/internal/store"
 	"linux-dashboard/OxidiLily/internal/terminal"
 )
+
+// sesiPeriksa: seberapa sering koneksi WebSocket yang sudah terbuka memeriksa
+// ulang sesi pemiliknya. Variabel, bukan konstanta, supaya perilakunya bisa
+// diuji tanpa menunggu 15 detik.
+var sesiPeriksa = 15 * time.Second
+
+// pantauSesi menutup koneksi WebSocket begitu sesinya tidak lagi sah (logout,
+// password diganti, akun dihapus, atau TTL habis).
+//
+// Handshake hanya memeriksa sesi satu kali. Tanpa pemantauan, cookie yang
+// dicuri tetap memberi terminal shell yang hidup walaupun korban sudah logout
+// atau mengganti password — dan itu justru sesi yang paling berharga untuk
+// dipertahankan penyerang. Pemeriksaan berkala (bukan per pesan) dipilih supaya
+// tidak menambah satu query ke setiap ketikan di terminal.
+//
+// Fungsi yang dikembalikan menghentikan pemantauan; aman dipanggil lebih dari
+// sekali.
+func (s *Server) pantauSesi(ctx context.Context, sess store.Session, tutup func()) func() {
+	done := make(chan struct{})
+	var sekali sync.Once
+	stop := func() { sekali.Do(func() { close(done) }) }
+	go func() {
+		t := time.NewTicker(sesiPeriksa)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-t.C:
+				if _, ok := s.store.GetSession(sess.ID); !ok {
+					tutup()
+					return
+				}
+			}
+		}
+	}()
+	return stop
+}
 
 // acceptOptions: koneksi WebSocket harus berasal dari halaman dashboard itu
 // sendiri. Origin dicek default oleh library terhadap Host request.
@@ -52,6 +94,8 @@ func (s *Server) handleWSMetrics(w http.ResponseWriter, r *http.Request) {
 	defer s.collector.Unsubscribe(ch)
 
 	ctx := conn.CloseRead(r.Context())
+	stopSesi := s.pantauSesi(ctx, sess, func() { _ = conn.Close(4401, "Sesi berakhir") })
+	defer stopSesi()
 
 	// Kirim snapshot terakhir langsung supaya UI tidak kosong menunggu tick.
 	if first, err := json.Marshal(s.collector.Last()); err == nil {
@@ -96,6 +140,20 @@ func (s *Server) unregisterWS(id int64) {
 	s.applyFastestInterval()
 }
 
+// queryDim membaca dimensi terminal dari query dan menjepitnya ke rentang
+// wajar. Tanpa penjepitan, nilai negatif atau sangat besar dibungkus menjadi
+// uint16 (mis. -1 → 65535) dan PTY diminta menyiapkan layar selebar itu.
+func queryDim(r *http.Request, key string, def, min, max int) uint16 {
+	n := queryInt(r, key, def)
+	if n < min {
+		n = min
+	}
+	if n > max {
+		n = max
+	}
+	return uint16(n)
+}
+
 type terminalClientMsg struct {
 	Type string `json:"type"` // "input" | "resize"
 	Data string `json:"data,omitempty"`
@@ -124,8 +182,8 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 	release := func() { s.terminals.Release(slot) }
 	defer release()
 
-	cols := uint16(queryInt(r, "cols", 80))
-	rows := uint16(queryInt(r, "rows", 24))
+	cols := queryDim(r, "cols", 80, 20, 1000)
+	rows := queryDim(r, "rows", 24, 5, 500)
 	cmdParam := r.URL.Query().Get("cmd")
 
 	// Allowlist command yang boleh dieksekusi langsung untuk keamanan
@@ -163,6 +221,14 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+
+	// Sesi tidak sah lagi di tengah jalan (logout di tab lain, password
+	// diganti, akun dihapus) → shell ditutup, bukan dibiarkan hidup.
+	stopSesi := s.pantauSesi(ctx, sess, func() {
+		_ = conn.Close(4401, "Sesi berakhir")
+		cancel()
+	})
+	defer stopSesi()
 
 	// Sesi dihapus dari panel ("Hapus sesi") → kanal stop ditutup. Koneksi
 	// ditutup dengan kode sendiri supaya browser bisa membedakannya dari

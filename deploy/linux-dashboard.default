@@ -7,7 +7,22 @@
 #   systemctl restart linux-dashboard-web
 #
 # Alamat dengar. Kosongkan alamatnya (":1122") untuk semua interface.
+#
+# BAWAAN KODE (tanpa setelan apa pun) adalah 127.0.0.1:8080 — panel hanya bisa
+# dibuka dari mesin itu sendiri, karena panel berbicara HTTP polos kalau TLS
+# tidak diisi. Unit systemd bawaan menyetel 0.0.0.0:1122 supaya panel bisa
+# dijangkau dari perangkat lain; kalau port itu terbuka ke jaringan yang tidak
+# Anda percayai, nyalakan TLS di bawah atau taruh panel di belakang reverse
+# proxy, lalu set DASHBOARD_SECURE_COOKIE=true.
 #DASHBOARD_LISTEN=0.0.0.0:1122
+
+# Direktori secret HMAC helper. TERPISAH dari state dir web (DASHBOARD_STATE_DIR)
+# dengan sengaja: user service web tidak boleh bisa menulis ke direktori ini,
+# karena kalau bisa, ia dapat mengganti secret-nya dan helper memakai secret
+# penyerang saat restart — dari situ request bisa mengaku sebagai user sudo.
+# Ubah hanya kalau Anda punya alasan kuat; setelah diubah, pindahkan berkasnya
+# sendiri (mode 0640, pemilik root, grup linux-dashboard) lalu restart helper.
+#DASHBOARD_SECRET_DIR=/var/lib/linux-dashboard-helper
 
 # Cookie sesi hanya dikirim lewat koneksi terenkripsi. Menyala sendiri kalau
 # TLS diisi di bawah. Yang perlu mengisinya secara manual hanya pemasangan di

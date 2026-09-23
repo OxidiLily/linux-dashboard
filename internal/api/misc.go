@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -587,7 +586,7 @@ func (s *Server) handleLogNotifikasi(w http.ResponseWriter, r *http.Request) {
 		Detail  string `json:"detail"`
 		Page    string `json:"page"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body tidak valid")
 		return
 	}
