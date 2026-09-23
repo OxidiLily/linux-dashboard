@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"syscall"
 
+	"golang.org/x/sys/unix"
+
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
 
@@ -54,6 +56,12 @@ type workerResult struct {
 	Code  string          `json:"code,omitempty"`
 	Error string          `json:"error,omitempty"`
 	Data  json.RawMessage `json:"data,omitempty"`
+	// KodeUI + Params meneruskan penolakan berkode dari worker apa adanya
+	// (mis. symlink_escape dari jalur jail), supaya frontend menyusun
+	// kalimatnya sendiri seperti penolakan yang datang dari parent. Error
+	// tetap kalimat bahasa Indonesia sebagai cadangan.
+	KodeUI string   `json:"kode_ui,omitempty"`
+	Params []string `json:"params,omitempty"`
 }
 
 // RunWorker dijalankan di proses anak (setelah kernel menurunkan privilege ke
@@ -85,7 +93,7 @@ func RunWorker() int {
 		return 0
 	}
 	if err != nil {
-		writeResult(resFile, workerResult{Code: classify(err), Error: err.Error()})
+		writeResult(resFile, hasilGagal(err))
 		return 1
 	}
 	writeResult(resFile, workerResult{OK: true, Data: data})
@@ -100,6 +108,12 @@ func writeResult(w io.Writer, r workerResult) {
 }
 
 func classify(err error) string {
+	// Penolakan berkode dari jalur jail sudah membawa kodenya sendiri —
+	// jangan diturunkan menjadi "internal".
+	var he *helperErr
+	if errors.As(err, &he) && he.code != "" {
+		return he.code
+	}
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return helperproto.ErrNotFound
@@ -110,23 +124,108 @@ func classify(err error) string {
 	}
 }
 
+// hasilGagal menyusun hasil worker dari satu error, termasuk kode UI + params
+// kalau errornya penolakan berkode.
+func hasilGagal(err error) workerResult {
+	r := workerResult{Code: classify(err), Error: err.Error()}
+	var he *helperErr
+	if errors.As(err, &he) {
+		r.KodeUI = he.kodeUI
+		r.Params = he.params
+	}
+	return r
+}
+
+// execWorkerOp memilih cara path diselesaikan:
+//
+//   - jail (user non-sudo): path relatif terhadap fd direktori home, semua
+//     operasi lewat fd / syscall *at — lihat beneath.go.
+//   - tanpa jail (sudoer): resolusi berbasis nama seperti sebelumnya. Jalur
+//     sudo memang menyentuh path di luar home, jadi RESOLVE_BENEATH justru
+//     akan memutus symlink absolut yang lazim di /etc dan /usr.
 func execWorkerOp(op workerOp, res *os.File) (json.RawMessage, error) {
+	p, err := penjagaWorker()
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return jalankanOp(resolusiNama{}, op, res)
+	}
+	return jalankanOp(resolusiJail{p: p}, op, res)
+}
+
+// resolusiPath adalah satu-satunya jalur operasi berkas worker. Dua
+// implementasinya: resolusiNama (nama absolut, jalur sudo) dan resolusiJail
+// (deskriptor, jalur user non-sudo).
+type resolusiPath interface {
+	buka(path string, flags int, mode os.FileMode) (*os.File, error)
+	listDir(path string, saring bool) ([]helperproto.FileEntry, error)
+	cari(akar, kueri string, saring bool, maks int) (helperproto.SearchHasil, error)
+	usage(path string) (helperproto.UsageHasil, error)
+	stat(path string) (helperproto.FileEntry, error)
+	bisaDibaca(path string, dir bool) bool
+	mkdirAll(path string, mode os.FileMode) error
+	hapus(path string, recursive bool) error
+	gantiNama(src, dst string) error
+	kopi(src, dst string) error
+	chmod(path string, mode os.FileMode) error
+}
+
+// resolusiNama: jalur lama, apa adanya.
+type resolusiNama struct{}
+
+func (resolusiNama) buka(path string, flags int, mode os.FileMode) (*os.File, error) {
+	return os.OpenFile(path, flags, mode)
+}
+func (resolusiNama) listDir(path string, saring bool) ([]helperproto.FileEntry, error) {
+	return listDir(path, saring)
+}
+func (resolusiNama) cari(akar, kueri string, saring bool, maks int) (helperproto.SearchHasil, error) {
+	return cariRekursif(akar, kueri, saring, maks), nil
+}
+func (resolusiNama) usage(path string) (helperproto.UsageHasil, error) {
+	return hitungUsage(path), nil
+}
+func (resolusiNama) stat(path string) (helperproto.FileEntry, error) { return statEntry(path) }
+func (resolusiNama) bisaDibaca(path string, dir bool) bool           { return bisaDibaca(path, dir) }
+func (resolusiNama) mkdirAll(path string, mode os.FileMode) error    { return os.MkdirAll(path, mode) }
+func (resolusiNama) hapus(path string, recursive bool) error {
+	if recursive {
+		return os.RemoveAll(path)
+	}
+	return os.Remove(path)
+}
+func (resolusiNama) gantiNama(src, dst string) error { return os.Rename(src, dst) }
+func (resolusiNama) kopi(src, dst string) error      { return copyPath(src, dst) }
+func (resolusiNama) chmod(path string, mode os.FileMode) error {
+	return os.Chmod(path, mode)
+}
+
+func jalankanOp(r resolusiPath, op workerOp, res *os.File) (json.RawMessage, error) {
 	switch op.Op {
 	case "list":
-		entries, err := listDir(op.Path, op.SaringAkses)
+		entries, err := r.listDir(op.Path, op.SaringAkses)
 		if err != nil {
 			return nil, err
 		}
 		return json.Marshal(entries)
 	case "search":
-		// Truncated sudah diisi cariRekursif bersama Alasannya.
-		return jsonOf(cariRekursif(op.Path, op.Query, op.SaringAkses, op.Maks), nil)
+		// Truncated sudah diisi cari bersama Alasannya.
+		h, err := r.cari(op.Path, op.Query, op.SaringAkses, op.Maks)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(h, nil)
 	case "usage":
-		return json.Marshal(hitungUsage(op.Path))
+		h, err := r.usage(op.Path)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(h)
 	// Dipakai handleFileRead sebelum streaming: ukuran + apakah direktori.
 	// (Command `file.stat` sendiri sudah tidak ada; op ini murni internal.)
 	case "stat":
-		e, err := statEntry(op.Path)
+		e, err := r.stat(op.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -135,7 +234,7 @@ func execWorkerOp(op workerOp, res *os.File) (json.RawMessage, error) {
 		// gagal saat streaming, user menerima HTTP 200 dengan isi KOSONG —
 		// berkas kosong yang terlihat sah. Jadi izinnya diperiksa di sini,
 		// selagi error masih bisa dilaporkan.
-		if op.SaringAkses && !bisaDibaca(op.Path, e.IsDir) {
+		if op.SaringAkses && !r.bisaDibaca(op.Path, e.IsDir) {
 			return nil, &os.PathError{Op: "open", Path: op.Path, Err: syscall.EACCES}
 		}
 		return json.Marshal(e)
@@ -144,31 +243,27 @@ func execWorkerOp(op workerOp, res *os.File) (json.RawMessage, error) {
 		if op.Mode != 0 {
 			mode = os.FileMode(op.Mode)
 		}
-		return nil, os.MkdirAll(op.Path, mode)
+		return nil, r.mkdirAll(op.Path, mode)
 	case "remove":
-		if op.Recursive {
-			return nil, os.RemoveAll(op.Path)
-		}
-		return nil, os.Remove(op.Path)
+		return nil, r.hapus(op.Path, op.Recursive)
 	case "rename", "move":
-		if err := os.Rename(op.Path, op.Dest); err != nil {
+		if err := r.gantiNama(op.Path, op.Dest); err != nil {
 			// Rename lintas filesystem gagal dengan EXDEV — fallback copy+hapus.
-			var le *os.LinkError
-			if errors.As(err, &le) && errors.Is(le.Err, syscall.EXDEV) {
-				if err := copyPath(op.Path, op.Dest); err != nil {
+			if errors.Is(err, syscall.EXDEV) {
+				if err := r.kopi(op.Path, op.Dest); err != nil {
 					return nil, err
 				}
-				return nil, os.RemoveAll(op.Path)
+				return nil, r.hapus(op.Path, true)
 			}
 			return nil, err
 		}
 		return nil, nil
 	case "copy":
-		return nil, copyPath(op.Path, op.Dest)
+		return nil, r.kopi(op.Path, op.Dest)
 	case "chmod":
-		return nil, os.Chmod(op.Path, os.FileMode(op.Mode))
+		return nil, r.chmod(op.Path, os.FileMode(op.Mode))
 	case "read":
-		f, err := os.Open(op.Path)
+		f, err := r.buka(op.Path, os.O_RDONLY, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +308,7 @@ func execWorkerOp(op workerOp, res *os.File) (json.RawMessage, error) {
 		if op.Mode != 0 {
 			mode = os.FileMode(op.Mode)
 		}
-		f, err := os.OpenFile(op.Path, flags, mode)
+		f, err := r.buka(op.Path, flags, mode)
 		if err != nil {
 			return nil, err
 		}
@@ -306,9 +401,19 @@ func hitungUsage(root string) helperproto.UsageHasil {
 
 // fsSemu menandai filesystem yang isinya dibangkitkan kernel, bukan disimpan
 // di disk: ukurannya memang nol, tapi menyusurinya mahal — /proc di mesin uji
-// butuh 2,8 detik hanya untuk sampai pada jawaban 0. Dicek sekali di akar
-// penelusuran; sublevelnya sudah tertutup aturan tidak melintasi filesystem.
+// butuh 2,8 detik hanya untuk sampai pada jawaban 0.
 func fsSemu(path string) bool {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return false
+	}
+	return fsSemuStat(&st)
+}
+
+// fsSemuStat memeriksa jenis filesystem dari hasil statfs/fstatfs. Dipisah
+// supaya jalur deskriptor (beneath.go) bisa memeriksa lewat fstatfs tanpa
+// mengulang daftar magic-nya.
+func fsSemuStat(st *syscall.Statfs_t) bool {
 	// Nilai magic dari statfs(2); daftarnya bagian dari ABI kernel.
 	const (
 		procMagic       = 0x9fa0
@@ -321,10 +426,6 @@ func fsSemu(path string) bool {
 		devptsMagic     = 0x1cd1
 		bpfMagic        = 0xcafe4a11
 	)
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
-		return false
-	}
 	switch int64(st.Type) {
 	case procMagic, sysfsMagic, debugfsMagic, tracefsMagic,
 		cgroupMagic, cgroup2Magic, securityfsMagic, devptsMagic, bpfMagic:
@@ -487,12 +588,66 @@ func copyPath(src, dst string) error {
 
 // ---- sisi parent (daemon root) ----
 
+// bukaJail membuka direktori home user sebagai fd O_PATH|O_DIRECTORY. Fd ini
+// yang dikirim ke worker (fd 5) dan menjadi akar resolusi openat2 di sana,
+// jadi worker berhenti memakai resolusi berbasis nama untuk jalur non-sudo.
+//
+// Nil berarti op ini dijalankan tanpa jail — hanya untuk sudoer: jalur sudo
+// menyentuh path di luar home, dan RESOLVE_BENEATH justru akan memutus symlink
+// absolut yang lazim di /etc dan /usr. Perilaku jalur itu tidak diubah.
+//
+// Kalau jail gagal dibuka untuk user non-sudo, op TIDAK dijalankan sama
+// sekali: menjalankan worker tanpa jail berarti kembali ke resolusi berbasis
+// nama yang justru sedang ditutup di sini.
+func bukaJail(u *userInfo) (*os.File, error) {
+	if u.Sudo {
+		return nil, nil
+	}
+	home := filepath.Clean(u.Home)
+	if home == "" || home == "/" || !filepath.IsAbs(home) {
+		return nil, errDenied("home directory tidak valid untuk user %s", u.Name)
+	}
+	fd, err := unix.Open(home, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, errDenied("tidak bisa membuka home directory %s: %v", home, err)
+	}
+	return os.NewFile(uintptr(fd), home), nil
+}
+
+// perintahWorker menyusun proses worker untuk satu op: fd 3 = op masuk,
+// fd 4 = hasil keluar, fd 5 = direktori home (jail, hanya untuk user
+// non-sudo). Dipisah dari runAsUser supaya kontrak fd + penanda jail ini bisa
+// diuji tanpa perlu menjalankan prosesnya (jalur sudo memakai resolusi berbasis
+// nama, jadi tidak boleh ikut dijail).
+func perintahWorker(self string, u *userInfo, jail *os.File, opR, resW *os.File) *exec.Cmd {
+	extra := []*os.File{opR, resW}
+	env := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=" + u.Home}
+	if jail != nil {
+		extra = append(extra, jail)
+		env = append(env, jailHomeEnv+"="+filepath.Clean(u.Home))
+	}
+	cmd := exec.Command(self, WorkerArg)
+	cmd.Env = env
+	cmd.Dir = "/"
+	cmd.ExtraFiles = extra
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: u.credential()}
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
 // runAsUser menjalankan satu op sebagai user target dan menunggu hasilnya.
 // stdinData/stdoutW dipakai untuk op stream (read/write).
 func runAsUser(u *userInfo, op workerOp, stdin io.Reader, stdout io.Writer) (json.RawMessage, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return nil, err
+	}
+	jail, err := bukaJail(u)
+	if err != nil {
+		return nil, err
+	}
+	if jail != nil {
+		defer jail.Close()
 	}
 	opR, opW, err := os.Pipe()
 	if err != nil {
@@ -506,12 +661,8 @@ func runAsUser(u *userInfo, op workerOp, stdin io.Reader, stdout io.Writer) (jso
 	}
 	defer resR.Close()
 
-	cmd := exec.Command(self, WorkerArg)
-	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=" + u.Home}
-	cmd.Dir = "/"
-	cmd.ExtraFiles = []*os.File{opR, resW}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: u.credential()}
-	cmd.Stderr = os.Stderr
+	// fd 3 = op masuk, fd 4 = hasil keluar, fd 5 = direktori home (jail).
+	cmd := perintahWorker(self, u, jail, opR, resW)
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}
@@ -544,7 +695,7 @@ func runAsUser(u *userInfo, op workerOp, stdin io.Reader, stdout io.Writer) (jso
 		return nil, fmt.Errorf("worker tidak mengirim hasil: %w", decErr)
 	}
 	if !res.OK {
-		return nil, &helperErr{code: res.Code, msg: res.Error}
+		return nil, &helperErr{code: res.Code, msg: res.Error, kodeUI: res.KodeUI, params: res.Params}
 	}
 	// Op stream mengirim result OK sebelum datanya mengalir, jadi kegagalan di
 	// tengah penyalinan (disk penuh, kuota habis) hanya terlihat dari exit code

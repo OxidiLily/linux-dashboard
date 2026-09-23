@@ -54,4 +54,9 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/api/upload_jalur_test.go
 !internal/helper/printer_test.go
 !cmd/server/main_test.go
+# TOCTOU resolusi path berkas di worker helper (audit 2026-09-23): worker
+# non-sudo menyelesaikan path lewat openat2 relatif fd direktori home, bukan
+# lewat nama. Test ini menjaga agar symlink/`..`/path absolut tidak bisa
+# menembus home dari dalam worker.
+!internal/helper/worker_beneath_test.go
 web/dist.bak/
