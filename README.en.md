@@ -793,14 +793,15 @@ defaults.
 
 | Variable | Default | Description |
 |---|---|---|
-| `DASHBOARD_LISTEN` | `0.0.0.0:1122` | Web app bind address |
+| `DASHBOARD_LISTEN` | `127.0.0.1:8080` | Web app bind address; the shipped systemd unit sets `0.0.0.0:1122` |
 | `DASHBOARD_TLS_CERT` | empty | TLS certificate; leave empty when behind a reverse proxy |
 | `DASHBOARD_TLS_KEY` | empty | TLS private key; must be set together with `DASHBOARD_TLS_CERT` |
 | `DASHBOARD_RUN_DIR` | `/run/linux-dashboard` | Location of the helper socket |
-| `DASHBOARD_STATE_DIR` | `/var/lib/linux-dashboard` | Location of SQLite + `secret.key` |
+| `DASHBOARD_STATE_DIR` | `/var/lib/linux-dashboard` | Location of the SQLite database |
+| `DASHBOARD_SECRET_DIR` | `/var/lib/linux-dashboard-helper` | Helper secret directory — deliberately SEPARATE from the web state dir; the web group gets read-only access |
 | `DASHBOARD_SOCKET` | `$RUN_DIR/helper.sock` | Helper socket path (full override) |
 | `DASHBOARD_SOCKET_GROUP` | `linux-dashboard` | Group allowed to access the socket |
-| `DASHBOARD_SECRET` | `$STATE_DIR/secret.key` | Helper HMAC secret file (0600, owned by root) |
+| `DASHBOARD_SECRET` | `$SECRET_DIR/secret.key` | Helper HMAC secret file (0640, owned by root) |
 | `DASHBOARD_DB` | `$STATE_DIR/lindash.db` | SQLite database path |
 | `DASHBOARD_SESSION_TTL_HOURS` | `12` | Session lifetime |
 | `DASHBOARD_SECURE_COOKIE` | `false` | Set to `true` when served over HTTPS |

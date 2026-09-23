@@ -79,16 +79,20 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "tidak ada URL langsung untuk komponen "+component)
 		return
 	}
-	// Ambil host dari header request, bukan dari os.Hostname(). Hostname
+	// Ambil host dari request Host, bukan dari os.Hostname(). Hostname
 	// server sering kali nama internal yang tidak resolve dari device lain
 	// (mis. WSL2 punya hostname acak "DESKTOP-ABC123", mobile di Wi-Fi
 	// berbeda tidak akan menemukan itu). Request Host = persis apa yang
 	// user ketik di address bar browser = bekerja di semua device.
+	//
+	// X-Forwarded-Host TIDAK dipakai meski reverse proxy mengirimnya: header
+	// itu bisa ditulis siapa saja yang menjangkau port panel, persis alasan
+	// middleware.RealIP dilepas. Proxy yang meneruskan Host asli (perilaku
+	// bawaan NPM/Caddy) sudah menghasilkan nilai yang benar di r.Host; yang
+	// butuh X-Forwarded-Host hanya proxy yang mengganti Host, dan untuk itu
+	// host yang dipakai membentuk URL komponen bukan hal yang layak
+	// mempercayai header dari klien.
 	host := r.Host
-	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
-		// Reverse proxy (NPM, Caddy) — pakai host asli yang diakses user.
-		host = h
-	}
 	if host == "" {
 		host, _ = os.Hostname()
 	}
@@ -154,7 +158,7 @@ func (s *Server) handleTerminalReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := clientIP(r)
-	key := sess.Username
+	key := reauthThrottleKey(sess.Username)
 	if ok, retry := s.throttle.allowed(key, ip); !ok {
 		writeJSON(w, http.StatusTooManyRequests, errBody{
 			Error: "Terlalu banyak percobaan. Coba lagi dalam " + retry.Round(time.Second).String(),

@@ -181,7 +181,11 @@ fi
 if [[ "$MODE" != "panel" ]]; then
   # Database panel (akun panel, bookmark, threshold, log aktivitas), kunci
   # sesi, dan berkas kerja pembaruan. Tidak ada di sini yang bisa dipulihkan.
-  rm -rf /var/lib/linux-dashboard /var/lib/linux-dashboard-update
+  # Direktori secret helper ikut dihapus: berkas itu kunci HMAC antara web
+  # dan helper, dan kalau ditinggal ia tetap terbaca grup web serta dipakai
+  # lagi pada reinstall berikutnya.
+  rm -rf /var/lib/linux-dashboard /var/lib/linux-dashboard-helper \
+    /var/lib/linux-dashboard-update
   rm -f /etc/sysctl.d/99-linux-dashboard-wg.conf
   # Setelan per-device dan sertifikat sengaja ikut mode ini saja: pada mode
   # "panel" panel dipasang ulang nanti, dan port, secure cookie, serta

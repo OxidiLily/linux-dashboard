@@ -31,6 +31,25 @@ func TestClientIPAlamatTanpaPort(t *testing.T) {
 	}
 }
 
+// Bentuk yang benar-benar dikirim net/http untuk IPv6 selalu berbentuk bracket
+// plus port ("[::1]:1234"), bukan alamat telanjang — jadi bentuk itulah yang
+// wajib benar; tanpa kurung siku, SplitHostPort gagal dan alamatnya dianggap
+// satu kesatuan, sehingga semua klien IPv6 terlihat sebagai satu alamat saja.
+func TestClientIPIPv6Berkurung(t *testing.T) {
+	cases := []struct{ remote, mau string }{
+		{"[::1]:1234", "::1"},
+		{"[2001:db8::1]:8080", "2001:db8::1"},
+		{"[2001:db8::1]", "2001:db8::1"},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = c.remote
+		if got := clientIP(r); got != c.mau {
+			t.Errorf("clientIP(%q) = %q, ingin %q", c.remote, got, c.mau)
+		}
+	}
+}
+
 // Penyerang yang bisa memakai banyak alamat sumber (IPv6 /64, botnet, proxy
 // yang memakai header forwarded) tidak boleh bisa menebak password satu akun
 // tanpa batas hanya karena tiap alamat memakai kuota sendiri.

@@ -48,4 +48,8 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/api/ws_session_test.go
 !internal/helper/secret_test.go
 !internal/helperclient/frame_test.go
+!internal/api/upload_limit_test.go
+!internal/api/throttle_ip_test.go
+!internal/helper/printer_test.go
+!cmd/server/main_test.go
 web/dist.bak/
