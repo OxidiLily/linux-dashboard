@@ -624,7 +624,9 @@ func perintahWorker(self string, u *userInfo, jail *os.File, opR, resW *os.File)
 	env := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=" + u.Home}
 	if jail != nil {
 		extra = append(extra, jail)
-		env = append(env, jailHomeEnv+"="+filepath.Clean(u.Home))
+		env = append(env, modeEnv+"="+modeJail, jailHomeEnv+"="+filepath.Clean(u.Home))
+	} else {
+		env = append(env, modeEnv+"="+modeSudo)
 	}
 	cmd := exec.Command(self, WorkerArg)
 	cmd.Env = env

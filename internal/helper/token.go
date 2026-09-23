@@ -115,6 +115,29 @@ func (s *Server) tokenUser(token string) (*userInfo, bool) {
 	return rec.info, true
 }
 
+// identitasSekarang adalah seam untuk test: membaca keadaan akun yang berlaku
+// SEKARANG, bukan salinan yang tersimpan saat login.
+var identitasSekarang = lookupUser
+
+// sudoMasihAda melaporkan apakah pemilik token MASIH anggota grup sudo menurut
+// basis data akun saat ini.
+//
+// Status sudo tersalin ke token saat login, dan keanggotaan grup bisa dicabut
+// di luar panel (mis. `deluser x sudo`). Token membuktikan SIAPA pemanggilnya,
+// bukan bahwa haknya masih ada — jadi untuk perintah yang butuh sudo, haknya
+// diperiksa ulang. Gagal membaca keadaan akun = dianggap tidak berhak
+// (fail-closed), karena "tidak bisa memastikan" bukan alasan memberi hak root.
+func sudoMasihAda(u *userInfo) bool {
+	if u == nil {
+		return false
+	}
+	segar, err := identitasSekarang(u.Name)
+	if err != nil {
+		return false
+	}
+	return segar.Sudo
+}
+
 // cabutToken mencabut satu token (auth.logout). Token yang tidak ada diabaikan
 // supaya logout selalu berhasil.
 func (s *Server) cabutToken(token string) {

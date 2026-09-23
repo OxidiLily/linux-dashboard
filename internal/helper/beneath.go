@@ -56,6 +56,17 @@ const (
 	// yang justru tidak boleh dijail — tidak ikut terjebak oleh env bawaan.
 	jailHomeEnv = "HELPER_JAIL_HOME"
 
+	// modeEnv menyatakan mode resolusi path worker: modeJail (fd jail dikirim)
+	// atau modeSudo (resolusi berbasis nama, tanpa jail).
+	//
+	// Mode diwajibkan ada. Kalau mode tidak dikirim, worker TIDAK menebak:
+	// menebak berarti memilih resolusi berbasis nama untuk op yang seharusnya
+	// dijail, dan penjagaan hilang tanpa suara. Cara ini membuat situs spawn
+	// baru yang lupa menyatakan kontraknya gagal keras, bukan diam-diam lemah.
+	modeEnv  = "HELPER_MODE"
+	modeJail = "jail"
+	modeSudo = "sudo"
+
 	// devtmpfsMagic: bagian dari ABI kernel, sama dengan yang dipakai pseudoFs
 	// di carifile.go untuk jalur berbasis nama.
 	devtmpfsMagic = 0x01021997
@@ -75,9 +86,23 @@ type penjaga struct {
 // ke dua tempat (struct op + ExtraFiles) hanya menambah cara untuk tidak
 // sinkron. Efek sampingnya menguntungkan: protokolnya bisa diuji apa adanya.
 func penjagaWorker() (*penjaga, error) {
+	mode := os.Getenv(modeEnv)
+	switch mode {
+	case modeSudo:
+		// Jalur sudo: resolusi berbasis nama, tanpa jail.
+		if os.Getenv(jailHomeEnv) != "" {
+			return nil, errJailInternal("mode %s tidak boleh membawa penanda jail", modeSudo)
+		}
+		return nil, nil
+	case modeJail:
+		// lanjut ke pemeriksaan fd di bawah
+	default:
+		return nil, errJailInternal(
+			"mode resolusi worker tidak dikenal: %q (situs spawn tidak mengirim %s)", mode, modeEnv)
+	}
 	akar := os.Getenv(jailHomeEnv)
 	if akar == "" {
-		return nil, nil
+		return nil, errJailInternal("mode %s tanpa %s", modeJail, jailHomeEnv)
 	}
 	akar = filepath.Clean(akar)
 	if !filepath.IsAbs(akar) || akar == "/" {
