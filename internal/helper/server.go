@@ -391,6 +391,11 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		// dibedakan dari sesi rusak.
 		return jsonOf(s.sudoTerkini(u))
 
+	case helperproto.CmdAuthPasswordStatus:
+		return json.Marshal(helperproto.PasswordStatusResult{
+			MustChangePassword: passwordMustChange(u.Name),
+		})
+
 	case helperproto.CmdAuthPasswd:
 		args, err := decodeArgs[helperproto.PasswdArgs](req)
 		if err != nil {

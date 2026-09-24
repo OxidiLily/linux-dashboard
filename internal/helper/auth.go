@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"os/exec"
 	"strings"
 
 	"github.com/msteinert/pam/v2"
@@ -46,6 +47,23 @@ func authenticate(username, password string) error {
 // ditentukan web app) tidak bisa diuji sama sekali. Nilainya selalu
 // authenticate di produksi.
 var autentikasi = authenticate
+
+func passwordMustChange(username string) bool {
+	out, err := exec.Command("chage", "-l", username).Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		l := strings.ToLower(strings.TrimSpace(line))
+		if strings.HasPrefix(l, "password must be changed") {
+			return true
+		}
+		if strings.HasPrefix(l, "password expires") && !strings.Contains(l, "never") {
+			return true
+		}
+	}
+	return false
+}
 
 // isServiceAccount menolak akun sistem yang shell-nya nologin/false.
 func isServiceAccount(shell string) bool {
@@ -108,6 +126,7 @@ func (s *Server) handleLogin(conn net.Conn, req helperproto.Request) {
 	res := helperproto.LoginResult{
 		UID: u.UID, GID: u.GID, Home: u.Home, Shell: u.Shell,
 		Sudo: u.Sudo, Groups: u.Names, Token: token,
+		MustChangePassword: passwordMustChange(args.Username),
 	}
 	data, _ := json.Marshal(res)
 	writeResp(conn, helperproto.Response{OK: true, Data: data})
