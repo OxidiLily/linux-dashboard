@@ -26,6 +26,13 @@ import (
 
 func buatServerCron(t *testing.T, tiruan *helperTiruan) (http.Handler, *store.Store) {
 	t.Helper()
+	return buatServerTTL(t, tiruan, 12)
+}
+
+// buatServerTTL sama dengan buatServerCron, tapi umur sesi panelnya (yang juga
+// menentukan umur token helper) bisa ditentukan test.
+func buatServerTTL(t *testing.T, tiruan *helperTiruan, jam int) (http.Handler, *store.Store) {
+	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "uji.db"))
 	if err != nil {
@@ -35,7 +42,7 @@ func buatServerCron(t *testing.T, tiruan *helperTiruan) (http.Handler, *store.St
 
 	hc := pasangHelperTiruan(t, tiruan)
 	// Socket/secret tidak dipakai karena helperclient sudah diganti.
-	cfg := config.Config{Listen: "127.0.0.1:0", SocketPath: filepath.Join(dir, "x.sock"), SecretPath: filepath.Join(dir, "x.key"), SessionTTLHours: 12}
+	cfg := config.Config{Listen: "127.0.0.1:0", SocketPath: filepath.Join(dir, "x.sock"), SecretPath: filepath.Join(dir, "x.key"), SessionTTLHours: jam}
 	srv := New(cfg, st, hc, metrics.NewCollector(), http.NotFoundHandler())
 	return srv.Routes(), st
 }
@@ -158,8 +165,8 @@ func TestCronAPIIsiTerlaluBesarTidakSampaiHelper(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("isi terlalu besar = %d, harap 400 (body: %s)", w.Code, w.Body.String())
 	}
-	if tiruan.cmd != "" {
-		t.Fatalf("helper tidak boleh dipanggil, justru menerima %q", tiruan.cmd)
+	if len(tiruan.riwayatOperasi()) != 0 {
+		t.Fatalf("helper tidak boleh dipanggil, justru menerima %v", tiruan.riwayatOperasi())
 	}
 }
 

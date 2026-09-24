@@ -261,8 +261,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var res helperproto.LoginResult
 	// Token kosong: auth.login tidak butuh token (ia justru yang menerbitkannya).
+	// TTLHours diteruskan supaya umur token helper SAMA dengan umur sesi panel:
+	// token yang mati lebih dulu daripada sesinya membuat setiap permintaan
+	// dijawab 401 dan user dipaksa login ulang tanpa sebab yang terlihat.
 	err := s.helper.Call(helperproto.CmdAuthLogin, "",
-		helperproto.LoginArgs{Username: req.Username, Password: req.Password}, &res)
+		helperproto.LoginArgs{Username: req.Username, Password: req.Password, TTLHours: s.cfg.SessionTTLHours}, &res)
 	if err != nil {
 		// Kegagalan infrastruktur (helper mati, socket tidak terjangkau) TIDAK
 		// boleh dilaporkan sebagai password salah: user akan mengetik ulang
@@ -378,7 +381,8 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 //
 // Kegagalan TIDAK boleh menggagalkan aksi pemanggilnya: logout harus tetap
 // berhasil walau helper-nya sedang mati, dan token yang tidak tercabut akan
-// kedaluwarsa sendiri seperti sesi panelnya (keduanya 12 jam).
+// kedaluwarsa sendiri seperti sesi panelnya — keduanya memakai setelan umur
+// yang sama (DASHBOARD_SESSION_TTL_HOURS).
 func (s *Server) cabutTokenHelper(token string) {
 	if token == "" || s.helper == nil {
 		return
@@ -417,6 +421,10 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			writeErr(w, http.StatusUnauthorized, "Sesi tidak valid atau sudah berakhir")
 			return
 		}
+		// Status sudo disegarkan SEBELUM handler berjalan: requireSudo di
+		// dalamnya membaca nilai yang sudah diperbarui, jadi keanggotaan grup
+		// yang dicabut di luar panel tidak menyisakan endpoint terbuka.
+		s.segarkanSudo(&sess)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionKey, sess)))
 	})
 }
@@ -432,6 +440,83 @@ func (s *Server) sessionFromRequest(r *http.Request) (store.Session, bool) {
 func sessionFrom(r *http.Request) store.Session {
 	sess, _ := r.Context().Value(sessionKey).(store.Session)
 	return sess
+}
+
+// sudoCekInterval membatasi seberapa sering status sudo satu sesi diperiksa
+// ulang ke helper. Variabel, bukan konstanta, supaya test bisa memendekkannya
+// tanpa menunggu.
+var sudoCekInterval = 30 * time.Second
+
+// segarkanSudo memeriksa ulang status sudo sesi ke helper, lalu menyimpannya
+// kembali ke store.
+//
+// Status sudo disalin ke baris sesi saat login, sementara keanggotaan grup sudo
+// bisa dicabut di luar panel (`deluser dewi sudo`). Tanpa penyegaran ini,
+// salinan basi itu tetap dipakai sampai sesinya berakhir: endpoint yang butuh
+// sudo masih lolos di sisi API, dan user baru tahu setelah perintahnya ditolak
+// helper — penolakan yang datang dari tempat yang jauh dari sebabnya.
+//
+// Pemeriksaan dibatasi sudoCekInterval per sesi. Satu probe per permintaan HTTP
+// berarti setiap pemuatan halaman menambah satu perjalanan ke socket helper,
+// sementara jawabannya hanya berubah kalau keadaan akun berubah.
+//
+// Gagal menghubungi helper BUKAN bukti pencabutan: nilai yang tersimpan
+// dibiarkan apa adanya, dan penanda waktunya tetap ditulis supaya helper yang
+// mati tidak membuat setiap permintaan menunggu timeout. Satu gangguan helper
+// (restart, socket sibuk) tidak boleh mencabut sudo semua admin sekaligus —
+// pemeriksaan yang sesungguhnya tetap dilakukan helper pada setiap perintah
+// ber-sudo (lihat sudoMasihAda).
+func (s *Server) segarkanSudo(sess *store.Session) {
+	if s.helper == nil || sess.HelperToken == "" {
+		// Tanpa token tidak ada yang bisa ditanyakan: sesi lama seperti ini
+		// memang ditolak helper pada setiap permintaan, dan probe tambahan
+		// hanya menambah perjalanan yang pasti gagal.
+		return
+	}
+	if !s.bolehCekSudo(sess.ID, time.Now()) {
+		return
+	}
+	var res helperproto.SudoResult
+	if err := s.helper.Call(helperproto.CmdAuthSudo, sess.HelperToken, nil, &res); err != nil {
+		log.Printf("cek status sudo sesi %q dilewati (nilai tersimpan dibiarkan): %v", sess.Username, err)
+		return
+	}
+	if res.Sudo == sess.Sudo {
+		return
+	}
+	if err := s.store.SetSessionSudo(sess.ID, res.Sudo); err != nil {
+		log.Printf("simpan status sudo sesi %q gagal: %v", sess.Username, err)
+		return
+	}
+	sess.Sudo = res.Sudo
+}
+
+// bolehCekSudo melaporkan apakah sesi ini boleh diperiksa ulang sekarang, dan
+// mencatat waktunya kalau boleh. Pemanggil yang mendapat true WAJIB mencoba
+// pemeriksaan itu — jatah jendelanya sudah terpakai, supaya percobaan yang
+// gagal pun tidak diulang pada setiap permintaan.
+func (s *Server) bolehCekSudo(id string, now time.Time) bool {
+	s.sudoMu.Lock()
+	defer s.sudoMu.Unlock()
+	if s.sudoCek == nil {
+		s.sudoCek = map[string]time.Time{}
+	}
+	if last, ok := s.sudoCek[id]; ok && now.Sub(last) < sudoCekInterval {
+		return false
+	}
+	s.sudoCek[id] = now
+	// Peta ini seumur proses, sedangkan sesi datang dan pergi. Entri sesi yang
+	// sudah lewat dua jendela (sesi di-logout, cookie dibuang) disapu saat
+	// petanya membesar — tanpa itu satu-satunya jejak sesi lama adalah memori
+	// yang tidak pernah kembali.
+	if len(s.sudoCek) > 512 {
+		for id, t := range s.sudoCek {
+			if now.Sub(t) > 2*sudoCekInterval {
+				delete(s.sudoCek, id)
+			}
+		}
+	}
+	return true
 }
 
 // requireSudo dipakai handler yang aksinya butuh privilege, supaya UI dapat

@@ -40,6 +40,13 @@ func authenticate(username, password string) error {
 	return t.AcctMgmt(0)
 }
 
+// autentikasi adalah SEAM untuk test, bukan titik konfigurasi: verifikasi
+// kredensial lewat PAM hanya bisa dijalankan sebagai root dengan akun nyata di
+// mesin, jadi tanpa seam ini jalur login (termasuk aturan umur token yang
+// ditentukan web app) tidak bisa diuji sama sekali. Nilainya selalu
+// authenticate di produksi.
+var autentikasi = authenticate
+
 // isServiceAccount menolak akun sistem yang shell-nya nologin/false.
 func isServiceAccount(shell string) bool {
 	switch {
@@ -65,7 +72,11 @@ func (s *Server) handleLogin(conn net.Conn, req helperproto.Request) {
 		fail(conn, errInvalid("username dan password wajib diisi"))
 		return
 	}
-	u, err := lookupUser(args.Username)
+	// Identitas dibaca lewat seam yang sama dengan pemeriksaan sudo ulang
+	// (lihat identitasSekarang di token.go): di produksi keduanya membaca
+	// keadaan akun yang sama, dan di test keduanya bisa dipasang tanpa akun
+	// nyata di mesin.
+	u, err := identitasSekarang(args.Username)
 	if err != nil {
 		// Pesan sengaja sama dengan password salah supaya tidak membocorkan
 		// user mana yang ada di sistem.
@@ -76,14 +87,16 @@ func (s *Server) handleLogin(conn net.Conn, req helperproto.Request) {
 		fail(conn, errDenied("akun service tidak boleh login"))
 		return
 	}
-	if err := authenticate(args.Username, args.Password); err != nil {
+	if err := autentikasi(args.Username, args.Password); err != nil {
 		fail(conn, errDenied("username atau password salah"))
 		return
 	}
 	// Autentikasi berhasil → terbitkan token capability. Ini satu-satunya
 	// tempat token dibuat, dan satu-satunya bukti identitas yang dipakai
 	// helper pada permintaan-permintaan berikutnya.
-	token, _ := s.terbitkanToken(u, sesiTTL)
+	// Umur token ditentukan setelan operator yang dikirim web app
+	// (DASHBOARD_SESSION_TTL_HOURS), bukan angka tetap di helper.
+	token, _ := s.terbitkanTokenLogin(u, args)
 	if token == "" {
 		// crypto/rand gagal: ini kegagalan infrastruktur, bukan kredensial
 		// salah. Kode `internal` membuat web app melaporkannya sebagai
@@ -110,7 +123,7 @@ func (s *Server) changePassword(u *userInfo, args helperproto.PasswdArgs) error 
 		if args.OldPassword == "" {
 			return errInvalid("password lama wajib diisi")
 		}
-		if err := authenticate(u.Name, args.OldPassword); err != nil {
+		if err := autentikasi(u.Name, args.OldPassword); err != nil {
 			return errDenied("password lama salah")
 		}
 		return chauthtok(u.Name, args.NewPassword)

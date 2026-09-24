@@ -66,4 +66,11 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/helper/sudo_segar_test.go
 !internal/helperclient/token_test.go
 !internal/api/sesi_token_test.go
+# Umur token helper mengikuti setelan DASHBOARD_SESSION_TTL_HOURS, dan status
+# sudo di baris sesi web app disegarkan dari helper (auth.sudo). Regresi di
+# sini berarti sesi yang masih hidup dipaksa logout tanpa sebab, atau endpoint
+# ber-sudo tetap terbuka untuk pemilik hak yang sudah dicabut.
+!internal/helper/ttl_token_test.go
+!internal/helper/auth_sudo_test.go
+!internal/api/sudo_segar_api_test.go
 web/dist.bak/

@@ -26,6 +26,16 @@ const (
 	// web app saat logout, saat sesi dicabut, dan saat password diganti, supaya
 	// token sesi lama tidak hidup lebih lama dari sesi panelnya.
 	CmdAuthLogout = "auth.logout"
+	// CmdAuthSudo melaporkan status sudo TERKINI pemilik token: helper
+	// memeriksa keanggotaan grup akun itu saat permintaan diterima, bukan
+	// menyalin nilai yang tersimpan sejak login.
+	//
+	// Web app menyimpan status sudo di baris sesinya saat login, dan
+	// keanggotaan grup sudo bisa dicabut di luar panel (`deluser x sudo`).
+	// Tanpa command ini, salinan itu tetap dipakai sampai sesinya berakhir:
+	// endpoint yang butuh sudo masih terbuka di sisi API, dan user melihat
+	// kegagalan dari tempat yang jauh dari sebabnya.
+	CmdAuthSudo = "auth.sudo"
 
 	CmdSysHostnameSet = "sys.hostname_set"
 	CmdSysDNSSet      = "sys.dns_set"
@@ -226,6 +236,16 @@ type Response struct {
 type LoginArgs struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// TTLHours adalah umur sesi panel yang diminta web app, dalam jam
+	// (config.SessionTTLHours, env DASHBOARD_SESSION_TTL_HOURS). Token yang
+	// diterbitkan helper harus hidup selama sesinya — token yang mati lebih
+	// dulu membuat setiap permintaan berikutnya dijawab 401 dan user dipaksa
+	// login ulang tanpa sebab yang terlihat.
+	//
+	// Nilai <= 0 berarti pemanggil tidak menentukan apa pun: helper memakai
+	// umur bawaannya. Nilai yang keterlaluan dijepit helper (lihat ttlToken),
+	// jadi klien tidak bisa meminta token abadi.
+	TTLHours int `json:"ttl_hours,omitempty"`
 }
 
 type LoginResult struct {
@@ -239,6 +259,17 @@ type LoginResult struct {
 	// permintaan berikutnya. Web app menyimpannya bersama sesinya; ia tidak
 	// pernah dikirim ke browser.
 	Token string `json:"token"`
+}
+
+// SudoResult adalah jawaban CmdAuthSudo: apakah pemilik token MASIH anggota
+// grup sudo menurut keadaan akun saat itu juga.
+//
+// Hanya satu bit, dan itu disengaja: pertanyaan yang dijawab di sini adalah
+// "hak ini masih ada?", bukan "siapa Anda?" — identitasnya sudah ditentukan
+// token, dan mengirim ulang identitas hanya memberi alasan bagi pemanggil
+// untuk memakainya sebagai dasar otorisasi lagi.
+type SudoResult struct {
+	Sudo bool `json:"sudo"`
 }
 
 type PasswdArgs struct {

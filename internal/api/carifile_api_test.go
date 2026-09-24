@@ -102,8 +102,8 @@ func TestCariFileKueriKosongTidakSampaiHelper(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("kueri %q = %d, harap 400", q, w.Code)
 		}
-		if tiruan.cmd != "" {
-			t.Fatalf("helper tidak boleh dipanggil untuk kueri kosong, justru %q", tiruan.cmd)
+		if len(tiruan.riwayatOperasi()) != 0 {
+			t.Fatalf("helper tidak boleh dipanggil untuk kueri kosong, justru %q", tiruan.riwayatOperasi())
 		}
 	}
 }

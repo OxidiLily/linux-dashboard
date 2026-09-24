@@ -432,20 +432,48 @@ func (p *penjaga) induk(rel string) (*os.File, string, error) {
 	return dir, filepath.Base(rel), nil
 }
 
-// bisaDibaca memakai faccessat relatif terhadap fd home — semantiknya sama
-// dengan access(2) yang dipakai jalur berbasis nama (termasuk mengikuti
-// symlink dan menghitung ACL/grup), hanya saja resolusinya tidak lagi lewat
-// nama absolut.
+// probeBaca memeriksa apakah rel benar-benar bisa dibuka oleh user ini.
+//
+// Bukan faccessat(2): faccessat MENGGIKUTI symlink dan tidak punya penjagaan
+// BENEATH, jadi symlink yang menunjuk keluar home dilaporkan "bisa dibaca" —
+// status berkas di luar home direkam, dan jawabannya menempel pada inode yang
+// bisa berbeda dari inode yang nanti dibuka pemakai jawaban itu (probe dan
+// pemakaian tidak diikat satu resolusi). openat2 dengan BENEATH memakai
+// resolusi yang PERSIS sama dengan operasi berkas sebenarnya, jadi yang keluar
+// home ditolak (EXDEV) alih-alih dilaporkan terbaca.
+//
+// O_NONBLOCK wajib. Probe ini dijalankan untuk SETIAP entri listing, dan
+// membuka FIFO tanpa O_NONBLOCK menunggu penulis: satu FIFO di dalam home
+// akan menggantung seluruh listing — dan worker yang menggantung memblokir
+// request user selamanya. O_NONBLOCK tidak mengubah hasil untuk berkas biasa,
+// direktori, maupun FIFO.
+//
+// Fd-nya langsung ditutup: probe hanya membuka lalu menutup, tidak membaca
+// isi berkas dan tidak mengubah apa pun.
+func (p *penjaga) probeBaca(rel string, dir bool) error {
+	flags := unix.O_RDONLY | unix.O_NONBLOCK
+	if dir {
+		// O_DIRECTORY menolak target yang bukan direktori, jadi entri yang
+		// lstat-nya bilang direktori tapi resolusinya berakhir di berkas
+		// biasa tidak lolos sebagai "bisa dibaca".
+		flags |= unix.O_DIRECTORY
+	}
+	f, err := p.buka(rel, flags, 0)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// bisaDibaca menjawab pertanyaan listing untuk satu path. Path yang resolusinya
+// keluar home dijawab "tidak bisa dibaca" — sama seperti path yang tidak bisa
+// dibuka karena izin.
 func (p *penjaga) bisaDibaca(path string, dir bool) bool {
 	rel, err := p.rel(path)
 	if err != nil {
 		return false
 	}
-	mode := uint32(akesR)
-	if dir {
-		mode |= akesX
-	}
-	return unix.Faccessat(p.fd, rel, mode, 0) == nil
+	return p.probeBaca(rel, dir) == nil
 }
 
 // errJailDiLuarHome / errJailSymlinkKeluar: bentuknya sengaja identik dengan
@@ -527,7 +555,7 @@ func (r resolusiJail) listDir(path string, saring bool) ([]helperproto.FileEntry
 			// gagalkan seluruh listing.
 			continue
 		}
-		if saring && !r.p.bisaDibaca(full, fe.IsDir) {
+		if saring && !r.tampilEntri(childRel, fe.IsDir, fe.Symlink != "") {
 			continue
 		}
 		out = append(out, fe)
@@ -588,25 +616,97 @@ func (r resolusiJail) stat(path string) (helperproto.FileEntry, error) {
 
 func (r resolusiJail) bisaDibaca(path string, dir bool) bool { return r.p.bisaDibaca(path, dir) }
 
+// tampilEntri memutuskan apakah satu entri listing/pencarian layak ditampilkan
+// untuk user ini (SaringAkses). Aturannya sama dengan sebelumnya, dengan satu
+// pengecualian yang disengaja: target symlink yang menunjuk keluar home TIDAK
+// dinilai sama sekali.
+//
+// Menilai target itu berarti menembus jail hanya untuk membaca status — persis
+// yang ditutup oleh probe BENEATH — dan hasilnya toh tidak dipakai operasi apa
+// pun (operasi terhadap symlink itu tetap ditolak). Entrinya sendiri tetap
+// ditampilkan apa adanya, seperti sebelumnya: user harus bisa melihat — dan
+// menghapus — symlink yang ada di dalam home-nya. Penghapusan memakai unlinkat
+// pada fd direktori induk, jadi tidak pernah mengikuti targetnya.
+func (r resolusiJail) tampilEntri(rel string, dir, symlink bool) bool {
+	err := r.p.probeBaca(rel, dir)
+	if err == nil {
+		return true
+	}
+	return symlink && keluarJail(err)
+}
+
+// chmodProc adalah jalur CADANGAN chmod lewat "/proc/self/fd/N". Dipakai hanya
+// kalau fchmodat2 tidak ada di kernel (lihat chmodFd). Nama itu disediakan
+// kernel dan menunjuk inode yang SUDAH diresolusi openat2 — bukan nama yang
+// bisa ditukar penyerang — tetapi resolusinya masih lewat nama, jadi jalur
+// utamanya tetap descriptor-relative. Variabel (bukan fungsi biasa) supaya
+// test bisa memastikan jalur ini TIDAK terpakai di kernel yang punya fchmodat2.
+var chmodProc = func(fd int, mode os.FileMode) error {
+	return os.Chmod("/proc/self/fd/"+strconv.Itoa(fd), mode)
+}
+
+// fchmodat2TakTersedia menandai errno yang berarti "syscall fchmodat2 tidak
+// bisa dipakai di kernel ini" — bukan kegagalan chmod-nya sendiri.
+//
+// ENOSYS: kernel tanpa fchmodat2 (< 6.5). EOPNOTSUPP: unix.Fchmodat sendiri
+// menerjemahkan ENOSYS menjadi EOPNOTSUPP karena AT_EMPTY_PATH termasuk flag
+// yang dikenalinya. EINVAL: kernel/fitur yang menolak AT_EMPTY_PATH.
+func fchmodat2TakTersedia(err error) bool {
+	return errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EOPNOTSUPP) || errors.Is(err, unix.EINVAL)
+}
+
+// chmodFd mengubah mode inode yang dirujuk rel.
+//
+// Jalur utamanya fchmodat2(2) dengan AT_EMPTY_PATH pada fd O_PATH hasil
+// openat2: kernel bekerja pada inode yang sudah diresolusi (termasuk penolakan
+// symlink yang keluar home dari openat2 BENEATH di atas), jadi tidak ada nama
+// yang tersisa untuk ditukar penyerang antara resolusi dan pemakaian. x/sys
+// v0.47.0 belum mengekspor Fchmodat2, tetapi unix.Fchmodat memanggil syscall
+// fchmodat2 begitu flags != 0, dan AT_EMPTY_PATH tersedia sebagai konstanta.
+//
+// Yang TIDAK dipakai: fchmodat2(fdDirektoriInduk, namaBasis, mode, 0). Tanpa
+// AT_SYMLINK_NOFOLLOW, komponen terakhir DIIKUTI, dan fchmodat2 tidak punya
+// penjagaan setara RESOLVE_BENEATH — symlink yang menunjuk keluar home akan
+// mengubah mode berkas DI LUAR home. Menguji "bukan symlink" lebih dulu juga
+// tidak menolong: nama itu masih bisa ditukar di antara pemeriksaan dan
+// fchmodat2. Hanya fd pada inode yang sudah diresolusi yang menutup celah itu.
+//
+// Mode dikirim sebagai bit izin saja: os.Chmod menafsirkan FileMode(0o4755)
+// sebagai 0755 (bit setuid/setgid/sticky numerik diabaikan), dan jalur sudo
+// (resolusiNama) memang memakai os.Chmod — jadi kedua jalur harus menafsirkan
+// angka yang sama dengan cara yang sama.
+func (p *penjaga) chmodFd(rel, tampilan string, mode uint32) error {
+	f, err := p.buka(rel, unix.O_PATH, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	// chmod pada direktori lewat deskriptor tidak diizinkan: direktori
+	// harus dikelola lewat mkdir/rmdir, bukan chmod.
+	if fi, err := f.Stat(); err == nil && fi.IsDir() {
+		return &os.PathError{Op: "chmod", Path: tampilan, Err: syscall.EISDIR}
+	}
+	fd := int(f.Fd())
+	perm := uint32(os.FileMode(mode).Perm())
+	err2 := unix.Fchmodat(fd, "", perm, unix.AT_EMPTY_PATH)
+	if err2 == nil {
+		return nil
+	}
+	if !fchmodat2TakTersedia(err2) {
+		return &os.PathError{Op: "chmod", Path: tampilan, Err: err2}
+	}
+	if err := chmodProc(fd, os.FileMode(mode)); err != nil {
+		return &os.PathError{Op: "chmod", Path: tampilan, Err: err}
+	}
+	return nil
+}
+
 func (r resolusiJail) chmod(path string, mode os.FileMode) error {
 	rel, err := r.p.rel(path)
 	if err != nil {
 		return err
 	}
-	// fchmod(2) tidak menerima fd O_PATH (EBADF), dan fchmodat(nama) akan
-	// mengikuti symlink TANPA penjagaan BENEATH. Jembatan /proc/self/fd
-	// menunjuk inode yang SUDAH diresolusi openat2 di baris di atas —
-	// termasuk symlink terakhirnya, dengan penjagaan — jadi tidak ada
-	// resolusi nama milik penyerang yang tersisa di jalur ini.
-	f, err := r.p.buka(rel, unix.O_PATH, 0)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if err := os.Chmod("/proc/self/fd/"+strconv.Itoa(int(f.Fd())), mode); err != nil {
-		return &os.PathError{Op: "chmod", Path: path, Err: err}
-	}
-	return nil
+	return r.p.chmodFd(rel, path, uint32(mode))
 }
 
 func (r resolusiJail) mkdirAll(path string, mode os.FileMode) error {
@@ -1018,7 +1118,7 @@ func (r resolusiJail) cari(akar, kueri string, saring bool, maks int) (helperpro
 				rel = kini.rel + "/" + e.Name()
 			}
 			isDir := e.IsDir()
-			if saring && !r.p.bisaDibaca(abs, isDir) {
+			if saring && !r.tampilEntri(childRel, isDir, e.Type()&os.ModeSymlink != 0) {
 				continue
 			}
 			if strings.Contains(strings.ToLower(e.Name()), needle) {

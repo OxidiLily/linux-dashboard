@@ -45,6 +45,30 @@ type helperTiruan struct {
 	periksaToken bool
 	// tokenSah adalah daftar token yang diterima saat periksaToken menyala.
 	tokenSah map[string]bool
+	// sudo adalah jawaban command auth.sudo. nil berarti tiruan ini
+	// berperilaku seperti helper versi lama yang belum mengenal auth.sudo: ia
+	// menjawab gagal, dan web app harus membiarkan status sudo yang tersimpan
+	// apa adanya.
+	sudo *bool
+	// mati meniru helper yang TIDAK BISA DIHUBUNGI: koneksinya diterima lalu
+	// ditutup tanpa jawaban apa pun (setara helper yang sedang restart).
+	mati bool
+}
+
+// riwayatOperasi mengembalikan command yang diterima SELAIN probe status sudo
+// milik middleware autentikasi.
+//
+// Probe itu berjalan sebelum handler mana pun, jadi tanpa disaring ia akan
+// tampak seperti panggilan operasi pada test yang justru memeriksa bahwa satu
+// permintaan HTTP tidak pernah sampai ke helper.
+func (h *helperTiruan) riwayatOperasi() []string {
+	var out []string
+	for _, c := range h.riwayat() {
+		if c != helperproto.CmdAuthSudo {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // catat menyimpan satu command yang diterima.
@@ -136,14 +160,37 @@ func layaniTiruan(conn net.Conn, tiruan *helperTiruan) {
 			tiruan.catat(req.Cmd, req.Username, req.Token, req.Args)
 		}
 	}
+	tiruan.mu.Lock()
+	mati := tiruan.mati
+	tiruan.mu.Unlock()
+	if mati {
+		// Helper tidak bisa dihubungi: koneksi ditutup tanpa jawaban. Klien
+		// harus gagal membaca, bukan menerima jawaban kosong yang bisa
+		// disalahartikan sebagai "status sudo tidak ada".
+		return
+	}
 	resp := helperproto.Response{OK: true}
-	if tolak {
+	switch {
+	case tolak:
 		// Perilaku helper sungguhan: klaim username diabaikan, token yang
 		// tidak dikenal ditolak sebagai sesi tidak sah.
 		resp.OK = false
 		resp.Code = helperproto.ErrSesiTidakValid
 		resp.Error = "sesi tidak valid atau sudah berakhir — login ulang diperlukan"
-	} else if tiruan.balasE != nil {
+	case cmd == helperproto.CmdAuthSudo:
+		tiruan.mu.Lock()
+		jawaban := tiruan.sudo
+		tiruan.mu.Unlock()
+		if jawaban == nil {
+			// Helper versi lama: command ini belum ada. Web app harus
+			// membiarkan status sudo yang tersimpan apa adanya.
+			resp.OK = false
+			resp.Code = helperproto.ErrInvalid
+			resp.Error = "command tidak dikenal: " + helperproto.CmdAuthSudo
+		} else if b, err := json.Marshal(helperproto.SudoResult{Sudo: *jawaban}); err == nil {
+			resp.Data = b
+		}
+	case tiruan.balasE != nil:
 		var he *helperclient.Error
 		if ok := asClientErr(tiruan.balasE, &he); ok {
 			resp.OK = false
@@ -155,7 +202,7 @@ func layaniTiruan(conn net.Conn, tiruan *helperTiruan) {
 			resp.Code = helperproto.ErrInternal
 			resp.Error = tiruan.balasE.Error()
 		}
-	} else if tiruan.balas != nil {
+	case tiruan.balas != nil:
 		if b, err := json.Marshal(tiruan.balas); err == nil {
 			resp.Data = b
 		}

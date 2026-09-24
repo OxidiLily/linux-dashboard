@@ -2,6 +2,7 @@ package helper
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -803,5 +805,367 @@ func TestWorkerJailSymlinkDitukarTidakPernahMenembusHome(t *testing.T) {
 
 	if isi, err := os.ReadFile(filepath.Join(luar, "isi.txt")); err != nil || string(isi) != "LUAR" {
 		t.Fatalf("berkas di luar home berubah: %q %v", isi, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Regression tests for the two remaining descriptor‑relative behaviours that are
+// still unguarded. They are written to *fail* with the current implementation
+// – the fix will make them pass.
+
+// (A) chmod on a directory via the worker should be blocked when the path is
+// resolved relative to the parent‑directory descriptor. The existing worker
+// implementation permits the operation, so this test expects failure.
+func TestWorkerChmodDirViaDescriptorShouldFail(t *testing.T) {
+	home, _ := siapkanHome(t)
+	dir := filepath.Join(home, "sub")
+	// Attempt to chmod the directory inside the jail. The correct behaviour (as
+	// per the regression note) is to reject the operation.
+	res := opWorker(t, home, workerOp{Op: "chmod", Path: dir, Mode: 0o700}, nil)
+	if res.OK {
+		t.Fatalf("chmod on directory via descriptor should be rejected, got OK")
+	}
+	// Verify the mode was not changed.
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat dir failed: %v", err)
+	}
+	if fi.Mode().Perm() == 0o700 {
+		t.Fatalf("directory mode changed unexpectedly")
+	}
+}
+
+// (B) probe "bisa dibaca" pada berkas reguler di dalam jail HARUS berhasil —
+// berkas yang memang bisa dibuka user tetap lolos. Tes ini menggantikan
+// versi sebelumnya yang salah (mengharapkan false untuk berkas biasa di
+// dalam home).
+
+// ---- probe "bisa dibaca" & chmod deskriptor ----
+
+// penjagaUji membuka home sebagai fd jail supaya resolver satuan (probe baca,
+// chmod) bisa diuji langsung — tanpa menjalankan proses worker.
+func penjagaUji(t *testing.T, home string) *penjaga {
+	t.Helper()
+	fd, err := unix.Open(home, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatalf("buka home: %v", err)
+	}
+	t.Cleanup(func() { unix.Close(fd) })
+	return &penjaga{fd: fd, akar: home}
+}
+
+// cobaJalankanWorkerBatas sama dengan cobaJalankanWorker, tetapi worker yang
+// tidak selesai dalam `batas` dibunuh. Probe baca yang menggantung membuat
+// SELURUH listing macet; itu kegagalan yang harus terbaca sebagai kegagalan
+// test, bukan test yang ikut menunggu selamanya.
+func cobaJalankanWorkerBatas(jailHome string, op workerOp, stdin []byte, batas time.Duration) (workerResult, []byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), batas)
+	defer cancel()
+
+	opR, opW, err := os.Pipe()
+	if err != nil {
+		return workerResult{}, nil, err
+	}
+	defer opW.Close()
+	resR, resW, err := os.Pipe()
+	if err != nil {
+		opR.Close()
+		return workerResult{}, nil, err
+	}
+	defer resR.Close()
+
+	files := []*os.File{opR, resW}
+	env := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	var jail *os.File
+	if jailHome != "" {
+		fd, err := unix.Open(jailHome, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+		if err != nil {
+			opR.Close()
+			resW.Close()
+			return workerResult{}, nil, err
+		}
+		jail = os.NewFile(uintptr(fd), jailHome)
+		files = append(files, jail)
+		env = append(env, modeEnv+"="+modeJail, jailHomeEnv+"="+jailHome)
+	} else {
+		env = append(env, modeEnv+"="+modeSudo)
+	}
+
+	cmd := exec.CommandContext(ctx, os.Args[0], WorkerArg)
+	cmd.Env = env
+	cmd.ExtraFiles = files
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
+	if err := cmd.Start(); err != nil {
+		opR.Close()
+		resW.Close()
+		if jail != nil {
+			jail.Close()
+		}
+		return workerResult{}, nil, err
+	}
+	opR.Close()
+	resW.Close()
+	if jail != nil {
+		jail.Close()
+	}
+
+	if err := json.NewEncoder(opW).Encode(op); err != nil {
+		_ = cmd.Wait()
+		return workerResult{}, nil, err
+	}
+	opW.Close()
+
+	var res workerResult
+	decErr := json.NewDecoder(resR).Decode(&res)
+	waitErr := cmd.Wait()
+	if ctx.Err() != nil {
+		return workerResult{}, stderr.Bytes(), ctx.Err()
+	}
+	_ = waitErr
+	return res, stdout.Bytes(), decErr
+}
+
+// Probe "bisa dibaca" jalur jail dulu memakai faccessat(fdHome, rel): syscall
+// itu MENGGIKUTI symlink dan tidak punya penjagaan BENEATH, jadi symlink yang
+// menunjuk keluar home dilaporkan "bisa dibaca" — status berkas di luar home
+// direkam, dan jawabannya menempel pada inode yang beda dari yang nanti
+// dibuka pemanggil. Probe baru memakai resolusi yang sama dengan operasi
+// berkasnya, jadi yang keluar home ditolak, bukan dilaporkan terbaca.
+func TestPenjagaBisaDibacaTolakSymlinkKeluarHome(t *testing.T) {
+	home, luar := siapkanHome(t)
+	p := penjagaUji(t, home)
+
+	// Sasaran di luar home memang bisa dibaca user ini, jadi jawaban lama
+	// "bisa dibaca" bukan karena berkasnya tidak ada / tidak terbaca.
+	for _, k := range []struct {
+		path string
+		dir  bool
+	}{
+		{filepath.Join(luar, "rahasia.txt"), false},
+		{filepath.Join(luar, "sub"), true},
+	} {
+		if !bisaDibaca(k.path, k.dir) {
+			t.Skipf("sasaran di luar home tidak bisa dibaca test ini: %s", k.path)
+		}
+	}
+
+	kasus := []struct {
+		nama string
+		path string
+		dir  bool
+	}{
+		{"symlink berkas ke luar home", filepath.Join(home, "keluar.txt"), false},
+		{"symlink direktori ke luar home", filepath.Join(home, "keluar-dir"), true},
+		{"rantai symlink ke luar home", filepath.Join(home, "bertingkat.txt"), false},
+	}
+	for _, k := range kasus {
+		if p.bisaDibaca(k.path, k.dir) {
+			t.Errorf("%s dilaporkan bisa dibaca, padahal resolusinya keluar home", k.nama)
+		}
+	}
+
+	// Yang benar-benar ada DI DALAM home tetap lolos: perbaikan tidak boleh
+	// menyaring berkas yang memang bisa dibuka user.
+	for _, k := range []struct {
+		nama string
+		path string
+		dir  bool
+	}{
+		{"berkas biasa", filepath.Join(home, "catatan.txt"), false},
+		{"direktori biasa", filepath.Join(home, "sub"), true},
+		{"symlink di dalam home", filepath.Join(home, "dalam.txt"), false},
+		{"symlink relatif ke direktori di dalam home", filepath.Join(home, "sub-alias"), true},
+	} {
+		if !p.bisaDibaca(k.path, k.dir) {
+			t.Errorf("%s harus tetap dilaporkan bisa dibaca", k.nama)
+		}
+	}
+}
+
+// Probe ini dijalankan untuk SETIAP entri listing. Membuka FIFO tanpa
+// O_NONBLOCK menunggu penulis, jadi satu FIFO di dalam home akan menggantung
+// seluruh listing (dan worker-nya). Batas waktu di bawah mengubah kegagalan
+// itu menjadi kegagalan test yang terbaca.
+func TestPenjagaBisaDibacaFIFOTidakMenggantung(t *testing.T) {
+	home, _ := siapkanHome(t)
+	p := penjagaUji(t, home)
+	pipa := filepath.Join(home, "pipa")
+	if err := unix.Mkfifo(pipa, 0o644); err != nil {
+		t.Skipf("mkfifo tidak didukung: %v", err)
+	}
+
+	selesai := make(chan bool, 1)
+	go func() { selesai <- p.bisaDibaca(pipa, false) }()
+	select {
+	case bisa := <-selesai:
+		if !bisa {
+			t.Fatal("FIFO milik user sendiri harus dilaporkan bisa dibaca")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("probe bisa dibaca menggantung pada FIFO — open-nya tidak memakai O_NONBLOCK")
+	}
+}
+
+// Satu FIFO di dalam home tidak boleh menggantung op listing yang menyaring
+// akses: listing berjalan di worker terpisah, dan worker yang macet akan
+// memblokir request user selamanya.
+func TestWorkerJailListingDenganFIFOTidakMenggantung(t *testing.T) {
+	home, _ := siapkanHome(t)
+	pipa := filepath.Join(home, "pipa")
+	if err := unix.Mkfifo(pipa, 0o644); err != nil {
+		t.Skipf("mkfifo tidak didukung: %v", err)
+	}
+
+	res, _, err := cobaJalankanWorkerBatas(home, workerOp{Op: "list", Path: home, SaringAkses: true}, nil, 30*time.Second)
+	if err != nil {
+		t.Fatalf("list dengan FIFO tidak selesai (worker menggantung di probe baca FIFO?): %v", err)
+	}
+	if !res.OK {
+		t.Fatalf("list dengan FIFO harus lolos, dapat %+v", res)
+	}
+	var entries []helperproto.FileEntry
+	if err := json.Unmarshal(res.Data, &entries); err != nil {
+		t.Fatal(err)
+	}
+	var ada bool
+	for _, e := range entries {
+		if e.Name == "pipa" {
+			ada = true
+		}
+	}
+	if !ada {
+		t.Fatalf("FIFO milik user sendiri harus tetap tampil di daftar, dapat %+v", entries)
+	}
+}
+
+// Entri yang tidak bisa dibaca user tetap disaring dari listing dan pencarian;
+// entri yang bisa dibaca tetap muncul. Ini perilaku yang harus utuh setelah
+// probe diganti.
+func TestWorkerJailSaringEntriTidakTerbaca(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root melewati pemeriksaan izin")
+	}
+	home, _ := siapkanHome(t)
+	bisa := filepath.Join(home, "bisa.txt")
+	tutup := filepath.Join(home, "tertutup.txt")
+	if err := os.WriteFile(bisa, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tutup, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tutup, 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	namaDari := func(op workerOp) map[string]bool {
+		t.Helper()
+		res, _ := jalankanWorker(t, home, op, nil)
+		if !res.OK {
+			t.Fatalf("op %s harus lolos, dapat %+v", op.Op, res)
+		}
+		out := map[string]bool{}
+		if op.Op == "list" {
+			var entries []helperproto.FileEntry
+			if err := json.Unmarshal(res.Data, &entries); err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range entries {
+				out[e.Name] = true
+			}
+			return out
+		}
+		var h helperproto.SearchHasil
+		if err := json.Unmarshal(res.Data, &h); err != nil {
+			t.Fatal(err)
+		}
+		for _, hit := range h.Hits {
+			out[hit.Name] = true
+		}
+		return out
+	}
+
+	disaring := namaDari(workerOp{Op: "list", Path: home, SaringAkses: true})
+	if !disaring["bisa.txt"] {
+		t.Fatal("berkas yang bisa dibaca tersaring dari daftar")
+	}
+	if disaring["tertutup.txt"] {
+		t.Fatal("berkas tanpa izin baca tidak tersaring dari daftar")
+	}
+	// Tanpa penyaringan, entri yang tidak terbaca tetap terlihat — itu yang
+	// membedakan "disaring" dari "hilang".
+	penuh := namaDari(workerOp{Op: "list", Path: home})
+	if !penuh["tertutup.txt"] {
+		t.Fatal("tanpa SaringAkses entri harus tetap tampil")
+	}
+
+	cariSaring := namaDari(workerOp{Op: "search", Path: home, Query: "txt", SaringAkses: true})
+	if !cariSaring["bisa.txt"] {
+		t.Fatal("berkas yang bisa dibaca tersaring dari hasil pencarian")
+	}
+	if cariSaring["tertutup.txt"] {
+		t.Fatal("berkas tanpa izin baca tersaring dari hasil pencarian seharusnya tersaring")
+	}
+}
+
+// chmod jalur jail harus mengubah mode lewat DESKRIPTOR — fchmodat2(2) dengan
+// AT_EMPTY_PATH pada fd O_PATH hasil openat2 — bukan lewat resolusi nama
+// "/proc/self/fd/N". Varian "fd direktori induk + nama basis" dengan flags=0
+// justru MENGIKUTI symlink tanpa penjagaan BENEATH, jadi symlink yang menunjuk
+// keluar home akan mengubah mode berkas di luar home.
+func TestPenjagaChmodLewatDescriptorBukanProcSelfFd(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root mengubah mode apa pun")
+	}
+	home, luar := siapkanHome(t)
+	p := penjagaUji(t, home)
+	berkas := filepath.Join(home, "mode.txt")
+	if err := os.WriteFile(berkas, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dipakaiProc := false
+	lama := chmodProc
+	chmodProc = func(fd int, mode os.FileMode) error {
+		dipakaiProc = true
+		return lama(fd, mode)
+	}
+	t.Cleanup(func() { chmodProc = lama })
+
+	rel, err := p.rel(berkas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.chmodFd(rel, berkas, 0o600); err != nil {
+		t.Fatalf("chmod di dalam home harus lolos: %v", err)
+	}
+	if dipakaiProc {
+		t.Error("chmod jalur jail masih lewat /proc/self/fd, bukan fchmodat2 pada fd")
+	}
+	fi, err := os.Stat(berkas)
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode berkas tidak berubah: %v %v", fi.Mode(), err)
+	}
+
+	// Symlink yang menunjuk keluar home tetap ditolak, dan berkas di luar
+	// home tidak boleh berubah mode-nya.
+	luarBerkas := filepath.Join(luar, "rahasia.txt")
+	if err := os.Chmod(luarBerkas, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	krel, err := p.rel(filepath.Join(home, "keluar.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.chmodFd(krel, filepath.Join(home, "keluar.txt"), 0o600); err == nil {
+		t.Fatal("chmod lewat symlink keluar home harus ditolak")
+	}
+	if fi, err := os.Stat(luarBerkas); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Fatalf("mode berkas di luar home berubah: %v %v", fi.Mode(), err)
 	}
 }

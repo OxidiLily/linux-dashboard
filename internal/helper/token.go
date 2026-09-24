@@ -3,6 +3,7 @@ package helper
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
@@ -21,15 +22,66 @@ import (
 // login PAM yang benar, dan bisa dicabut (logout, ganti password, user diubah
 // atau dihapus).
 const (
-	// sesiTTL menyamakan umur token dengan masa hidup sesi panel
-	// (config.Config.SessionTTLHours, bawaan 12 jam). Token yang hidup lebih
-	// lama dari sesinya hanya menambah jendela serangan tanpa menambah guna.
+	// sesiTTL adalah umur token BAWAAN, dipakai kalau web app tidak
+	// menentukan sendiri (LoginArgs.TTLHours <= 0). Angkanya menyamakan umur
+	// token dengan masa hidup sesi panel bawaan
+	// (config.Config.SessionTTLHours, 12 jam): token yang hidup lebih lama
+	// dari sesinya hanya menambah jendela serangan tanpa menambah guna.
 	sesiTTL = 12 * time.Hour
+	// Batas umur token yang boleh diminta web app.
+	//
+	// Minimal satu menit: token yang lebih pendek dari itu sudah mati sebelum
+	// satu perjalanan pulang-pergi panel selesai, sehingga user ditolak
+	// sebelum sempat memakainya. Batas ini belum bisa dicapai lewat setelan
+	// yang ada (jamnya bilangan bulat), tapi penjepitnya tetap dipasang supaya
+	// setelan sub-jam di kemudian hari tidak menghasilkan token yang mati saat
+	// dibuat.
+	//
+	// Maksimal 30 hari: token capability adalah kunci kedua di samping cookie
+	// sesi, dan operator yang menaikkan TTL sesi sampai hitungan bulan harus
+	// tetap menghadapi batas atas yang jelas. Nilai yang keterlaluan dijepit,
+	// bukan ditolak — menolak login akan mengunci operator dari panelnya
+	// sendiri karena satu salah tulis di /etc/default/linux-dashboard.
+	sesiTTLMin  = time.Minute
+	sesiTTLMaks = 720 * time.Hour
 	// maxTokenSesi membatasi jumlah token yang disimpan. Setiap login dan
 	// setiap verifikasi password ulang menerbitkan token baru; tanpa batas,
 	// map-nya tumbuh selamanya oleh permintaan yang tidak butuh autentikasi.
 	maxTokenSesi = 4096
 )
+
+// jepitTTL menahan umur token di dalam batas yang jelas.
+func jepitTTL(ttl time.Duration) time.Duration {
+	if ttl < sesiTTLMin {
+		return sesiTTLMin
+	}
+	if ttl > sesiTTLMaks {
+		return sesiTTLMaks
+	}
+	return ttl
+}
+
+// ttlToken menerjemahkan umur sesi panel (jam) menjadi umur token helper.
+//
+// Sebelumnya umur token dipaku 12 jam di sini, sementara sesi panel mengikuti
+// config.SessionTTLHours. Operator yang menaikkan TTL sesi di atas 12 jam
+// mendapat sesi panel yang masih hidup tetapi token helper yang sudah mati:
+// setiap permintaan dijawab 401 dan user dipaksa login ulang tanpa sebab yang
+// terlihat.
+//
+// Nilai <= 0 berarti pemanggil tidak menentukan apa pun → pakai bawaan. Nilai
+// yang sangat besar dijepit SEBELUM dikalikan, supaya jam yang tak masuk akal
+// tidak meluap (overflow) menjadi durasi negatif — token yang mati saat dibuat
+// justru kegagalan yang paling membingungkan.
+func ttlToken(jam int) time.Duration {
+	if jam <= 0 {
+		return sesiTTL
+	}
+	if jam > int(sesiTTLMaks/time.Hour) {
+		return jepitTTL(sesiTTLMaks)
+	}
+	return jepitTTL(time.Duration(jam) * time.Hour)
+}
 
 // sesiToken adalah isi satu token: identitas yang sudah diverifikasi saat
 // login, plus kapan tokennya berhenti berlaku.
@@ -87,6 +139,13 @@ func (s *Server) terbitkanToken(u *userInfo, ttl time.Duration) (string, time.Ti
 	return token, expires
 }
 
+// terbitkanTokenLogin adalah jalur penerbitan token setelah kredensial
+// diverifikasi: umur token ditentukan setelan operator yang dikirim web app
+// (LoginArgs.TTLHours), bukan angka tetap di sisi helper.
+func (s *Server) terbitkanTokenLogin(u *userInfo, args helperproto.LoginArgs) (string, time.Time) {
+	return s.terbitkanToken(u, ttlToken(args.TTLHours))
+}
+
 // tokenUser mengembalikan identitas pemilik token. Token kosong, tidak dikenal,
 // sudah dicabut, atau sudah kedaluwarsa → false. Pemanggil WAJIB menolak
 // permintaan saat hasilnya false.
@@ -136,6 +195,30 @@ func sudoMasihAda(u *userInfo) bool {
 		return false
 	}
 	return segar.Sudo
+}
+
+// sudoTerkini melaporkan status sudo pemilik token menurut keadaan akun SAAT
+// INI — pemeriksaan yang sama dengan sudoMasihAda, tapi untuk DIBACA, bukan
+// untuk menolak perintah. Dipakai web app (CmdAuthSudo) supaya kolom sudo di
+// baris sesinya tidak basi setelah keanggotaan grup dicabut di luar panel.
+//
+// Keadaan akun yang tidak terbaca dijawab sebagai KEGAGALAN, bukan "tidak
+// sudo". Pemanggilnya menyimpan jawaban ini ke baris sesi, jadi satu kegagalan
+// baca yang sesaat tidak boleh mencabut hak semua admin; jalur eksekusi tetap
+// dijaga fail-closed oleh sudoMasihAda, sehingga "tidak bisa memastikan" di
+// sana memang berarti tidak berhak.
+func (s *Server) sudoTerkini(u *userInfo) (helperproto.SudoResult, error) {
+	if u == nil {
+		return helperproto.SudoResult{}, errSesiTidakValid()
+	}
+	segar, err := identitasSekarang(u.Name)
+	if err != nil {
+		return helperproto.SudoResult{}, &helperErr{
+			code: helperproto.ErrInternal,
+			msg:  fmt.Sprintf("keadaan akun %q tidak terbaca: %v", u.Name, err),
+		}
+	}
+	return helperproto.SudoResult{Sudo: segar.Sudo}, nil
 }
 
 // cabutToken mencabut satu token (auth.logout). Token yang tidak ada diabaikan

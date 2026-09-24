@@ -15,6 +15,7 @@ const simpanan = new Map<string, string>()
 } as Storage
 
 import { ApiError } from "@/lib/api"
+import { notify } from "@/components/ui/toast"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { createElement } from "react"
@@ -223,6 +224,24 @@ cek(String(modalKosong.includes('type="text"')), "true", "prompt/tipe-teks")
 // Isian masih kosong → tombol buat harus mati, bukan bisa diklik.
 cek(String(modalKosong.includes('disabled=""')), "true", "prompt/tombol-mati")
 
+// Toast mencatat ke /api/logs/notifications lewat fetch, dan pencatatannya
+// memakai window.location.pathname. Keduanya disediakan di sini supaya yang
+// diuji adalah ISI yang benar-benar dikirim, bukan teks sumber.
+const tercatat: { tone?: string; message?: string; detail?: string; page?: string }[] = []
+;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: unknown, init?: { body?: string }) => {
+  if (String(url).endsWith("/api/logs/notifications")) {
+    try {
+      tercatat.push(JSON.parse(String(init?.body ?? "{}")))
+    } catch {
+      tercatat.push({})
+    }
+  }
+  return Promise.resolve({ ok: true } as Response)
+}) as typeof fetch
+;(globalThis as unknown as { window: { location: { pathname: string } } }).window = {
+  location: { pathname: "/files" },
+}
+
 // Password tidak boleh terbaca di layar seperti pada window.prompt.
 const modalSandi = render({ title: "Reset password uji", label: "Password baru", password: true })
 cek(String(modalSandi.includes('type="password"')), "true", "prompt/tipe-password")
@@ -260,9 +279,17 @@ const bacaSumber = (jalur: string): string => {
   }
 }
 
-const sumberToast = bacaSumber("src/components/ui/toast.tsx")
-cek(String(sumberToast.includes("detailGagal?: (e: unknown) => string | undefined")), "true", "log/detail-gagal-api")
-cek(String(sumberToast.includes('rekam("err", teks, rinci)')), "true", "log/detail-gagal-direkam")
+// Toast "rincian" diuji lewat PERILAKU: apa yang benar-benar dikirim ke
+// /api/logs/notifications. Pemeriksaan teks sumber hanya membuktikan ada baris
+// tertentu di berkas — ia gagal hanya karena formatnya ditulis ulang, dan tidak
+// membuktikan apa pun tentang yang dicatat saat operasi benar-benar gagal.
+notify.err("Hapus gagal", "rincian-gagal")
+cek(tercatat.at(-1)?.tone ?? "__kosong__", "err", "log/detail-gagal-tone")
+cek(tercatat.at(-1)?.detail ?? "__kosong__", "rincian-gagal", "log/detail-gagal-direkam")
+cek(tercatat.at(-1)?.page ?? "__kosong__", "/files", "log/detail-halaman")
+notify.ok("Hapus berhasil", "rincian-sukses")
+cek(tercatat.at(-1)?.tone ?? "__kosong__", "ok", "log/detail-sukses-tone")
+cek(tercatat.at(-1)?.detail ?? "__kosong__", "rincian-sukses", "log/detail-sukses-direkam")
 
 const pemeriksaLapisan: [string, [string, string, string][]][] = [
   ["src/components/ui/confirm.tsx", []],
@@ -338,8 +365,40 @@ for (const jalur of semuaSumber) {
 }
 cek(String(jumlahLapisan), "25", "escape/jumlah-lapisan")
 
-if (gagal.length) {
-  console.error("[✗] " + gagal.join("\n[✗] "))
-  process.exit(1)
-}
-console.log(`[✓] runtime: ${jumlah} pemeriksaan lolos`)
+// notify.tugas mencatat detail di dalam callback success/error, yang baru
+// berjalan setelah promise pekerjaannya settle. Jadi jalur gagal (detailGagal)
+// diperiksa di microtask berikutnya, dan laporan akhirnya menyusul di sana.
+notify
+  .tugas(Promise.reject(new Error("boom")), {
+    jalan: "Menghapus",
+    gagal: () => "Hapus gagal",
+    detail: () => "tidak-dipakai-saat-gagal",
+    detailGagal: (e) => "detail:" + String((e as Error).message),
+  })
+  .catch(() => undefined)
+notify
+  .tugas(Promise.resolve("selesai"), {
+    jalan: "Menghapus",
+    sukses: () => "Hapus berhasil",
+    gagal: () => "Hapus gagal",
+    detail: (hasil) => "tugas-ok:" + String(hasil),
+  })
+  .catch(() => undefined)
+
+// Dua microtask: satu untuk settle-nya promise pekerjaan, satu untuk callback
+// sonner.promise yang memanggil rekam().
+void Promise.resolve()
+  .then(() => Promise.resolve())
+  .then(() => {
+    const tugasGagal = tercatat.find((t) => t.detail === "detail:boom")
+    const tugasSukses = tercatat.find((t) => t.detail === "tugas-ok:selesai")
+    cek(tugasGagal?.tone ?? "__kosong__", "err", "log/tugas-gagal-tone")
+    cek(tugasGagal?.detail ?? "__kosong__", "detail:boom", "log/tugas-gagal-detailGagal")
+    cek(tugasSukses?.tone ?? "__kosong__", "ok", "log/tugas-sukses-tone")
+
+    if (gagal.length) {
+      console.error("[✗] " + gagal.join("\n[✗] "))
+      process.exit(1)
+    }
+    console.log(`[✓] runtime: ${jumlah} pemeriksaan lolos`)
+  })

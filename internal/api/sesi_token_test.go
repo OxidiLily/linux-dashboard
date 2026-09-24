@@ -225,3 +225,37 @@ func TestGantiPasswordMembawaTokenSesi(t *testing.T) {
 		t.Fatalf("token ke helper = %q, harap token sesi", tiruan.token)
 	}
 }
+
+// Umur token helper harus mengikuti setelan umur sesi panel
+// (DASHBOARD_SESSION_TTL_HOURS), bukan angka tetap di helper: token yang mati
+// lebih dulu daripada sesinya membuat setiap permintaan berikutnya dijawab 401
+// dan user dipaksa login ulang tanpa sebab yang terlihat.
+//
+// Diuji lewat parameter (36 jam, bukan 12), supaya lolosnya tidak mungkin
+// berasal dari kebetulan nilainya sama dengan bawaan.
+func TestLoginMengirimTTLSesiKeHelper(t *testing.T) {
+	tiruan := &helperTiruan{balas: helperproto.LoginResult{
+		UID: 1000, GID: 1000, Home: "/home/ani", Shell: "/bin/bash", Sudo: true,
+		Token: "tok-ani",
+	}}
+	r, _ := buatServerTTL(t, tiruan, 36)
+
+	w := httptest.NewRecorder()
+	body := strings.NewReader(`{"username":"ani","password":"rahasia"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", body)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login = %d, harap 200 (body: %s)", w.Code, w.Body.String())
+	}
+	if tiruan.cmd != helperproto.CmdAuthLogin {
+		t.Fatalf("command helper = %q, harap %q", tiruan.cmd, helperproto.CmdAuthLogin)
+	}
+	var args helperproto.LoginArgs
+	if err := json.Unmarshal(tiruan.args, &args); err != nil {
+		t.Fatalf("args login tidak terbaca: %v (%s)", err, tiruan.args)
+	}
+	if args.TTLHours != 36 {
+		t.Fatalf("ttl_hours ke helper = %d, harap 36 (nilai SessionTTLHours)", args.TTLHours)
+	}
+}

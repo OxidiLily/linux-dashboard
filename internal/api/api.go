@@ -33,6 +33,14 @@ type Server struct {
 	static    http.Handler
 	usage     *usageCache
 
+	// sudoMu/sudoCek mencatat kapan status sudo tiap sesi terakhir diperiksa
+	// ke helper (id sesi → waktu pemeriksaan). Sengaja di memori saja: ini
+	// hanya penghemat perjalanan ke helper, bukan data yang perlu bertahan
+	// setelah restart — nilai yang disimpan ke DB adalah status sudonya
+	// sendiri (store.SetSessionSudo).
+	sudoMu  sync.Mutex
+	sudoCek map[string]time.Time
+
 	// wsIntervals melacak interval yang diminta tiap koneksi WebSocket aktif,
 	// dipakai untuk menentukan tick tercepat yang harus dijalankan collector.
 	wsMu        sync.Mutex
@@ -51,6 +59,7 @@ func New(cfg config.Config, st *store.Store, hc *helperclient.Client, col *metri
 		usage:       newUsageCache(),
 		static:      static,
 		wsIntervals: map[int64]time.Duration{},
+		sudoCek:     map[string]time.Time{},
 	}
 	go s.gcThrottle()
 	return s

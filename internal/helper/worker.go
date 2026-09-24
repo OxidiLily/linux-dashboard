@@ -235,7 +235,7 @@ func jalankanOp(r resolusiPath, op workerOp, res *os.File) (json.RawMessage, err
 		// berkas kosong yang terlihat sah. Jadi izinnya diperiksa di sini,
 		// selagi error masih bisa dilaporkan.
 		if op.SaringAkses && !r.bisaDibaca(op.Path, e.IsDir) {
-			return nil, &os.PathError{Op: "open", Path: op.Path, Err: syscall.EACCES}
+			return nil, &os.PathError{Op: "open", Path: op.Path, Err: syscall.EBADF}
 		}
 		return json.Marshal(e)
 	case "mkdir":
