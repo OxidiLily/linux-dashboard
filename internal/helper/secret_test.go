@@ -2,8 +2,11 @@ package helper
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -135,5 +138,33 @@ func TestBuatSecretTidakMenimpaBerkasYangAda(t *testing.T) {
 	}
 	if string(got) != lama {
 		t.Fatal("secret yang sudah ada ditimpa")
+	}
+}
+
+func TestSecretYangSudahAdaTetapDapatDibacaGrupWeb(t *testing.T) {
+	grup, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gid, err := strconv.Atoi(grup.Gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.key")
+	tulisSecret(t, path, strings.Repeat("a", 48), 0o600)
+
+	if err := pastikanIzinSecret(path, gid); err != nil {
+		t.Fatalf("pastikan izin: %v", err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %04o, ingin 0640", st.Mode().Perm())
+	}
+	if stat, ok := st.Sys().(*syscall.Stat_t); !ok || int(stat.Gid) != gid {
+		t.Fatalf("gid secret tidak menjadi %d", gid)
 	}
 }
