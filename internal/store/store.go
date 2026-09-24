@@ -212,6 +212,18 @@ func (s *Store) DeleteSession(id string) error {
 	return err
 }
 
+// SetSessionSudo menyimpan ulang status sudo satu sesi setelah diperiksa ulang
+// ke helper (lihat api.Server.segarkanSudo): keanggotaan grup sudo bisa dicabut
+// di luar panel, dan nilai yang disalin saat login tidak pernah ikut berubah.
+//
+// Baris yang sudah tidak ada (sesi di-logout bersamaan) sengaja tidak
+// dilaporkan sebagai kesalahan: yang benar dalam keadaan itu adalah
+// membiarkannya hilang, bukan menggagalkan permintaan yang sedang berjalan.
+func (s *Store) SetSessionSudo(id string, sudo bool) error {
+	_, err := s.db.Exec(`UPDATE sessions SET sudo = ? WHERE id = ?`, boolInt(sudo), id)
+	return err
+}
+
 // DeleteSessionsByUsername mencabut SELURUH sesi milik satu user. Dipanggil
 // saat password direset, akun dihapus, atau keanggotaan grupnya berubah: cookie
 // yang sudah terlanjur dicuri tidak boleh tetap berlaku setelah kredensial atau

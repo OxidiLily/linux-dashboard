@@ -379,6 +379,15 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		s.cabutToken(req.Token)
 		return nil, nil
 
+	case helperproto.CmdAuthSudo:
+		// Sekadar membaca keadaan, bukan aksi privileged: keputusan "boleh
+		// atau tidak" tetap dibuat pemanggilnya (requireSudo di web app) dan
+		// ditegakkan ulang di sini pada setiap perintah ber-sudo. Karena itu
+		// command ini TIDAK ada di sudoRequired — user tanpa sudo tetap boleh
+		// mendapat jawaban "tidak", alih-alih penolakan yang tak bisa
+		// dibedakan dari sesi rusak.
+		return jsonOf(s.sudoTerkini(u))
+
 	case helperproto.CmdAuthPasswd:
 		args, err := decodeArgs[helperproto.PasswdArgs](req)
 		if err != nil {
