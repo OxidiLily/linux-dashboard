@@ -68,20 +68,23 @@ func NewServer(socketPath, secretPath, legacySecretPath, socketGroup string) (*S
 	if err != nil {
 		return nil, err
 	}
-	// Direktori secret: milik root, grup web app hanya boleh menelusuri dan
-	// membacanya (r-x, tanpa w). systemd membuat StateDirectory sebagai
-	// root:root 0750, jadi tanpa penyesuaian ini web app tidak bisa membuka
-	// berkas secret di dalamnya; sebaliknya, kalau grupnya diberi hak tulis,
-	// user service web bisa mengganti nama/mengganti isi secret itu — persis
-	// jalur yang membuatnya bisa mengaku sebagai root ke helper.
-	if gid, err := lookupGroupID(socketGroup); err == nil {
-		dir := filepath.Dir(secretPath)
-		if err := os.Chmod(dir, 0o750); err != nil {
-			log.Printf("peringatan: chmod direktori secret %s gagal: %v", dir, err)
-		}
-		if err := os.Chown(dir, 0, gid); err != nil {
-			log.Printf("peringatan: chown direktori secret %s ke grup %s gagal: %v", dir, socketGroup, err)
-		}
+	// Direktori dan berkas secret: milik root; grup web hanya boleh menelusuri
+	// direktori serta membaca berkas. Izin berkas WAJIB dipulihkan setiap start:
+	// systemd membuat ulang state dir sebagai root:root dan upgrade lama dapat
+	// meninggalkan secret 0600/root:root, yang membuat web gagal start.
+	gid, err := lookupGroupID(socketGroup)
+	if err != nil {
+		return nil, fmt.Errorf("grup socket %s: %w", socketGroup, err)
+	}
+	dir := filepath.Dir(secretPath)
+	if err := os.Chmod(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("chmod direktori secret %s: %w", dir, err)
+	}
+	if err := os.Chown(dir, 0, gid); err != nil {
+		return nil, fmt.Errorf("chown direktori secret %s: %w", dir, err)
+	}
+	if err := pastikanIzinSecret(secretPath, gid); err != nil {
+		return nil, fmt.Errorf("izin secret %s: %w", secretPath, err)
 	}
 	socketDir := filepath.Dir(socketPath)
 	if err := os.MkdirAll(socketDir, 0o750); err != nil {

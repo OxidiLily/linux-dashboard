@@ -76,6 +76,20 @@ func fileUID(st os.FileInfo) (int, bool) {
 	return int(sys.Uid), true
 }
 
+// pastikanIzinSecret mempertahankan pemilik secret, memberi grup web akses
+// baca, dan tidak mengikuti symlink saat memperbaiki izin berkas yang sudah ada.
+func pastikanIzinSecret(path string, gid int) error {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Chown(-1, gid); err != nil {
+		return err
+	}
+	return f.Chmod(0o640)
+}
+
 // secretLegacyAda melaporkan apakah secret versi lama (di dalam state dir web)
 // masih ada. Dipakai hanya untuk memberi pesan yang bisa ditindaklanjuti.
 func secretLegacyAda(path string) bool {
