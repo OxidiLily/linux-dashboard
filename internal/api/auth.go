@@ -4,10 +4,8 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"os/exec"
 	"os/user"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -319,35 +317,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessionUser{
 		Username: req.Username, Sudo: res.Sudo, Home: res.Home,
 		Shell: res.Shell, UID: res.UID, Groups: res.Groups,
-		MustChangePassword: passwordMustChange(req.Username),
+		MustChangePassword: res.MustChangePassword,
 	})
-}
-
-// passwordMustChange mengembalikan true kalau `chage -l` melaporkan
-// "Password must be changed" (field 3 /etc/shadow = 0) ATAU password sudah
-// expired. Shell banner SSH menampilkan kalimat itu saat login pertama di
-// banyak image Ubuntu/Debian; di panel kita tampilkan banner sendiri yang
-// mengarahkan user ke menu Akun, jadi tidak ada pesan asing yang tampil di
-// tempat lain.
-func passwordMustChange(username string) bool {
-	out, err := exec.Command("chage", "-l", username).Output()
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		l := strings.ToLower(strings.TrimSpace(line))
-		if strings.HasPrefix(l, "password must be changed") {
-			return true
-		}
-		if strings.HasPrefix(l, "password expires") {
-			// "Password expires: never" = tidak perlu ganti.
-			// "Password expires: password must be changed" = field 3 == 0.
-			if !strings.Contains(l, "never") {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func expiredSessionCookie(secure bool) *http.Cookie {
@@ -410,7 +381,12 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	out.MustChangePassword = passwordMustChange(sess.Username)
+	var status helperproto.PasswordStatusResult
+	if err := s.helper.Call(helperproto.CmdAuthPasswordStatus, sess.HelperToken, nil, &status); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	out.MustChangePassword = status.MustChangePassword
 	writeJSON(w, http.StatusOK, out)
 }
 

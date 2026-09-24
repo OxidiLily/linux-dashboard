@@ -35,7 +35,8 @@ const (
 	// Tanpa command ini, salinan itu tetap dipakai sampai sesinya berakhir:
 	// endpoint yang butuh sudo masih terbuka di sisi API, dan user melihat
 	// kegagalan dari tempat yang jauh dari sebabnya.
-	CmdAuthSudo = "auth.sudo"
+	CmdAuthSudo           = "auth.sudo"
+	CmdAuthPasswordStatus = "auth.password_status"
 
 	CmdSysHostnameSet = "sys.hostname_set"
 	CmdSysDNSSet      = "sys.dns_set"
@@ -255,6 +256,9 @@ type LoginResult struct {
 	Shell  string   `json:"shell"`
 	Sudo   bool     `json:"sudo"`
 	Groups []string `json:"groups"`
+	// MustChangePassword dihitung helper root dari metadata expiry akun. Web app
+	// tidak bisa menjalankan chage karena sengaja berjalan tanpa akses shadow.
+	MustChangePassword bool `json:"must_change_password"`
 	// Token adalah capability opaque yang harus dikirim balik pada setiap
 	// permintaan berikutnya. Web app menyimpannya bersama sesinya; ia tidak
 	// pernah dikirim ke browser.
@@ -270,6 +274,10 @@ type LoginResult struct {
 // untuk memakainya sebagai dasar otorisasi lagi.
 type SudoResult struct {
 	Sudo bool `json:"sudo"`
+}
+
+type PasswordStatusResult struct {
+	MustChangePassword bool `json:"must_change_password"`
 }
 
 type PasswdArgs struct {

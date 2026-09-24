@@ -102,7 +102,7 @@ func TestLoginMenyimpanTokenHelperDanMemakainya(t *testing.T) {
 		tokenSah:     map[string]bool{"tok-dari-helper": true},
 		balas: helperproto.LoginResult{
 			UID: 1000, GID: 1000, Home: "/home/ani", Shell: "/bin/bash", Sudo: true,
-			Token: "tok-dari-helper",
+			Token: "tok-dari-helper", MustChangePassword: true,
 		},
 	}
 	r, st := buatServerCron(t, tiruan)
@@ -114,6 +114,13 @@ func TestLoginMenyimpanTokenHelperDanMemakainya(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("login = %d, harap 200 (body: %s)", w.Code, w.Body.String())
+	}
+	var login sessionUser
+	if err := json.Unmarshal(w.Body.Bytes(), &login); err != nil {
+		t.Fatal(err)
+	}
+	if !login.MustChangePassword {
+		t.Fatal("status wajib ganti password dari helper tidak diteruskan")
 	}
 	cookies := w.Result().Cookies()
 	if len(cookies) == 0 {
