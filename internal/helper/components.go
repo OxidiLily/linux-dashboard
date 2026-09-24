@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -2690,6 +2691,7 @@ func padukanKredensialStalwart(j jalurKredensialStalwart, restart bool) {
 	// Wizard sudah selesai → yang berlaku akun admin permanen buatan wizard,
 	// dan kredensial bootstrap justru harus ditutup.
 	if _, err := os.Stat(j.Config); err == nil {
+		pastikanBindStalwartSemuaInterface(j)
 		tutupKredensialBootstrapStalwartDi(j)
 		return
 	}
@@ -2786,6 +2788,222 @@ func jalankanUlangStalwart() {
 	if _, err := run("systemctl", "restart", "stalwart.service"); err != nil {
 		log.Printf("stalwart: restart setelah kredensial berubah gagal: %v", err)
 	}
+}
+
+// pastikanBindStalwartSemuaInterface mengubah bind address listener
+// dari 127.0.0.1 ke 0.0.0.0 supaya Stalwart bisa diakses dari jaringan luar.
+// Dipanggil dari padukanKredensialStalwart saat wizard sudah selesai.
+// Idempoten: pakai marker file supaya cuma jalan sekali (kecuali gagal).
+func pastikanBindStalwartSemuaInterface(j jalurKredensialStalwart) {
+	if _, err := os.Stat(j.Config); err != nil {
+		return
+	}
+	marker := j.Config + ".bind-external"
+	if _, err := os.Stat(marker); err == nil {
+		return
+	}
+	pass := passwordTersimpanDi(j.Pass)
+	if pass == "" {
+		return
+	}
+	if err := patchBindStalwart(stalwartAkunAdmin, pass); err != nil {
+		log.Printf("stalwart: patch bind address gagal (akan dicoba lagi): %v", err)
+		return
+	}
+	// Tulis marker hanya jika berhasil supaya percobaan ulang terjadi
+	// pada pembacaan status berikutnya.
+	if err := os.WriteFile(marker, []byte("ok\n"), 0o644); err != nil {
+		log.Printf("stalwart: gagal menulis marker bind: %v", err)
+	}
+}
+
+// patchBindStalwart menghubungi JMAP management API untuk mengganti
+// bind address listener dari 127.0.0.1:PORT ke 0.0.0.0:PORT.
+// Coba HTTPS:443 (normal mode) lalu HTTP:8080 (recovery/bootstrap).
+func patchBindStalwart(user, pass string) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	var apiBase string
+	// Coba HTTPS dulu (normal mode), lalu HTTP (recovery/bootstrap).
+	for _, base := range []string{"https://127.0.0.1", "http://127.0.0.1:8080"} {
+		if strings.HasPrefix(base, "https") {
+			client.Transport = &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			}
+		} else {
+			client.Transport = &http.Transport{}
+		}
+		if err := jmapCall(client, base, user, pass, "x:NetworkListener/query", map[string]any{"filter": map[string]any{}}, "c1"); err == nil {
+			apiBase = base
+			break
+		}
+	}
+	if apiBase == "" {
+		return fmt.Errorf("management API tidak terjangkau (HTTPS:443 dan HTTP:8080)")
+	}
+
+	// 1. Query semua listener ID.
+	queryRaw, err := jmapCallRaw(client, apiBase, user, pass, "x:NetworkListener/query", map[string]any{"filter": map[string]any{}}, "c1")
+	if err != nil {
+		return fmt.Errorf("query listener: %w", err)
+	}
+	var ids []string
+	if err := extractQueryIDs(queryRaw, &ids); err != nil {
+		return fmt.Errorf("parse query response: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil // tidak ada listener
+	}
+
+	// 2. Get detail semua listener.
+	getRaw, err := jmapCallRaw(client, apiBase, user, pass, "x:NetworkListener/get", map[string]any{"ids": ids}, "c2")
+	if err != nil {
+		return fmt.Errorf("get listener: %w", err)
+	}
+	listeners, err := extractGetList(getRaw)
+	if err != nil {
+		return fmt.Errorf("parse get response: %w", err)
+	}
+
+	// 3. Kumpulkan update yang diperlukan.
+	updates := map[string]any{}
+	for _, obj := range listeners {
+		id, _ := obj["id"].(string)
+		bindRaw, ok := obj["bind"]
+		if id == "" || !ok {
+			continue
+		}
+		bindMap, ok := bindRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+		newBind := map[string]any{}
+		changed := false
+		for addr, val := range bindMap {
+			if strings.HasPrefix(addr, "127.0.0.1:") {
+				newAddr := "0.0.0.0:" + addr[len("127.0.0.1:"):]
+				newBind[newAddr] = val
+				changed = true
+			} else {
+				newBind[addr] = val
+			}
+		}
+		if changed {
+			updates[id] = map[string]any{"bind": newBind}
+		}
+	}
+	if len(updates) == 0 {
+		return nil // sudah 0.0.0.0 semua
+	}
+
+	// 4. Terapkan update.
+	if err := jmapCall(client, apiBase, user, pass, "x:NetworkListener/set", map[string]any{"update": updates}, "c3"); err != nil {
+		return fmt.Errorf("set listener: %w", err)
+	}
+	log.Printf("stalwart: bind address %d listener berhasil diubah ke 0.0.0.0", len(updates))
+	return nil
+}
+
+func jmapCall(client *http.Client, base, user, pass, method string, args any, cid string) error {
+	_, err := jmapCallRaw(client, base, user, pass, method, args, cid)
+	return err
+}
+
+func jmapCallRaw(client *http.Client, base, user, pass, method string, args any, cid string) (json.RawMessage, error) {
+	body := map[string]any{
+		"methodCalls": []any{[]any{method, args, cid}},
+		"using":       []string{"urn:ietf:params:jmap:core", "urn:stalwart:jmap"},
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", base+"/api", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(user, pass)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody[:min(len(respBody), 200)]))
+	}
+	var raw json.RawMessage
+	if err := json.Unmarshal(respBody, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+// extractQueryIDs mengekstrak array ID dari response x:NetworkListener/query.
+// Response: {"methodResponses":[["x:NetworkListener/query",{"ids":[...],...},"c1"]]}
+func extractQueryIDs(raw json.RawMessage, ids *[]string) error {
+	var envelope struct {
+		MethodResponses []any `json:"methodResponses"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+	for _, resp := range envelope.MethodResponses {
+		arr, ok := resp.([]any)
+		if !ok || len(arr) < 2 {
+			continue
+		}
+		args, ok := arr[1].(map[string]any)
+		if !ok {
+			continue
+		}
+		idList, ok := args["ids"].([]any)
+		if !ok {
+			continue
+		}
+		for _, v := range idList {
+			if s, ok := v.(string); ok {
+				*ids = append(*ids, s)
+			}
+		}
+	}
+	return nil
+}
+
+// extractGetList mengekstrak array objek dari response x:NetworkListener/get.
+// Response: {"methodResponses":[["x:NetworkListener/get",{"list":[{...},...],...},"c1"]]}
+func extractGetList(raw json.RawMessage) ([]map[string]any, error) {
+	var envelope struct {
+		MethodResponses []any `json:"methodResponses"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, err
+	}
+	for _, resp := range envelope.MethodResponses {
+		arr, ok := resp.([]any)
+		if !ok || len(arr) < 2 {
+			continue
+		}
+		args, ok := arr[1].(map[string]any)
+		if !ok {
+			continue
+		}
+		list, ok := args["list"].([]any)
+		if !ok {
+			continue
+		}
+		var result []map[string]any
+		for _, v := range list {
+			if obj, ok := v.(map[string]any); ok {
+				result = append(result, obj)
+			}
+		}
+		return result, nil
+	}
+	return nil, nil
 }
 
 // setBarisEnv menimpa baris `KUNCI=...` yang AKTIF di berkas env gaya shell.
