@@ -26,7 +26,7 @@ import { pesanError } from "@/lib/pesan-error"
 import "@/lib/terjemahan-en"
 import { tr, trf } from "@/stores/i18n"
 import { simpanBahasaPralogin, usePrefs } from "@/stores/prefs"
-import { cariBerkas, detailItemLog, rootAktif } from "@/views/files"
+import { cariBerkas, detailItemLog, rootAktif, unggahLaluMuatUlang } from "@/views/files"
 import { bacaCrontab, cariJadwal, ukuranByte, ukuranCrontabTersimpan } from "@/views/cron"
 import { isianCertificatesValid } from "@/views/certificates"
 
@@ -132,6 +132,67 @@ const detailPanjang = detailItemLog(Array.from({ length: 500 }, (_, i) => `/home
 cek(String(new TextEncoder().encode(detailPanjang).length <= 4000), "true", "log/detail-batas-byte")
 cek(String(detailPanjang.includes("item lain tidak ditampilkan")), "true", "log/detail-sebut-terpotong")
 cek(String(detailPanjang.includes("�")), "false", "log/detail-unicode-utuh")
+
+// Upload yang sudah diterima server harus selalu diikuti pembacaan ulang daftar,
+// termasuk ketika response akhirnya 413. Proxy bisa menolak response sesudah body
+// 100% terkirim, sementara backend sudah selesai menyimpan berkasnya.
+const ujiUpload = (async () => {
+  const urutanUpload: string[] = []
+  await unggahLaluMuatUlang(
+    async () => {
+      urutanUpload.push("unggah")
+    },
+    async () => {
+      urutanUpload.push("muat")
+    },
+  )
+  cek(urutanUpload.join(","), "unggah,muat", "upload/sukses-muat-ulang")
+  let errorUpload: unknown
+  try {
+    await unggahLaluMuatUlang(
+      async () => {
+        urutanUpload.push("gagal")
+        throw new Error("Upload error 413")
+      },
+      async () => {
+        urutanUpload.push("muat-setelah-gagal")
+      },
+    )
+  } catch (e) {
+    errorUpload = e
+  }
+  cek(pesanError(errorUpload), "Upload error 413", "upload/error-tetap-dilaporkan")
+  cek(urutanUpload.at(-1) ?? "", "muat-setelah-gagal", "upload/gagal-tetap-muat-ulang")
+
+  const errorUploadAsli = new Error("Upload error 413")
+  let errorUploadDanMuat: unknown
+  try {
+    await unggahLaluMuatUlang(
+      async () => {
+        throw errorUploadAsli
+      },
+      async () => {
+        throw new Error("reload gagal")
+      },
+    )
+  } catch (e) {
+    errorUploadDanMuat = e
+  }
+  cek(String(errorUploadDanMuat === errorUploadAsli), "true", "upload/error-asli-menang-dari-error-reload")
+
+  let errorMuat: unknown
+  try {
+    await unggahLaluMuatUlang(
+      async () => undefined,
+      async () => {
+        throw new Error("reload gagal")
+      },
+    )
+  } catch (e) {
+    errorMuat = e
+  }
+  cek(pesanError(errorMuat), "reload gagal", "upload/sukses-error-reload-dilaporkan")
+})()
 
 // Cronjob: pembacaan crontab. Bagian yang paling halus adalah memecah lima
 // kolom jadwal dari perintahnya — jadwal yang salah pecah tetap tampil rapi —
@@ -395,9 +456,9 @@ notify
   .catch(() => undefined)
 
 // Dua microtask: satu untuk settle-nya promise pekerjaan, satu untuk callback
-// sonner.promise yang memanggil rekam().
-void Promise.resolve()
-  .then(() => Promise.resolve())
+// sonner.promise yang memanggil rekam(). Uji upload ditunggu juga agar seluruh
+// assertion asynchronous selesai sebelum hasil akhir dicetak.
+void Promise.all([ujiUpload, Promise.resolve().then(() => Promise.resolve())])
   .then(() => {
     const tugasGagal = tercatat.find((t) => t.detail === "detail:boom")
     const tugasSukses = tercatat.find((t) => t.detail === "tugas-ok:selesai")
