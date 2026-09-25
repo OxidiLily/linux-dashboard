@@ -19,6 +19,7 @@ export const pemuatRute: Record<string, () => Promise<unknown>> = {
   "/logs/activity": () => import("@/views/activity-logs"),
   "/settings/account": () => import("@/views/account"),
   "/settings/network": () => import("@/views/network"),
+  "/settings/certificates": () => import("@/views/certificates"),
   "/settings/firewall": () => import("@/views/firewall"),
   "/settings/fail2ban": () => import("@/views/fail2ban"),
   "/settings/alerts": () => import("@/views/alerts"),

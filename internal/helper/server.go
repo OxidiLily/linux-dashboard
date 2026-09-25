@@ -443,6 +443,15 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return nil, ifaceConfigSet(args)
 
+	case helperproto.CmdCertificatesGet:
+		return jsonOf(statusCertificates(time.Now()), nil)
+	case helperproto.CmdCertificatesSet:
+		args, err := decodeArgs[helperproto.CertificatesSetArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(simpanCertificates(args, time.Now()))
+
 	case helperproto.CmdProcKill:
 		args, err := decodeArgs[helperproto.KillArgs](req)
 		if err != nil {

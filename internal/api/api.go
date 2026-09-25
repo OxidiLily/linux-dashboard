@@ -204,6 +204,9 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/settings/network/vpn", s.handleVPNStatus)
 			r.Put("/settings/network/vpn/{name}", s.handleVPNConfigure)
 
+			r.Get("/settings/certificates", s.handleCertificatesGet)
+			r.Put("/settings/certificates", s.handleCertificatesSet)
+
 			r.Get("/firewall/rules", s.handleFirewallList)
 			r.Post("/firewall/rules", s.handleFirewallAdd)
 			r.Put("/firewall/rules/{num}", s.handleFirewallUpdate)
