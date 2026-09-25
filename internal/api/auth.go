@@ -2,12 +2,17 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"os/user"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	appTotp "linux-dashboard/OxidiLily/internal/totp"
 
 	"linux-dashboard/OxidiLily/internal/helperclient"
 	"linux-dashboard/OxidiLily/internal/helperproto"
@@ -240,6 +245,117 @@ type sessionUser struct {
 	MustChangePassword bool `json:"must_change_password"`
 }
 
+const (
+	totpChallengeTTL = 5 * time.Minute
+	totpChallengeMax = 512
+)
+
+type totpChallenge struct {
+	username string
+	ip       string
+	expires  time.Time
+	login    helperproto.LoginResult
+	attempts int
+	inUse    bool
+}
+
+type totpLoginRequest struct {
+	Challenge string `json:"challenge"`
+	Code      string `json:"code"`
+}
+
+func (s *Server) addTOTPChallenge(username, ip string, login helperproto.LoginResult, now time.Time) (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	id := hex.EncodeToString(b)
+	s.totpMu.Lock()
+	defer s.totpMu.Unlock()
+	for k, c := range s.totpChallenges {
+		if !c.expires.After(now) {
+			s.cabutTokenHelper(c.login.Token)
+			delete(s.totpChallenges, k)
+		}
+	}
+	if len(s.totpChallenges) >= totpChallengeMax {
+		var oldest string
+		var expiry time.Time
+		for k, c := range s.totpChallenges {
+			if oldest == "" || c.expires.Before(expiry) {
+				oldest, expiry = k, c.expires
+			}
+		}
+		c := s.totpChallenges[oldest]
+		s.cabutTokenHelper(c.login.Token)
+		delete(s.totpChallenges, oldest)
+	}
+	s.totpChallenges[id] = totpChallenge{username: username, ip: ip, expires: now.Add(totpChallengeTTL), login: login}
+	return id, nil
+}
+
+// gcTOTPChallenge membuang tantangan yang sudah lewat umurnya tanpa menunggu
+// tantangan berikutnya dibuat, sekalian mencabut token helper di dalamnya.
+// Dipanggil dari ticker GC bersama gcThrottle.
+func (s *Server) gcTOTPChallenge(now time.Time) {
+	s.totpMu.Lock()
+	defer s.totpMu.Unlock()
+	for k, c := range s.totpChallenges {
+		if !c.expires.After(now) {
+			s.cabutTokenHelper(c.login.Token)
+			delete(s.totpChallenges, k)
+		}
+	}
+}
+
+func (s *Server) reserveTOTPChallenge(id, ip string) (totpChallenge, bool) {
+	s.totpMu.Lock()
+	defer s.totpMu.Unlock()
+	c, ok := s.totpChallenges[id]
+	if !ok || c.ip != ip || !c.expires.After(time.Now()) || c.inUse || c.attempts >= 5 {
+		return totpChallenge{}, false
+	}
+	c.inUse = true
+	s.totpChallenges[id] = c
+	return c, true
+}
+
+func (s *Server) finishTOTPChallenge(id string, success bool) {
+	s.totpMu.Lock()
+	defer s.totpMu.Unlock()
+	c, ok := s.totpChallenges[id]
+	if !ok {
+		return
+	}
+	if success {
+		delete(s.totpChallenges, id)
+		return
+	}
+	c.inUse = false
+	c.attempts++
+	if c.attempts >= 5 {
+		delete(s.totpChallenges, id)
+		s.cabutTokenHelper(c.login.Token)
+		return
+	}
+	s.totpChallenges[id] = c
+}
+
+func sessionUserFromLogin(username string, res helperproto.LoginResult) sessionUser {
+	return sessionUser{Username: username, Sudo: res.Sudo, Home: res.Home, Shell: res.Shell, UID: res.UID, Groups: res.Groups, MustChangePassword: res.MustChangePassword}
+}
+
+func (s *Server) createLoginSession(w http.ResponseWriter, username, ip string, res helperproto.LoginResult) error {
+	sess, err := s.store.CreateSession(username, res.Home, ip, res.Sudo, res.Token, time.Duration(s.cfg.SessionTTLHours)*time.Hour)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: sess.ID, Path: "/", HttpOnly: true, Secure: s.cfg.SecureCookie, SameSite: http.SameSiteLaxMode, Expires: sess.Expires})
+	s.store.LogActivity(username, "login_success", "", nil, ip)
+	writeJSON(w, http.StatusOK, sessionUserFromLogin(username, res))
+	return nil
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := decodeBody(r, &req); err != nil {
@@ -296,29 +412,91 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			"Layanan autentikasi tidak tersedia. Cek status linux-dashboard-helper.service.")
 		return
 	}
-	s.throttle.reset(key, ip)
-
-	sess, err := s.store.CreateSession(req.Username, res.Home, ip, res.Sudo, res.Token,
-		time.Duration(s.cfg.SessionTTLHours)*time.Hour)
+	status, err := s.store.TOTPStatus(req.Username)
 	if err != nil {
+		s.cabutTokenHelper(res.Token)
+		writeErr(w, http.StatusInternalServerError, "gagal membaca status TOTP")
+		return
+	}
+	if status.Enabled {
+		challenge, err := s.addTOTPChallenge(req.Username, ip, res, time.Now())
+		if err != nil {
+			s.cabutTokenHelper(res.Token)
+			writeErr(w, http.StatusInternalServerError, "gagal membuat tantangan TOTP")
+			return
+		}
+		// Throttle baru direset sesudah faktor kedua benar.
+		writeJSON(w, http.StatusAccepted, map[string]any{"totp_required": true, "challenge": challenge})
+		return
+	}
+	s.throttle.reset(key, ip)
+	if err := s.createLoginSession(w, req.Username, ip, res); err != nil {
+		writeErr(w, http.StatusInternalServerError, "gagal membuat session: "+err.Error())
+	}
+}
+
+func (s *Server) handleTOTPLogin(w http.ResponseWriter, r *http.Request) {
+	var req totpLoginRequest
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ip := clientIP(r)
+	challenge, ok := s.reserveTOTPChallenge(req.Challenge, ip)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "Tantangan TOTP tidak valid atau sudah berakhir")
+		return
+	}
+	success := false
+	defer func() { s.finishTOTPChallenge(req.Challenge, success) }()
+	// Faktor kedua memakai throttle login yang sama; keberhasilan password belum
+	// menghapus kegagalan dan endpoint ini tidak boleh menjadi jalur tebakan bebas.
+	if ok, retry := s.throttle.allowed(challenge.username, ip); !ok {
+		writeJSON(w, http.StatusTooManyRequests, errBody{Error: "Terlalu banyak percobaan. Coba lagi dalam " + retry.Round(time.Second).String()})
+		return
+	}
+	ciphertext, enabled, err := s.store.TOTPSecret(challenge.username)
+	if err != nil || !enabled {
+		writeErr(w, http.StatusUnauthorized, "TOTP tidak tersedia")
+		return
+	}
+	cipher, err := appTotp.LoadCipher(appTotp.KeyPath())
+	if err != nil {
+		log.Printf("muat key TOTP: %v", err)
+		writeErr(w, http.StatusServiceUnavailable, "Layanan TOTP tidak tersedia")
+		return
+	}
+	secret, err := cipher.DecryptFor(challenge.username, ciphertext)
+	if err != nil {
+		log.Printf("buka secret TOTP %q: %v", challenge.username, err)
+		writeErr(w, http.StatusServiceUnavailable, "Layanan TOTP tidak tersedia")
+		return
+	}
+	verified := false
+	if counter, valid := appTotp.Verify(string(secret), strings.TrimSpace(req.Code), time.Now()); valid {
+		verified, err = s.store.AdvanceTOTPCounter(challenge.username, counter)
+	} else {
+		verified, err = s.store.ConsumeTOTPRecovery(challenge.username, appTotp.RecoveryHash(req.Code))
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "gagal memverifikasi TOTP")
+		return
+	}
+	if !verified {
+		s.throttle.record(challenge.username, ip)
+		writeErr(w, http.StatusUnauthorized, "Kode autentikasi salah atau sudah digunakan")
+		return
+	}
+	// Faktor sudah dikonsumsi atomik; challenge juga harus habis meski penulisan
+	// sesi kemudian gagal, agar counter/recovery yang sudah terbakar tidak
+	// meninggalkan challenge setengah hidup.
+	success = true
+	s.throttle.reset(challenge.username, ip)
+	if err := s.createLoginSession(w, challenge.username, ip, challenge.login); err != nil {
+		s.cabutTokenHelper(challenge.login.Token)
 		writeErr(w, http.StatusInternalServerError, "gagal membuat session: "+err.Error())
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookie,
-		Value:    sess.ID,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   s.cfg.SecureCookie,
-		SameSite: http.SameSiteLaxMode,
-		Expires:  sess.Expires,
-	})
-	s.store.LogActivity(req.Username, "login_success", "", nil, ip)
-	writeJSON(w, http.StatusOK, sessionUser{
-		Username: req.Username, Sudo: res.Sudo, Home: res.Home,
-		Shell: res.Shell, UID: res.UID, Groups: res.Groups,
-		MustChangePassword: res.MustChangePassword,
-	})
 }
 
 func expiredSessionCookie(secure bool) *http.Cookie {

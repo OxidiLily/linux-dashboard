@@ -39,7 +39,7 @@ type NFSMount = {
 
 type RemoteExport = { path: string; clients?: string }
 
-const OPSI_DEFAULT = "rw,sync,no_subtree_check"
+const OPSI_DEFAULT = "ro,sync,no_subtree_check"
 const OPSI_MOUNT_DEFAULT = "_netdev,nofail,rw,hard,retry=0,timeo=600,retrans=2"
 const FORM_KOSONG = { path: "", clients: "" }
 const FORM_MOUNT_KOSONG = { server: "", remote: "", mountpoint: "", options: OPSI_MOUNT_DEFAULT }

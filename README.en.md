@@ -19,10 +19,14 @@ stay light on a **2-core** machine.
 curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
 ```
 
-The script installs the build dependencies (Go, Node 24, `libpam0g-dev`), fetches
-the sources into `/usr/local/src/go-react-linux-dashboard`, builds the UI plus the
-two binaries, installs the systemd units and the PAM file, then starts the service
-on port **1122**. Running the same command again upgrades to the latest `main`.
+The script installs build and security dependencies (Go, Node 24,
+`libpam0g-dev`, `openssl`, `acl`, `ufw`, and `fail2ban`), fetches the sources into
+`/usr/local/src/go-react-linux-dashboard`, builds the UI plus both binaries,
+installs the systemd units and PAM file, then starts native HTTPS on port
+**1122**. A self-signed certificate is generated when no custom certificate is
+available; browsers will warn until a trusted certificate is installed. The
+installer enables UFW/fail2ban without resetting, deleting, or changing existing
+firewall defaults/rules. Running it again upgrades to the latest `main`.
 
 The installer **detects first, then installs**: dependencies that are already
 present are skipped, and a Go installed outside apt (official tarball, asdf,
@@ -793,9 +797,10 @@ defaults.
 
 | Variable | Default | Description |
 |---|---|---|
-| `DASHBOARD_LISTEN` | `127.0.0.1:8080` | Web app bind address; the shipped systemd unit sets `0.0.0.0:1122` |
-| `DASHBOARD_TLS_CERT` | empty | TLS certificate; leave empty when behind a reverse proxy |
+| `DASHBOARD_LISTEN` | `127.0.0.1:8080` | Web app bind address; the installer sets `0.0.0.0:1122` with native TLS |
+| `DASHBOARD_TLS_CERT` | empty | TLS certificate; required with the key for a secure non-loopback bind |
 | `DASHBOARD_TLS_KEY` | empty | TLS private key; must be set together with `DASHBOARD_TLS_CERT` |
+| `DASHBOARD_ALLOW_PLAINTEXT` | `false` | Risky opt-in for HTTP on a non-loopback bind; do not enable on the Internet |
 | `DASHBOARD_RUN_DIR` | `/run/linux-dashboard` | Location of the helper socket |
 | `DASHBOARD_STATE_DIR` | `/var/lib/linux-dashboard` | Location of the SQLite database |
 | `DASHBOARD_SECRET_DIR` | `/var/lib/linux-dashboard-helper` | Helper secret directory — deliberately SEPARATE from the web state dir; the web group gets read-only access |
@@ -804,7 +809,8 @@ defaults.
 | `DASHBOARD_SECRET` | `$SECRET_DIR/secret.key` | Helper HMAC secret file (0640, owned by root) |
 | `DASHBOARD_DB` | `$STATE_DIR/lindash.db` | SQLite database path |
 | `DASHBOARD_SESSION_TTL_HOURS` | `12` | Session lifetime |
-| `DASHBOARD_SECURE_COOKIE` | `false` | Set to `true` when served over HTTPS |
+| `DASHBOARD_SECURE_COOKIE` | `false` | Becomes effectively `true` when native TLS is active |
+| `DASHBOARD_TOTP_KEY` | empty | Path to the 32-byte AES-256-GCM key used to encrypt TOTP seeds; required for TFA settings |
 
 ## Authorization model
 
@@ -820,15 +826,23 @@ defaults.
 - **The installer prepares these folders for accounts that already exist** on
   the machine and drops a skeleton into `/etc/skel`, so new accounts — created
   from the panel or with `useradd -m` in a terminal — get them right away.
-- `~/DATA/*` is this panel's primary data location. The default Samba share
-  points there through the `%U` macro (`/home/%U/DATA/Documents`), so a single
-  share gives every account its own data folder.
-- **A Guest OK share inside a user's home maps guests to the folder's owner**
-  (`force user = <owner>`). Without it guests run as `nobody`, and Ubuntu's
-  `0750` home directory stops them at the door: Windows says "You do not have
-  permission to access", `log.smbd` logs `vfs_ChDir … Permission denied …
-  uid=65534`. Root-owned folders are not mapped — `force user = root` would
-  hand the whole LAN root access to that path.
+- `~/DATA/*` is this panel's primary data location. `%U` paths remain available
+  as a legacy/manual mode. Each new concrete-path share receives a dedicated
+  no-login system account, a random password shown only at create/rotate time,
+  and read-only/read-write ACLs without changing the directory owner/group.
+  Deleting the share from the panel removes its account/ACLs but leaves the
+  physical directory intact.
+- **Guest OK shares are disabled.** The root helper rejects anonymous shares
+  and always writes `guest ok = no`. On upgrade, panel-managed legacy Guest OK
+  shares are automatically migrated to authenticated shares. A ransomware-
+  infected LAN device must not get write access merely by knowing the server
+  address.
+- New NFS exports default to `ro,sync,no_subtree_check`; `rw` and other options
+  remain explicitly selectable. NFS is not equivalent to SMB authentication, so
+  avoid client `*` on networks that are not fully trusted.
+- Google Authenticator-compatible TFA can be enabled from Account settings. TOTP
+  seeds are encrypted with a key outside SQLite, recovery codes are shown once,
+  and no session/helper capability is issued until factor two succeeds.
 - **Per-user data folders** (`~/DATA/AppData`, `~/DATA/Documents`,
   `~/DATA/Downloads`, `~/DATA/Gallery`, `~/DATA/Media`) are created when the
   File Manager is opened and show up there as their own roots. They live inside

@@ -165,8 +165,14 @@ func (s *Server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 		writeHelperErr(w, err)
 		return
 	}
-	// Akun sudah tidak ada; sesi yang masih menunjuk ke sana pasti tidak sah.
-	_ = s.store.DeleteSessionsByUsername(target)
+	// Akun sudah tidak ada. Hapus sesi dan faktor kedua secara atomik agar
+	// username yang kelak dibuat ulang tidak mewarisi seed/recovery milik orang
+	// sebelumnya. Jika cleanup DB gagal, penghapusan OS tetap dicatat sebagai
+	// berhasil tetapi API fail closed agar admin mengetahui state harus diperiksa.
+	if err := s.store.DeleteUserSecurityState(target); err != nil {
+		writeErr(w, http.StatusInternalServerError, "akun terhapus tetapi state keamanan gagal dibersihkan")
+		return
+	}
 	s.store.LogActivity(sess.Username, "user_delete", "hapus user",
 		map[string]any{"username": target, "remove_home": removeHome}, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

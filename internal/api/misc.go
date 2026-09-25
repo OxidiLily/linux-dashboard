@@ -119,14 +119,32 @@ func (s *Server) handleSambaSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.helper.Call(helperproto.CmdSambaSave, sess.HelperToken, share, nil); err != nil {
+	var credential helperproto.SambaCredential
+	if err := s.helper.Call(helperproto.CmdSambaSave, sess.HelperToken, share, &credential); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
-	// Password Samba tidak pernah ikut ke log aktivitas.
+	// Password Samba tidak pernah ikut ke log aktivitas atau cache browser/proxy.
 	s.store.LogActivity(sess.Username, "samba_share_save", "simpan share",
 		map[string]any{"name": share.Name, "path": share.Path, "writable": share.Writable}, clientIP(r))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, credential)
+}
+
+func (s *Server) handleSambaRotate(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	name := chi.URLParam(r, "name")
+	var credential helperproto.SambaCredential
+	if err := s.helper.Call(helperproto.CmdSambaRotate, sess.HelperToken, helperproto.PathArgs{Path: name}, &credential); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	s.store.LogActivity(sess.Username, "samba_share_rotate", "putar password share", map[string]any{"name": name}, clientIP(r))
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, credential)
 }
 
 func (s *Server) handleSambaDelete(w http.ResponseWriter, r *http.Request) {

@@ -72,8 +72,19 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 # ber-sudo tetap terbuka untuk pemilik hak yang sudah dicabut.
 !internal/helper/ttl_token_test.go
 !internal/helper/auth_sudo_test.go
+!internal/helper/samba_security_test.go
+!internal/helper/samba_managed_test.go
+!internal/helper/nfs_security_test.go
 !internal/api/sudo_segar_api_test.go
 # Pengelolaan TLS panel: pasangan cert/key, write atomic, auth sudo, dan kontrak API.
 !internal/helper/certificates_test.go
 !internal/api/certificates_api_test.go
+# TOTP/TFA end-to-end security regression tests.
+!internal/store/totp_test.go
+!internal/totp/totp_test.go
+!internal/api/totp_api_test.go
+!internal/api/totp_enroll_test.go
+# Lifecycle akun Samba managed: GECOS kompatibel /etc/passwd, urutan baca-config
+# sebelum akun dibuat, dan pencabutan ACL fail-closed saat share dihapus.
+!internal/helper/samba_lifecycle_test.go
 web/dist.bak/

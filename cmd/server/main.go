@@ -31,19 +31,13 @@ func main() {
 			"operasi privileged sudah ditangani helper daemon")
 	}
 
-	cfg := config.Load()
+	cfg, err := config.LoadValidated()
+	if err != nil {
+		log.Fatalf("konfigurasi tidak aman/tidak valid: %v", err)
+	}
 
-	// Panel bicara HTTP polos kalau tidak diberi sertifikat. Di alamat yang
-	// bisa dijangkau jaringan lain, itu berarti password dan cookie sesi
-	// (termasuk sesi sudo) lewat apa adanya. Peringatannya di sini, bukan
-	// larangan: panel di belakang reverse proxy HTTPS memang harus tetap bisa
-	// jalan tanpa TLS sendiri, dan operator yang tahu apa yang dilakukannya
-	// tidak boleh dihalangi.
-	if !cfg.SecureCookie && !bindLoopback(cfg.Listen) {
-		log.Printf("PERINGATAN: DASHBOARD_LISTEN=%s tanpa TLS dan tanpa Secure cookie — "+
-			"password serta cookie sesi lewat jaringan apa adanya. Pakai HTTPS "+
-			"(DASHBOARD_TLS_CERT/DASHBOARD_TLS_KEY) atau taruh di belakang reverse proxy, "+
-			"lalu set DASHBOARD_SECURE_COOKIE=true.", cfg.Listen)
+	if cfg.AllowPlaintext && !bindLoopback(cfg.Listen) && cfg.TLSCert == "" {
+		log.Printf("PERINGATAN: plaintext publik diizinkan eksplisit pada %s; pastikan terminasi TLS berada di luar proses", cfg.Listen)
 	}
 
 	st, err := store.Open(cfg.DBPath)

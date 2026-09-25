@@ -6,14 +6,9 @@
 #
 #   systemctl restart linux-dashboard-web
 #
-# Alamat dengar. Kosongkan alamatnya (":1122") untuk semua interface.
-#
-# BAWAAN KODE (tanpa setelan apa pun) adalah 127.0.0.1:8080 — panel hanya bisa
-# dibuka dari mesin itu sendiri, karena panel berbicara HTTP polos kalau TLS
-# tidak diisi. Unit systemd bawaan menyetel 0.0.0.0:1122 supaya panel bisa
-# dijangkau dari perangkat lain; kalau port itu terbuka ke jaringan yang tidak
-# Anda percayai, nyalakan TLS di bawah atau taruh panel di belakang reverse
-# proxy, lalu set DASHBOARD_SECURE_COOKIE=true.
+# Alamat dengar. Unit systemd memakai 0.0.0.0:1122 agar panel dapat diakses
+# langsung dari jaringan tanpa reverse proxy. Installer membuat TLS native dan
+# membuka port ini di UFW sebelum firewall diaktifkan.
 #DASHBOARD_LISTEN=0.0.0.0:1122
 
 # Direktori secret HMAC helper. TERPISAH dari state dir web (DASHBOARD_STATE_DIR)
@@ -24,28 +19,26 @@
 # sendiri (mode 0640, pemilik root, grup linux-dashboard) lalu restart helper.
 #DASHBOARD_SECRET_DIR=/var/lib/linux-dashboard-helper
 
-# Cookie sesi hanya dikirim lewat koneksi terenkripsi. Menyala sendiri kalau
-# TLS diisi di bawah. Yang perlu mengisinya secara manual hanya pemasangan di
-# belakang reverse proxy (Caddy/Nginx/NPM), karena di situ panel tidak bisa
-# tahu sisi luarnya HTTPS. Menyalakannya tanpa HTTPS membuat login mustahil:
-# browser tidak akan pernah mengirim balik cookie-nya.
+# Cookie sesi selalu Secure ketika TLS native aktif. Installer menulis nilai ini
+# menjadi true; runtime mengabaikan nilai false bila cert/key native tersedia.
 #DASHBOARD_SECURE_COOKIE=true
 
-# TLS langsung di panel. BAWAANNYA MATI — panel berbicara HTTP polos, dan
-# installer tidak lagi membuat sertifikat self-signed sendiri (sertifikat yang
-# tidak ditandatangani CA mana pun hanya menghasilkan peringatan browser
-# permanen di setiap perangkat).
-#
-# Isi dua baris ini untuk menyalakannya — sertifikat dari CA internal, Let's
-# Encrypt, atau self-signed buatan sendiri. Berkasnya harus bisa dibaca user
-# `linux-dashboard`. Sesudah diisi: systemctl restart linux-dashboard-web.
-#DASHBOARD_TLS_CERT=/etc/ssl/certs/linux-dashboard.crt
-#DASHBOARD_TLS_KEY=/etc/ssl/private/linux-dashboard.key
-#
-# Membuat sertifikat self-signed sendiri (ganti <ip> dengan alamat panel):
-#   openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
-#     -subj "/CN=$(hostname)" -addext "subjectAltName=DNS:$(hostname),IP:<ip>" \
-#     -keyout /etc/linux-dashboard/tls.key -out /etc/linux-dashboard/tls.crt
+# TLS langsung di panel. Installer mengisi dua variabel ini dan membuat
+# sertifikat self-signed di /etc/linux-dashboard bila belum ada konfigurasi
+# custom. Ganti keduanya dengan cert CA internal/publik kapan saja; pasangan
+# parsial, hilang, atau tidak cocok membuat service gagal start (tidak downgrade
+# diam-diam ke HTTP).
+#DASHBOARD_TLS_CERT=/etc/linux-dashboard/tls.crt
+#DASHBOARD_TLS_KEY=/etc/linux-dashboard/tls.key
+
+# Plaintext publik hanya untuk terminasi TLS eksternal yang dipilih secara
+# sadar. Jangan aktifkan untuk akses langsung dari internet/LAN.
+#DASHBOARD_ALLOW_PLAINTEXT=false
+
+# Key AES-256-GCM untuk mengenkripsi secret TOTP di SQLite. Installer membuat
+# berkas 32-byte root:linux-dashboard mode 0640; jangan samakan dengan secret
+# HMAC helper atau simpan key ini di database/backup yang sama.
+#DASHBOARD_TOTP_KEY=/var/lib/linux-dashboard-helper/totp.key
 
 # Umur sesi login, dalam jam.
 #DASHBOARD_SESSION_TTL_HOURS=12

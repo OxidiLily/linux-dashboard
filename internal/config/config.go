@@ -3,7 +3,9 @@
 package config
 
 import (
-	"log"
+	"crypto/tls"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,6 +45,9 @@ type Config struct {
 	SessionTTLHours int
 	// Secure menandai cookie Secure (aktifkan kalau di belakang HTTPS).
 	SecureCookie bool
+	// AllowPlaintext mengizinkan bind non-loopback tanpa TLS hanya jika operator
+	// memilihnya secara eksplisit (misalnya terminasi TLS ada di luar proses).
+	AllowPlaintext bool
 }
 
 func env(key, def string) string {
@@ -86,22 +91,8 @@ func Load() Config {
 		// kedaluwarsa.
 		SessionTTLHours: 12,
 	}
-	// Sertifikat yang ditunjuk tapi tidak ada di disk diperlakukan seperti tidak
-	// diset sama sekali. Unit systemd menunjuk sertifikat bawaan yang dibuat
-	// installer; kalau berkasnya hilang (dihapus manual, partisi /etc dipulihkan
-	// dari cadangan lama), ListenAndServeTLS akan gagal dan panel mati total
-	// tiap boot — HTTP polos jauh lebih baik daripada tidak bisa login sama
-	// sekali untuk memperbaikinya.
-	if !berkasAda(c.TLSCert) || !berkasAda(c.TLSKey) {
-		if c.TLSCert != "" || c.TLSKey != "" {
-			log.Printf("sertifikat TLS tidak lengkap (cert=%q key=%q) — panel jalan tanpa TLS", c.TLSCert, c.TLSKey)
-		}
-		c.TLSCert, c.TLSKey = "", ""
-	}
-	// TLS langsung di panel berarti setiap koneksi sudah HTTPS, jadi cookie
-	// tanpa flag Secure hanya melemahkan diri sendiri. Di belakang reverse
-	// proxy kedua variabel ini kosong dan panel tidak bisa tahu apakah sisi
-	// luar HTTPS — di situ DASHBOARD_SECURE_COOKIE harus diset manual.
+	// Load tetap murni dan kompatibel untuk pemanggil/test lama; validasi yang
+	// dapat menggagalkan startup dilakukan LoadValidated.
 	c.SecureCookie = c.TLSCert != "" && c.TLSKey != ""
 	if n, err := strconv.Atoi(os.Getenv("DASHBOARD_SESSION_TTL_HOURS")); err == nil {
 		c.SessionTTLHours = n
@@ -109,5 +100,50 @@ func Load() Config {
 	if b, err := strconv.ParseBool(os.Getenv("DASHBOARD_SECURE_COOKIE")); err == nil {
 		c.SecureCookie = b
 	}
+	if b, err := strconv.ParseBool(os.Getenv("DASHBOARD_ALLOW_PLAINTEXT")); err == nil {
+		c.AllowPlaintext = b
+	}
+	// Pada TLS native, cookie tanpa Secure tidak pernah benar. Env false tidak
+	// boleh menurunkan perlindungan transport yang sudah aktif.
+	if c.TLSCert != "" && c.TLSKey != "" {
+		c.SecureCookie = true
+	}
 	return c
+}
+
+// LoadValidated memuat konfigurasi startup dan menolak downgrade diam-diam
+// dari HTTPS ke HTTP. Kesalahan sertifikat harus mematikan service agar password
+// Linux, OTP, dan cookie sesi tidak pernah terkirim plaintext tanpa disadari.
+func LoadValidated() (Config, error) {
+	c := Load()
+	punyaCert, punyaKey := c.TLSCert != "", c.TLSKey != ""
+	if punyaCert != punyaKey {
+		return Config{}, fmt.Errorf("DASHBOARD_TLS_CERT dan DASHBOARD_TLS_KEY harus diisi bersama")
+	}
+	if punyaCert {
+		if !berkasAda(c.TLSCert) || !berkasAda(c.TLSKey) {
+			return Config{}, fmt.Errorf("sertifikat atau private key TLS tidak ada/bukan berkas regular")
+		}
+		if _, err := tls.LoadX509KeyPair(c.TLSCert, c.TLSKey); err != nil {
+			return Config{}, fmt.Errorf("pasangan sertifikat TLS tidak valid: %w", err)
+		}
+		c.SecureCookie = true
+		return c, nil
+	}
+	if !alamatLoopback(c.Listen) && !c.AllowPlaintext {
+		return Config{}, fmt.Errorf("bind publik %s wajib memakai TLS; set DASHBOARD_ALLOW_PLAINTEXT=true hanya jika terminasi TLS ditangani di luar proses", c.Listen)
+	}
+	return c, nil
+}
+
+func alamatLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

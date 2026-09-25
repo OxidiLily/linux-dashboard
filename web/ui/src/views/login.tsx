@@ -50,12 +50,16 @@ export function LoginView() {
   const t = useT()
   const user = useAuth((s) => s.user)
   const login = useAuth((s) => s.login)
+  const verifyTOTP = useAuth((s) => s.verifyTOTP)
+  const cancelTOTP = useAuth((s) => s.cancelTOTP)
+  const totpChallenge = useAuth((s) => s.totpChallenge)
   const busy = useAuth((s) => s.busy)
   const error = useAuth((s) => s.error)
   const navigate = useNavigate()
   const location = useLocation()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [totpCode, setTotpCode] = useState("")
   const [hostname, setHostname] = useState("")
 
   // Nama host dibaca dari endpoint publik: sebelum login tidak ada sesi, dan
@@ -73,8 +77,12 @@ export function LoginView() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     try {
-      await login(username, password)
-      navigate(next, { replace: true })
+      if (totpChallenge) {
+        await verifyTOTP(totpCode)
+        navigate(next, { replace: true })
+      } else if (await login(username, password)) {
+        navigate(next, { replace: true })
+      }
     } catch {
       /* error displayed via store */
     }
@@ -140,33 +148,44 @@ export function LoginView() {
             </p>
           </div>
           <form className="panel space-y-4 p-5" onSubmit={onSubmit}>
-            <div className="space-y-1.5">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                placeholder={tr("mis. oxidilily")}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
+            {totpChallenge ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="totp-code">{tr("Kode autentikasi")}</Label>
+                  <Input
+                    id="totp-code"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    autoFocus
+                    placeholder={tr("6 digit atau recovery code")}
+                  />
+                </div>
+                <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { cancelTOTP(); setTotpCode("") }}>
+                  {tr("Kembali ke password")}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="username">Username</Label>
+                  <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" placeholder={tr("mis. oxidilily")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="password">Password</Label>
+                  <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+                </div>
+              </>
+            )}
             {error && (
               <p className="rounded-md border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
                 {error}
               </p>
             )}
             <Button type="submit" disabled={busy} className="w-full">
-              {busy ? tr("Memeriksa…") : t("login.submit")}
+              {busy ? tr("Memeriksa…") : totpChallenge ? tr("Verifikasi") : t("login.submit")}
+
             </Button>
           </form>
 
