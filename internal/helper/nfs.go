@@ -25,7 +25,7 @@ var (
 	klienRe    = regexp.MustCompile(`^[A-Za-z0-9_.:*/@-]+$`)
 	opsiNfsRe  = regexp.MustCompile(`^[a-z0-9_,=.-]+$`)
 	klausaRe   = regexp.MustCompile(`^([^()\s]+)\(([^)]*)\)$`)
-	opsiDefNfs = "rw,sync,no_subtree_check"
+	opsiDefNfs = "ro,sync,no_subtree_check"
 )
 
 func nfsList() ([]helperproto.NFSExport, error) {

@@ -19,10 +19,14 @@ agar tetap ringan di mesin **2 core**.
 curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
 ```
 
-Skrip memasang dependency build (Go, Node 24, `libpam0g-dev`), mengambil sumber
-ke `/usr/local/src/go-react-linux-dashboard`, build UI + dua binary, memasang
-unit systemd + file PAM, lalu menyalakan service di port **1122**. Menjalankan
-perintah yang sama lagi = upgrade ke `main` terbaru.
+Skrip memasang dependency build serta keamanan (Go, Node 24, `libpam0g-dev`,
+`openssl`, `acl`, `ufw`, dan `fail2ban`), mengambil sumber ke
+`/usr/local/src/go-react-linux-dashboard`, build UI + dua binary, memasang unit
+systemd + file PAM, lalu menyalakan service HTTPS native di port **1122**.
+Sertifikat self-signed dibuat bila sertifikat custom belum tersedia; browser akan
+memberi peringatan sampai sertifikat tepercaya dipasang. Installer mengaktifkan
+UFW/fail2ban tanpa reset, delete, atau mengganti default/rule firewall yang sudah
+ada. Menjalankan perintah yang sama lagi = upgrade ke `main` terbaru.
 
 Installer **mendeteksi dulu, baru memasang**: dependency yang sudah ada
 dilewati, dan Go yang dipasang di luar apt (tarball resmi, asdf, snap) tidak
@@ -882,9 +886,10 @@ Semua lewat environment variable; nilai di bawah adalah default.
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `DASHBOARD_LISTEN` | `127.0.0.1:8080` | Alamat bind web app; unit systemd bawaan menyetel `0.0.0.0:1122` |
-| `DASHBOARD_TLS_CERT` | kosong | Sertifikat TLS; kosongkan kalau pakai reverse proxy |
+| `DASHBOARD_LISTEN` | `127.0.0.1:8080` | Alamat bind web app; installer menyetel `0.0.0.0:1122` dengan TLS native |
+| `DASHBOARD_TLS_CERT` | kosong | Sertifikat TLS; wajib bersama key untuk bind non-loopback yang aman |
 | `DASHBOARD_TLS_KEY` | kosong | Private key TLS; harus diisi bersama `DASHBOARD_TLS_CERT` |
+| `DASHBOARD_ALLOW_PLAINTEXT` | `false` | Opt-in berisiko untuk HTTP pada bind non-loopback; jangan aktifkan pada Internet |
 | `DASHBOARD_RUN_DIR` | `/run/linux-dashboard` | Lokasi socket helper |
 | `DASHBOARD_STATE_DIR` | `/var/lib/linux-dashboard` | Lokasi SQLite web app |
 | `DASHBOARD_SOCKET` | `$RUN_DIR/helper.sock` | Path socket helper (override penuh) |
@@ -893,7 +898,8 @@ Semua lewat environment variable; nilai di bawah adalah default.
 | `DASHBOARD_SECRET` | `$SECRET_DIR/secret.key` | File HMAC secret helper (0640, milik root, grup web app hanya boleh membaca) |
 | `DASHBOARD_DB` | `$STATE_DIR/lindash.db` | Path database SQLite |
 | `DASHBOARD_SESSION_TTL_HOURS` | `12` | Umur session |
-| `DASHBOARD_SECURE_COOKIE` | `false` | Set `true` kalau diakses lewat HTTPS |
+| `DASHBOARD_SECURE_COOKIE` | `false` | Menjadi efektif `true` saat TLS native aktif |
+| `DASHBOARD_TOTP_KEY` | kosong | Path key AES-256-GCM 32-byte untuk mengenkripsi secret TOTP; wajib untuk pengaturan TFA |
 
 ## Model otorisasi
 
@@ -908,15 +914,22 @@ Semua lewat environment variable; nilai di bawah adalah default.
 - **Installer menyiapkan folder ini untuk akun yang sudah ada** di mesin dan
   menaruh kerangkanya di `/etc/skel`, jadi akun baru — dibuat dari panel maupun
   `useradd -m` di terminal — langsung memilikinya tanpa menunggu login.
-- `~/DATA/*` adalah lokasi data utama panel ini. Share Samba bawaan menunjuk ke
-  sana lewat makro `%U` (`/home/%U/DATA/Documents`), sehingga satu share memberi
-  tiap akun folder datanya sendiri.
-- **Share Guest OK di dalam home user memetakan guest ke pemilik foldernya**
-  (`force user = <pemilik>`). Tanpa itu guest berjalan sebagai `nobody`, dan
-  home Ubuntu yang `0750` menolaknya di pintu: Windows menjawab "You do not
-  have permission to access", `log.smbd` mencatat `vfs_ChDir … Permission
-  denied … uid=65534`. Folder milik root tidak dipetakan — `force user = root`
-  berarti seluruh LAN dapat akses root ke path itu.
+- `~/DATA/*` adalah lokasi data utama panel ini. Path `%U` tetap tersedia sebagai
+  mode legacy/manual. Share baru dengan path konkret mendapat satu akun system
+  no-login khusus, password acak yang hanya ditampilkan saat create/rotate, dan
+  ACL read-only/read-write tanpa mengganti owner/group direktori. Menghapus share
+  dari panel menghapus akun/ACL miliknya, tetapi tidak menghapus folder fisik.
+- **Share Guest OK dinonaktifkan.** Panel menolak pembuatan share anonim di
+  helper root dan selalu menulis `guest ok = no`. Pada upgrade, share Guest OK
+  lama milik panel otomatis dimigrasikan menjadi authenticated share. Satu
+  perangkat LAN yang terkena ransomware tidak boleh mendapat akses tulis tanpa
+  kredensial hanya karena mengetahui alamat server.
+- Export NFS baru memakai default `ro,sync,no_subtree_check`; `rw` dan opsi lain
+  tetap dapat dipilih secara eksplisit. NFS tidak setara dengan autentikasi SMB,
+  jadi hindari client `*` pada jaringan yang tidak sepenuhnya tepercaya.
+- TFA kompatibel Google Authenticator dapat diaktifkan dari halaman Akun. Secret
+  TOTP dienkripsi dengan key terpisah dari SQLite, recovery code hanya ditampilkan
+  sekali, dan session/helper capability baru diterbitkan setelah faktor kedua.
 - **Folder data per user** (`~/DATA/AppData`, `~/DATA/Documents`,
   `~/DATA/Downloads`, `~/DATA/Gallery`, `~/DATA/Media`) dibuat otomatis saat
   File Manager dibuka dan muncul di sana sebagai root tersendiri. Semuanya

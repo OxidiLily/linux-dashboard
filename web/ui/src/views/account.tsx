@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { QRCodeSVG } from "qrcode.react"
 import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
@@ -55,6 +56,10 @@ export function AccountView() {
   const [oldPass, setOldPass] = useState("")
   const [newPass, setNewPass] = useState("")
   const [hostname, setHostname] = useState("")
+  const [totpStatus, setTotpStatus] = useState({ enabled: false, recovery_remaining: 0 })
+  const [totpEnroll, setTotpEnroll] = useState<{ secret: string; uri: string } | null>(null)
+  const [totpCode, setTotpCode] = useState("")
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
   const [users, setUsers] = useState<LinuxUser[]>([])
   const [showAddUser, setShowAddUser] = useState(false)
   const [newUserForm, setNewUserForm] = useState({ username: "", password: "", shell: "/bin/bash", sudo: false })
@@ -75,9 +80,40 @@ export function AccountView() {
     } catch {}
   }
 
+  const loadTOTP = async () => {
+    try { setTotpStatus(await apiGet("/api/settings/account/totp")) } catch {}
+  }
+
   useEffect(() => {
     loadUsers()
+    loadTOTP()
   }, [])
+
+  const startTOTP = async () => {
+    const password = await promptDialog({ title: tr("Aktifkan autentikasi dua faktor"), label: tr("Konfirmasi password Linux"), password: true, confirmLabel: tr("Lanjutkan") })
+    if (!password) return
+    try {
+      const enrollment = await apiSend<{ secret: string; uri: string }>("/api/settings/account/totp/enroll", "POST", { password })
+      setTotpEnroll(enrollment); setRecoveryCodes([]); setTotpCode("")
+    } catch (e) { notify.err(trf("Gagal memulai TFA: {0}", pesanError(e))) }
+  }
+
+  const confirmTOTP = async () => {
+    try {
+      const result = await apiSend<{ recovery_codes: string[] }>("/api/settings/account/totp/confirm", "POST", { code: totpCode })
+      setRecoveryCodes(result.recovery_codes); setTotpEnroll(null); setTotpCode(""); await loadTOTP()
+    } catch (e) { notify.err(trf("Kode tidak valid: {0}", pesanError(e))) }
+  }
+
+  const disableTOTP = async () => {
+    const password = await promptDialog({ title: tr("Nonaktifkan autentikasi dua faktor"), label: tr("Konfirmasi password Linux"), password: true, confirmLabel: tr("Nonaktifkan") })
+    if (!password) return
+    try {
+      await apiSend("/api/settings/account/totp", "DELETE", { password })
+      setTotpEnroll(null); setRecoveryCodes([]); await loadTOTP()
+      notify.ok(tr("Autentikasi dua faktor dinonaktifkan."))
+    } catch (e) { notify.err(trf("Gagal menonaktifkan TFA: {0}", pesanError(e))) }
+  }
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -316,6 +352,30 @@ export function AccountView() {
           </Panel>
         )}
       </div>
+
+      <Panel title={tr("Autentikasi Dua Faktor")} hint={totpStatus.enabled ? trf("Aktif · {0} recovery code tersisa", totpStatus.recovery_remaining) : tr("Tidak aktif")}>
+        <div className="space-y-3 text-sm">
+          {!totpStatus.enabled && !totpEnroll && recoveryCodes.length === 0 && (
+            <Button size="sm" onClick={startTOTP}>{tr("Aktifkan dengan Google Authenticator")}</Button>
+          )}
+          {totpEnroll && (
+            <div className="space-y-3">
+              <p className="text-muted-foreground">{tr("Pindai QR, lalu masukkan kode 6 digit untuk mengonfirmasi.")}</p>
+              <div className="w-fit rounded-md bg-white p-3"><QRCodeSVG value={totpEnroll.uri} size={180} /></div>
+              <code className="block break-all rounded bg-secondary p-2 text-xs">{totpEnroll.secret}</code>
+              <div className="flex gap-2"><Input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder={tr("Kode 6 digit")} /><Button onClick={confirmTOTP}>{tr("Konfirmasi")}</Button></div>
+            </div>
+          )}
+          {recoveryCodes.length > 0 && (
+            <div className="rounded-md border border-warn/40 bg-warn/10 p-3">
+              <p className="font-medium">{tr("Simpan recovery codes ini sekarang. Kode hanya ditampilkan sekali.")}</p>
+              <div className="mt-2 grid grid-cols-2 gap-1 font-mono text-xs">{recoveryCodes.map((code) => <span key={code}>{code}</span>)}</div>
+              <Button className="mt-3" size="sm" variant="outline" onClick={() => setRecoveryCodes([])}>{tr("Saya sudah menyimpan")}</Button>
+            </div>
+          )}
+          {totpStatus.enabled && recoveryCodes.length === 0 && <Button size="sm" variant="outline" onClick={disableTOTP}>{tr("Nonaktifkan TFA")}</Button>}
+        </div>
+      </Panel>
 
       {/* Manajemen User Linux (sudo only) */}
       {currentUser?.sudo && (

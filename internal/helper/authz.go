@@ -101,6 +101,7 @@ var sudoRequired = map[string]bool{
 	helperproto.CmdSambaList:       true,
 	helperproto.CmdSambaSave:       true,
 	helperproto.CmdSambaDelete:     true,
+	helperproto.CmdSambaRotate:     true,
 	helperproto.CmdNFSList:         true,
 	helperproto.CmdNFSSave:         true,
 	helperproto.CmdNFSDelete:       true,

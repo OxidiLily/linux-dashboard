@@ -75,6 +75,7 @@ const (
 	CmdSambaList   = "samba.list"
 	CmdSambaSave   = "samba.save"
 	CmdSambaDelete = "samba.delete"
+	CmdSambaRotate = "samba.rotate"
 
 	// User Samba punya database sendiri (smbpasswd), terpisah dari akun Linux —
 	// akun Linux baru TIDAK otomatis bisa dipakai login share.
@@ -469,6 +470,13 @@ type SambaShare struct {
 	External bool `json:"external,omitempty"`
 }
 
+// SambaCredential hanya dikembalikan ketika akun dibuat atau passwordnya
+// diputar. Password plaintext tidak pernah disimpan oleh helper.
+type SambaCredential struct {
+	Username string `json:"username"`
+	Password string `json:"password,omitempty"`
+}
+
 // Fail2banJail menggabungkan konfigurasi jail (jail.local) dengan status
 // runtime-nya (fail2ban-client) — dua hal yang sering tidak sama.
 type Fail2banJail struct {
@@ -748,6 +756,9 @@ type SambaUser struct {
 	Username string `json:"username"`
 	Enabled  bool   `json:"enabled"`
 	Password string `json:"password,omitempty"`
+	// Managed menandai akun system khusus milik satu share. Akun ini hanya
+	// boleh diubah lewat lifecycle share/rotasi, bukan endpoint user generik.
+	Managed bool `json:"managed,omitempty"`
 }
 
 type SambaUserArgs struct {

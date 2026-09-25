@@ -2,27 +2,322 @@ package helper
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
 
 // Share yang dikelola panel ditulis ke file include terpisah, bukan langsung
 // ke smb.conf — supaya konfigurasi manual milik admin tidak pernah tertimpa.
-const (
+//
+// Variabel, bukan konstanta: test menyisipkan berkas di direktori sementara
+// sehingga alur save/delete bisa diuji utuh tanpa menyentuh /etc/samba mesin
+// pengembang. Nilai defaultnya tetap path produksi.
+var (
 	sambaIncludePath = "/etc/samba/lindash-shares.conf"
 	sambaMainConf    = "/etc/samba/smb.conf"
-	sambaIncludeLine = "include = " + sambaIncludePath
+	// Ikut sebagai var karena diturunkan dari sambaMainConf — nilainya sama
+	// persis dengan sebelum konversi const→var.
+	sambaBackupConf = sambaMainConf + ".lindash.bak"
 )
 
 var shareNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$`)
+
+// Manifest adalah bukti bahwa akun system memang dibuat panel. Karena web app
+// memiliki /var/lib/linux-dashboard, menaruhnya di sana membuat proses web yang
+// kompromi mampu memalsukan ownership lalu meminta helper root menghapus akun
+// arbitrary. Lokasi helper ini root-owned dan tidak writable oleh web app.
+var sambaManifestPath = "/var/lib/linux-dashboard-helper/samba-shares.json"
+
+var sambaMu sync.Mutex
+
+type sambaManagedShare struct {
+	Username  string   `json:"username"`
+	UID       int      `json:"uid"`
+	Path      string   `json:"path"`
+	GECOS     string   `json:"gecos"`
+	Ancestors []string `json:"ancestors,omitempty"`
+}
+
+type sambaManifest struct {
+	Shares map[string]sambaManagedShare `json:"shares"`
+}
+
+func bacaManifestSamba() (sambaManifest, error) {
+	m := sambaManifest{Shares: map[string]sambaManagedShare{}}
+	b, err := os.ReadFile(sambaManifestPath)
+	if os.IsNotExist(err) {
+		return m, nil
+	}
+	if err != nil {
+		return m, err
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return m, errInvalid("manifest akun Samba rusak: %v", err)
+	}
+	if m.Shares == nil {
+		m.Shares = map[string]sambaManagedShare{}
+	}
+	return m, nil
+}
+
+// tulisManifestSamba memakai rename pada filesystem yang sama: pembaca tidak
+// pernah melihat JSON setengah tulis. Manifest berisi identitas, bukan password.
+func tulisManifestSamba(m sambaManifest) error {
+	if err := os.MkdirAll(filepath.Dir(sambaManifestPath), 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(sambaManifestPath), ".samba-manifest-*")
+	if err != nil {
+		return err
+	}
+	nama := tmp.Name()
+	defer os.Remove(nama)
+	if err = tmp.Chmod(0o600); err == nil {
+		_, err = tmp.Write(append(b, '\n'))
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if tutup := tmp.Close(); err == nil {
+		err = tutup
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(nama, sambaManifestPath)
+}
+
+func namaAkunShare(name, path string, collision int) string {
+	h := sha256.Sum256([]byte(name + "\x00" + path + "\x00" + strconv.Itoa(collision)))
+	return "lds-" + hex.EncodeToString(h[:])[:16]
+}
+
+func passwordShare() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func perluAkunOtomatis(s helperproto.SambaShare, m sambaManifest) bool {
+	if strings.Contains(s.Path, "%U") {
+		return false
+	}
+	_, ada := m.Shares[s.Name]
+	return !ada
+}
+
+func akunSudahAda(name string) bool { _, err := run("getent", "passwd", name); return err == nil }
+
+func buatAkunShare(s helperproto.SambaShare, m sambaManifest) (sambaManagedShare, string, error) {
+	var username string
+	for i := 0; i < 100; i++ {
+		username = namaAkunShare(s.Name, s.Path, i)
+		if !akunSudahAda(username) {
+			break
+		}
+		username = ""
+	}
+	if username == "" {
+		return sambaManagedShare{}, "", errInvalid("tidak dapat memilih username Samba yang unik")
+	}
+	// Kolon adalah pemisah field /etc/passwd: shadow-utils menolaknya di
+	// --comment ("invalid comment", rc=3), sehingga akun tak pernah terbentuk
+	// di sistem nyata. Spasi diterima dan tetap terbaca utuh oleh getent.
+	gecos := "linux-dashboard samba share " + s.Name
+	if _, err := run("useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--comment", gecos, username); err != nil {
+		return sambaManagedShare{}, "", err
+	}
+	res, err := run("id", "-u", username)
+	if err != nil {
+		_, _ = run("userdel", username)
+		return sambaManagedShare{}, "", err
+	}
+	uid, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
+	if err != nil {
+		_, _ = run("userdel", username)
+		return sambaManagedShare{}, "", errInvalid("UID akun Samba tidak valid")
+	}
+	pass, err := passwordShare()
+	if err != nil {
+		_, _ = run("userdel", username)
+		return sambaManagedShare{}, "", err
+	}
+	if err := setSambaPassword(username, pass); err != nil {
+		_, _ = run("userdel", username)
+		return sambaManagedShare{}, "", err
+	}
+	entry := sambaManagedShare{Username: username, UID: uid, Path: s.Path, GECOS: gecos, Ancestors: ancestorShare(s.Path)}
+	return entry, pass, nil
+}
+
+func ancestorShare(path string) []string {
+	clean := filepath.Clean(path)
+	var out []string
+	for p := filepath.Dir(clean); p != "/" && p != "."; p = filepath.Dir(p) {
+		out = append(out, p)
+	}
+	return out
+}
+
+func pasangACLShare(s helperproto.SambaShare, username string) error {
+	akses := "r-X"
+	if s.Writable {
+		akses = "rwX"
+	}
+	entryRollback := sambaManagedShare{Username: username, Path: s.Path, Ancestors: ancestorShare(s.Path)}
+	gagal := func(err error, pesan string) error {
+		if rbErr := lepasACLShare(entryRollback); rbErr != nil {
+			return errKode(helperproto.ErrBelumTerpasang, pesan+": %v; membersihkan ACL parsial juga gagal: %v", err, rbErr)
+		}
+		return errKode(helperproto.ErrBelumTerpasang, pesan+": %v", err)
+	}
+	// Samba harus dapat menelusuri setiap ancestor menuju share tanpa mengubah
+	// owner/mode. Hanya execute diberikan; entri persis ini dicatat di manifest
+	// lalu dicabut ketika share dihapus.
+	for _, p := range entryRollback.Ancestors {
+		if _, err := run("setfacl", "-m", "u:"+username+":--x", p); err != nil {
+			return gagal(err, "ACL ancestor gagal diterapkan")
+		}
+	}
+	// Access ACL berlaku pada isi yang sudah ada tanpa mengikuti symlink atau
+	// menyeberang filesystem/mount bersarang. setfacl -R tidak punya batas
+	// filesystem, jadi gunakan find -xdev sebagai traversal tunggal.
+	if _, err := run("find", s.Path, "-xdev",
+		"(", "-type", "d", "!", "-samefile", s.Path, "-execdir", "mountpoint", "-q", "--", "{}", ";", "-prune", ")", "-o",
+		"(", "-type", "f", "-o", "-type", "d", ")", "-execdir", "setfacl", "-P", "-m", "u:"+username+":"+akses, "{}", "+"); err != nil {
+		return gagal(err, "ACL gagal; pastikan paket acl dan util-linux terpasang")
+	}
+	// Default ACL dipasang di setiap direktori yang sudah ada agar berkas baru
+	// di subfolder ikut mewarisi akses. -execdir mengurangi race komponen path;
+	// -P menjadi pertahanan tambahan agar setfacl tidak dereference symlink.
+	// mountpoint+prune menolak root filesystem bersarang (termasuk bind mount
+	// dengan device sama); -xdev saja hanya mencegah descent tetapi tetap
+	// menyerahkan direktori mountpoint itu sendiri kepada setfacl.
+	if _, err := run("find", s.Path, "-xdev",
+		"(", "-type", "d", "!", "-samefile", s.Path, "-execdir", "mountpoint", "-q", "--", "{}", ";", "-prune", ")", "-o",
+		"-type", "d", "-execdir", "setfacl", "-P", "-m", "d:u:"+username+":"+akses, "{}", "+"); err != nil {
+		return gagal(err, "default ACL gagal diterapkan")
+	}
+	return nil
+}
+
+// lepasACLShare mencabut seluruh ACL yang dipasang pasangACLShare. Setiap
+// kegagalan DIKEMBALIKAN, tidak ditelan: setfacl yang diam-diam gagal
+// meninggalkan ACE menempel di folder, dan ketika share dihapus akunnya ikut
+// dihapus — ACE yatim lalu diwarisi user lain yang memperoleh UID sama.
+//
+// Subjek ditulis sebagai UID numerik ketika diketahui. Bukti empiris di sesi
+// ini: -x lewat nama keluar status 2 begitu nama tidak lagi ada di passwd
+// (akun sudah terhapus duluan), sedangkan -x by-UID selalu bekerja dan
+// membersihkan entri yang semula dipasang lewat nama, termasuk default ACL.
+// Path yang sudah hilang dari disk dilewati: tidak ada lagi yang bisa
+// dicabut di sana, dan setfacl pada path hilang selalu gagal (exit 1).
+func lepasACLShare(e sambaManagedShare) error {
+	subjek := "u:" + e.Username
+	if e.UID > 0 {
+		subjek = "u:" + strconv.Itoa(e.UID)
+	}
+	var errs []string
+	if _, statErr := os.Stat(e.Path); statErr == nil {
+		if _, err := run("find", e.Path, "-xdev",
+			"(", "-type", "d", "!", "-samefile", e.Path, "-execdir", "mountpoint", "-q", "--", "{}", ";", "-prune", ")", "-o",
+			"(", "-type", "f", "-o", "-type", "d", ")", "-execdir", "setfacl", "-P", "-x", subjek, "{}", "+"); err != nil {
+			errs = append(errs, fmt.Sprintf("ACL isi %s: %v", e.Path, err))
+		}
+		if _, err := run("find", e.Path, "-xdev",
+			"(", "-type", "d", "!", "-samefile", e.Path, "-execdir", "mountpoint", "-q", "--", "{}", ";", "-prune", ")", "-o",
+			"-type", "d", "-execdir", "setfacl", "-P", "-x", "d:"+subjek, "{}", "+"); err != nil {
+			errs = append(errs, fmt.Sprintf("default ACL %s: %v", e.Path, err))
+		}
+	}
+	ancestors := e.Ancestors
+	if len(ancestors) == 0 {
+		ancestors = ancestorShare(e.Path)
+	}
+	for _, p := range ancestors {
+		if _, statErr := os.Stat(p); statErr != nil {
+			continue
+		}
+		if _, err := run("setfacl", "-x", subjek, p); err != nil {
+			errs = append(errs, fmt.Sprintf("ACL ancestor %s: %v", p, err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("pencabutan ACL gagal: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// hapusAkunShareBaru membalik pembuatan akun baru: cabut ACL lebih dulu, baru
+// kredensial dan akunnya. Jika pencabutan ACL gagal, akun TIDAK dihapus —
+// membebaskan UID selama ACE masih menempel membuat user lain yang kelak
+// memperoleh UID sama mewarisi akses folder tersebut. Error yang dikembalikan
+// selalu menyebut akun yang tertinggal supaya bisa dibersihkan manual.
+func hapusAkunShareBaru(e sambaManagedShare) error {
+	if err := lepasACLShare(e); err != nil {
+		return fmt.Errorf("akun %s (UID %d) dibiarkan agar UID tidak dibebaskan dengan ACE menempel; %w", e.Username, e.UID, err)
+	}
+	_, _ = run("smbpasswd", "-x", e.Username)
+	if _, err := run("userdel", e.Username); err != nil {
+		return fmt.Errorf("akun %s gagal dihapus: %w", e.Username, err)
+	}
+	return nil
+}
+
+func validasiIdentitasAkunManaged(e sambaManagedShare) error {
+	res, err := run("getent", "passwd", e.Username)
+	if err != nil {
+		return errInvalid("akun managed %s tidak ditemukan; operasi ditolak", e.Username)
+	}
+	fields := strings.Split(strings.TrimSpace(res.Stdout), ":")
+	if len(fields) < 7 || fields[2] != strconv.Itoa(e.UID) || fields[4] != e.GECOS || fields[6] != "/usr/sbin/nologin" {
+		return errInvalid("identitas akun %s berubah; operasi otomatis ditolak", e.Username)
+	}
+	return nil
+}
+
+func rotateSambaShare(name string) (helperproto.SambaCredential, error) {
+	sambaMu.Lock()
+	defer sambaMu.Unlock()
+	m, err := bacaManifestSamba()
+	if err != nil {
+		return helperproto.SambaCredential{}, err
+	}
+	e, ok := m.Shares[name]
+	if !ok {
+		return helperproto.SambaCredential{}, errInvalid("share bukan akun otomatis milik panel")
+	}
+	if err := validasiIdentitasAkunManaged(e); err != nil {
+		return helperproto.SambaCredential{}, err
+	}
+	pass, err := passwordShare()
+	if err != nil {
+		return helperproto.SambaCredential{}, err
+	}
+	if err := setSambaPassword(e.Username, pass); err != nil {
+		return helperproto.SambaCredential{}, err
+	}
+	return helperproto.SambaCredential{Username: e.Username, Password: pass}, nil
+}
 
 func ensureSambaInclude() error {
 	b, err := os.ReadFile(sambaMainConf)
@@ -37,7 +332,7 @@ func ensureSambaInclude() error {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "\n# ditambahkan oleh linux-dashboard\n%s\n", sambaIncludeLine)
+	_, err = fmt.Fprintf(f, "\n# ditambahkan oleh linux-dashboard\ninclude = %s\n", sambaIncludePath)
 	return err
 }
 
@@ -169,59 +464,142 @@ func sambaShareSistem() []helperproto.SambaShare {
 	return out
 }
 
-func sambaSave(share helperproto.SambaShare) error {
+func validasiSambaShare(share helperproto.SambaShare) error {
 	if !shareNameRe.MatchString(share.Name) {
 		return errInvalid("nama share tidak valid")
 	}
 	if share.Path == "" || !strings.HasPrefix(share.Path, "/") {
 		return errInvalid("path share harus absolut")
 	}
-	if err := cekPathShare(share.Path); err != nil {
-		return err
+	// Akses anonim ke folder jaringan membuat satu perangkat LAN yang terinfeksi
+	// cukup untuk mengenkripsi seluruh isi share. Fitur Guest OK sengaja ditolak
+	// di boundary helper (bukan hanya disembunyikan UI), termasuk untuk klien API
+	// lama atau request yang dibuat langsung.
+	if share.Public {
+		return errInvalid("Guest OK dinonaktifkan demi keamanan — buat user Samba dan gunakan autentikasi")
 	}
 	// Nilai yang ditulis apa adanya ke berkas include tidak boleh mengandung
-	// baris baru: satu "\n" di dalamnya menyisipkan baris konfigurasi Samba
-	// sendiri ke dalam section share — mis. `force user = root`, yang memberi
-	// semua klien SMB akses sebagai root. Komentar sudah lama dibersihkan saat
-	// ditulis; path dan valid users ikut diperiksa di sini karena path bermakro
-	// (`%U`) tidak lagi tertahan os.Stat.
-	for _, v := range append([]string{share.Path, share.SmbUser}, share.ValidUsers...) {
+	// baris baru: satu "\n" di dalamnya menyisipkan directive Samba sendiri.
+	for _, v := range append([]string{share.Path, share.Comment, share.SmbUser}, share.ValidUsers...) {
 		if strings.ContainsAny(v, "\r\n") {
 			return errInvalid("nilai share tidak boleh mengandung baris baru")
 		}
 	}
-	// "guest ok" mematikan autentikasi untuk share ini, jadi daftar valid users
-	// tidak pernah dipakai smbd. Dulu daftar itu dibuang diam-diam saat menulis
-	// smb.conf — user yang sudah dipilih hilang tanpa pesan apa pun.
-	if share.Public && (len(share.ValidUsers) > 0 || share.SmbUser != "") {
-		return errKode(helperproto.ErrGuestOKKonflik, "share Guest OK tidak bisa dibatasi ke user tertentu — matikan Guest OK dulu")
+	return nil
+}
+
+func sambaSave(share helperproto.SambaShare) (helperproto.SambaCredential, error) {
+	sambaMu.Lock()
+	defer sambaMu.Unlock()
+	var credential helperproto.SambaCredential
+	if err := validasiSambaShare(share); err != nil {
+		return credential, err
 	}
-	// Share dengan nama yang sudah dipakai definisi di luar panel tidak boleh
-	// ditulis ke file include: smbd akan melihat dua section bernama sama dan
-	// memakai yang pertama, jadi perubahan dari panel diam-diam tidak berefek.
+	if err := cekPathShare(share.Path); err != nil {
+		return credential, err
+	}
 	for _, ext := range sambaShareSistem() {
 		if ext.Name == share.Name && !punyaPanel(share.Name) {
-			return errInvalid("share %q sudah didefinisikan di smb.conf di luar panel — "+
-				"hapus definisi itu dulu kalau ingin dikelola dari sini", share.Name)
+			return credential, errInvalid("share %q sudah didefinisikan di smb.conf di luar panel — hapus definisi itu dulu kalau ingin dikelola dari sini", share.Name)
 		}
 	}
 	if err := ensureSambaInclude(); err != nil {
-		return err
+		return credential, err
 	}
-	// Kredensial Samba terpisah dari akun Linux (konvensi Samba) — user harus
-	// sudah ada sebagai user Unix, lalu diberi password Samba sendiri.
-	if share.SmbUser != "" && share.SmbPass != "" {
+	// Config dibaca SEBELUM akun atau ACL disentuh. Posisi lama (setelah
+	// buatAkunShare+pasangACLShare) membuat kegagalan membaca config
+	// meninggalkan akun system tanpa entri manifest: tak terlihat di panel,
+	// tak bisa dirotasi, tak pernah dibersihkan.
+	existing, err := sambaList()
+	if err != nil {
+		return credential, err
+	}
+
+	m, err := bacaManifestSamba()
+	if err != nil {
+		return credential, err
+	}
+	entry, managed := m.Shares[share.Name]
+	entryLama := entry
+	pathBerubah := managed && entry.Path != share.Path
+	baru := false
+	if managed {
+		// Manifest hanyalah bukti historis. Pastikan akun live masih identitas
+		// system no-login yang sama sebelum memberinya ACL atau valid_users baru.
+		if err := validasiIdentitasAkunManaged(entry); err != nil {
+			return credential, err
+		}
+		// %U adalah mode legacy/manual: satu path dinamis per user yang login,
+		// bukan resource konkret milik akun service per-share. Mengubah share
+		// managed menjadi %U lewat update akan membuat ACL literal /home/%U gagal
+		// sekaligus mengaburkan kapan akun managed lama boleh dibersihkan.
+		if strings.Contains(share.Path, "%U") {
+			return credential, errInvalid("share dengan akun managed tidak dapat diubah ke path %%U; hapus share lalu buat ulang sebagai share legacy/manual")
+		}
+	}
+	if perluAkunOtomatis(share, m) {
+		entry, credential.Password, err = buatAkunShare(share, m)
+		if err != nil {
+			return helperproto.SambaCredential{}, err
+		}
+		credential.Username, baru = entry.Username, true
+		m.Shares[share.Name], managed = entry, true
+	}
+	if managed {
+		share.ValidUsers = []string{entry.Username}
+		share.SmbUser, share.SmbPass = "", ""
+		if pathBerubah {
+			entry.Path = share.Path
+			entry.Ancestors = ancestorShare(share.Path)
+			m.Shares[share.Name] = entry
+		}
+		// ACL path baru dipasang dahulu. ACL path lama baru dicabut setelah config
+		// baru berhasil aktif, supaya kegagalan update tidak memutus share lama.
+		if err := pasangACLShare(share, entry.Username); err != nil {
+			if baru {
+				if cbErr := hapusAkunShareBaru(entry); cbErr != nil {
+					return helperproto.SambaCredential{}, fmt.Errorf("%v; %w", err, cbErr)
+				}
+			}
+			return helperproto.SambaCredential{}, err
+		}
+	} else if share.SmbUser != "" && share.SmbPass != "" {
 		if err := setSambaPassword(share.SmbUser, share.SmbPass); err != nil {
-			return err
+			return credential, err
 		}
 		if !contains(share.ValidUsers, share.SmbUser) {
 			share.ValidUsers = append(share.ValidUsers, share.SmbUser)
 		}
 	}
 
-	existing, err := sambaList()
-	if err != nil {
-		return err
+	// Simpan snapshot sebelum slice dimutasi agar kegagalan persistence manifest
+	// dapat memulihkan konfigurasi yang benar-benar aktif sebelumnya.
+	existingLama := append([]helperproto.SambaShare(nil), existing...)
+	var shareLama helperproto.SambaShare
+	for _, s := range existingLama {
+		if s.Name == share.Name {
+			shareLama = s
+			break
+		}
+	}
+	// Rollback update path harus mencabut ACL path baru lalu memasang ulang ACL
+	// path lama. Kedua path dapat overlap/berbagi ancestor; hanya mencabut path
+	// baru dapat ikut menghapus ACE lama yang masih diperlukan config restore.
+	rollbackACLPath := func() error {
+		cabutErr := lepasACLShare(entry)
+		var pasangErr error
+		if pathBerubah {
+			pasangErr = pasangACLShare(shareLama, entryLama.Username)
+		}
+		switch {
+		case cabutErr != nil && pasangErr != nil:
+			return fmt.Errorf("cabut ACL path baru gagal: %v; pulihkan ACL path lama juga gagal: %w", cabutErr, pasangErr)
+		case cabutErr != nil:
+			return cabutErr
+		case pasangErr != nil:
+			return fmt.Errorf("pulihkan ACL path lama gagal: %w", pasangErr)
+		}
+		return nil
 	}
 	replaced := false
 	for i := range existing {
@@ -233,7 +611,57 @@ func sambaSave(share helperproto.SambaShare) error {
 	if !replaced {
 		existing = append(existing, share)
 	}
-	return writeSambaShares(existing)
+	if err := writeSambaShares(existing); err != nil {
+		if baru {
+			if cbErr := hapusAkunShareBaru(entry); cbErr != nil {
+				return helperproto.SambaCredential{}, fmt.Errorf("%v; %w", err, cbErr)
+			}
+		} else if pathBerubah {
+			// Config lama dipulihkan writeSambaShares; cabut hanya ACL path baru.
+			if cbErr := rollbackACLPath(); cbErr != nil {
+				return helperproto.SambaCredential{}, fmt.Errorf("%v; %w", err, cbErr)
+			}
+		}
+		return helperproto.SambaCredential{}, err
+	}
+	if managed {
+		if err := tulisManifestSamba(m); err != nil {
+			// Config sudah aktif, tetapi tanpa manifest helper tidak boleh menganggap
+			// akun/ACL sebagai miliknya. Pulihkan config lama dan bersihkan hanya
+			// resource baru; entry lama tetap utuh untuk retry.
+			rollbackErr := writeSambaShares(existingLama)
+			var cleanupErr error
+			if baru {
+				cleanupErr = hapusAkunShareBaru(entry)
+			} else if pathBerubah {
+				cleanupErr = rollbackACLPath()
+			}
+			switch {
+			case rollbackErr != nil && cleanupErr != nil:
+				return helperproto.SambaCredential{}, fmt.Errorf("tulis manifest gagal: %v; rollback config gagal: %v; pembersihan resource baru juga gagal: %w", err, rollbackErr, cleanupErr)
+			case rollbackErr != nil:
+				return helperproto.SambaCredential{}, fmt.Errorf("tulis manifest gagal: %v; rollback config juga gagal: %w", err, rollbackErr)
+			case cleanupErr != nil:
+				return helperproto.SambaCredential{}, fmt.Errorf("tulis manifest gagal: %v; rollback config sukses tetapi pembersihan resource baru gagal: %w", err, cleanupErr)
+			}
+			return helperproto.SambaCredential{}, err
+		}
+		if pathBerubah {
+			if aclErr := lepasACLShare(entryLama); aclErr != nil {
+				// Simpan sudah berhasil dan akunnya tetap (hanya path berubah),
+				// jadi residu ACE bukan risiko pewarisan UID — tetap dilaporkan.
+				return credential, fmt.Errorf("share tersimpan, tetapi ACL lama di %s gagal dicabut: %w", entryLama.Path, aclErr)
+			}
+			// Path lama dan baru dapat overlap serta berbagi ancestor. Revoke
+			// rekursif path lama dapat ikut menghapus ACE path baru; revoke ancestor
+			// lama juga dapat mencabut traversal yang masih diperlukan. Pasang ulang
+			// ACL aktif setelah revoke agar state akhir selalu mengikuti path baru.
+			if aclErr := pasangACLShare(share, entry.Username); aclErr != nil {
+				return credential, fmt.Errorf("share tersimpan dan ACL lama dicabut, tetapi ACL path baru gagal dipulihkan: %w", aclErr)
+			}
+		}
+	}
+	return credential, nil
 }
 
 // cekPathShare memeriksa folder share. Samba mengganti makro `%U` dengan nama
@@ -276,7 +704,30 @@ func punyaPanel(name string) bool {
 	return false
 }
 
+// amankanShareGuestLama menutup Guest OK pada share yang pernah dibuat panel
+// versi lama. Definisi manual di smb.conf tidak disentuh karena bukan milik
+// panel. Share tetap tersedia bagi user Samba terautentikasi.
+func amankanShareGuestLama() error {
+	shares, err := sambaList()
+	if err != nil {
+		return err
+	}
+	diubah := false
+	for i := range shares {
+		if shares[i].Public {
+			shares[i].Public = false
+			diubah = true
+		}
+	}
+	if !diubah {
+		return nil
+	}
+	return writeSambaShares(shares)
+}
+
 func sambaDelete(name string) error {
+	sambaMu.Lock()
+	defer sambaMu.Unlock()
 	if !shareNameRe.MatchString(name) {
 		return errInvalid("nama share tidak valid")
 	}
@@ -284,16 +735,59 @@ func sambaDelete(name string) error {
 	if err != nil {
 		return err
 	}
+	m, err := bacaManifestSamba()
+	if err != nil {
+		return err
+	}
+	e, managed := m.Shares[name]
+	akunAda := false
+	if managed {
+		if _, lookupErr := run("getent", "passwd", e.Username); lookupErr == nil {
+			akunAda = true
+			// Guard ownership diperiksa sebelum share dinonaktifkan. Manifest rusak
+			// atau username yang dipakai ulang tidak boleh menyebabkan outage dulu.
+			if err := validasiIdentitasAkunManaged(e); err != nil {
+				return err
+			}
+		}
+	}
+	// Snapshot sebelum out memutasi backing array yang sama — dipakai untuk
+	// memulihkan config bila pencabutan ACL gagal.
+	existingLama := append([]helperproto.SambaShare(nil), existing...)
 	out := existing[:0]
 	for _, s := range existing {
 		if s.Name != name {
 			out = append(out, s)
 		}
 	}
-	return writeSambaShares(out)
+	// Fail closed: config/restart selesai dahulu, baru ACL dan kredensial dicabut.
+	if err := writeSambaShares(out); err != nil {
+		return err
+	}
+	if !managed {
+		return nil
+	}
+	if err := lepasACLShare(e); err != nil {
+		// ACE masih menempel: akun TIDAK boleh dihapus — membebaskan UID selama
+		// ACE menempel membuat user baru yang memperoleh UID sama mewarisi
+		// akses. Config dipulihkan supaya share tetap utuh dan operasi bisa
+		// diulang setelah masalah ACL-nya beres.
+		if restoreErr := writeSambaShares(existingLama); restoreErr != nil {
+			return fmt.Errorf("pencabutan ACL gagal: %v; memulihkan config juga gagal: %w", err, restoreErr)
+		}
+		return fmt.Errorf("pencabutan ACL gagal; share tidak dihapus dan config dipulihkan: %w", err)
+	}
+	if akunAda {
+		_, _ = run("smbpasswd", "-x", e.Username)
+		if _, err := run("userdel", e.Username); err != nil {
+			return err
+		}
+	}
+	delete(m.Shares, name)
+	return tulisManifestSamba(m)
 }
 
-func writeSambaShares(shares []helperproto.SambaShare) error {
+func renderSambaShares(shares []helperproto.SambaShare) []byte {
 	var b bytes.Buffer
 	b.WriteString("# File ini dikelola oleh linux-dashboard. Perubahan manual akan tertimpa.\n")
 	for _, s := range shares {
@@ -301,21 +795,10 @@ func writeSambaShares(shares []helperproto.SambaShare) error {
 		fmt.Fprintf(&b, "   path = %s\n", s.Path)
 		fmt.Fprintf(&b, "   browseable = yes\n")
 		fmt.Fprintf(&b, "   writable = %s\n", yesNo(s.Writable))
-		fmt.Fprintf(&b, "   guest ok = %s\n", yesNo(s.Public))
-		// Guest berjalan sebagai `nobody`, dan home user di Ubuntu adalah 0750:
-		// share Guest OK yang menunjuk ~/Documents lolos semua pemeriksaan
-		// panel, lalu Windows menjawab "You do not have permission to access"
-		// dan log.smbd berisi `vfs_ChDir ... Permission denied. Current token:
-		// uid=65534`. Guest dipetakan ke pemilik foldernya: itulah yang
-		// dimaksud user saat memilih "siapa pun boleh memakai folder ini" —
-		// dan berkas yang ditaruh klien pun jadi miliknya, bukan milik nobody.
-		// Folder milik root dibiarkan sebagai nobody: force user = root
-		// memberi seluruh LAN akses root ke path itu.
-		if s.Public {
-			if pemilik := pemilikShare(s.Path); pemilik != "" {
-				fmt.Fprintf(&b, "   force user = %s\n", pemilik)
-			}
-		}
+		// Semua share yang dikelola panel wajib terautentikasi. Nilai lama yang
+		// mungkin masih tersimpan juga ditulis ulang fail-closed saat konfigurasi
+		// berikutnya disimpan.
+		fmt.Fprintf(&b, "   guest ok = no\n")
 		if s.Comment != "" {
 			fmt.Fprintf(&b, "   comment = %s\n", strings.ReplaceAll(s.Comment, "\n", " "))
 		}
@@ -323,37 +806,54 @@ func writeSambaShares(shares []helperproto.SambaShare) error {
 			fmt.Fprintf(&b, "   valid users = %s\n", strings.Join(s.ValidUsers, " "))
 		}
 	}
-	if err := os.WriteFile(sambaIncludePath, b.Bytes(), 0o644); err != nil {
-		return err
-	}
-	// testparm menolak config rusak sebelum smbd dijalankan ulang.
-	if _, err := run("testparm", "-s"); err != nil {
-		return errInvalid("konfigurasi Samba ditolak: %v", err)
-	}
-	// restart, bukan reload: smbd memberi tiap klien proses anak sendiri yang
-	// memegang salinan konfigurasi dari saat klien menyambung. reload hanya
-	// dibaca proses induk, jadi klien yang sedang terhubung tetap memakai
-	// konfigurasi lama sampai ia menyambung ulang — dan Windows menahan sesi
-	// SMB-nya berjam-jam. Efeknya `valid users` dan password yang baru ditulis
-	// tidak berlaku untuk klien itu, sementara panel melapor sukses: share
-	// terlihat sudah dibatasi padahal sesi lama masih jalan sebagai guest.
-	// Harganya, transfer yang sedang berjalan ikut terputus saat share diubah.
-	_, err := run("systemctl", "restart", "smbd")
-	return err
+	return b.Bytes()
 }
 
-// pemilikShare = nama user pemilik folder share, atau "" kalau root, tidak
-// terbaca, atau path bermakro %U (yang baru ada saat klien menyambung).
-func pemilikShare(path string) string {
-	uid := pemilikBerkas(path)
-	if uid <= 0 {
-		return ""
+func writeSambaShares(shares []helperproto.SambaShare) error {
+	baru := renderSambaShares(shares)
+	lama, readErr := os.ReadFile(sambaIncludePath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
 	}
-	u, err := user.LookupId(strconv.Itoa(uid))
+	dir := filepath.Dir(sambaIncludePath)
+	tmp, err := os.CreateTemp(dir, ".lindash-shares-*")
 	if err != nil {
-		return ""
+		return err
 	}
-	return u.Username
+	nama := tmp.Name()
+	defer os.Remove(nama)
+	if err = tmp.Chmod(0o644); err == nil {
+		_, err = tmp.Write(baru)
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if tutup := tmp.Close(); err == nil {
+		err = tutup
+	}
+	if err == nil {
+		err = os.Rename(nama, sambaIncludePath)
+	}
+	if err != nil {
+		return err
+	}
+	rollback := func() {
+		if readErr == nil {
+			_ = os.WriteFile(sambaIncludePath, lama, 0o644)
+		} else {
+			_ = os.Remove(sambaIncludePath)
+		}
+	}
+	if _, err := run("testparm", "-s"); err != nil {
+		rollback()
+		return errInvalid("konfigurasi Samba ditolak: %v", err)
+	}
+	if _, err := run("systemctl", "restart", "smbd"); err != nil {
+		rollback()
+		_, _ = run("systemctl", "restart", "smbd")
+		return err
+	}
+	return nil
 }
 
 func yesNo(b bool) string {
@@ -378,13 +878,8 @@ func setSambaPassword(username, password string) error {
 	if !usernameRe.MatchString(username) {
 		return errInvalid("username Samba tidak valid")
 	}
-	cmd := exec.Command("smbpasswd", "-a", "-s", username)
-	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
-	cmd.Stdin = strings.NewReader(password + "\n" + password + "\n")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return errInvalid("set password Samba gagal: %s", strings.TrimSpace(stderr.String()))
+	if _, err := runStdin(password+"\n"+password+"\n", "smbpasswd", "-a", "-s", username); err != nil {
+		return errInvalid("set password Samba gagal: %v", err)
 	}
 	_, err := run("smbpasswd", "-e", username)
 	return err
@@ -400,6 +895,12 @@ func sambaUserList() ([]helperproto.SambaUser, error) {
 	if err != nil {
 		return []helperproto.SambaUser{}, nil // samba belum terpasang / db kosong
 	}
+	managed := map[string]bool{}
+	if m, manifestErr := bacaManifestSamba(); manifestErr == nil {
+		for _, e := range m.Shares {
+			managed[e.Username] = true
+		}
+	}
 	var out []helperproto.SambaUser
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		name, _, ok := strings.Cut(strings.TrimSpace(line), ":")
@@ -412,7 +913,7 @@ func sambaUserList() ([]helperproto.SambaUser, error) {
 		if name == "root" {
 			continue
 		}
-		out = append(out, helperproto.SambaUser{Username: name, Enabled: sambaUserEnabled(name)})
+		out = append(out, helperproto.SambaUser{Username: name, Enabled: sambaUserEnabled(name), Managed: managed[name]})
 	}
 	return out, nil
 }
@@ -433,9 +934,31 @@ func sambaUserEnabled(name string) bool {
 	return true
 }
 
+func akunManagedSamba(username string) (bool, error) {
+	m, err := bacaManifestSamba()
+	if err != nil {
+		return false, err
+	}
+	for _, e := range m.Shares {
+		if e.Username == username {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func sambaUserSet(args helperproto.SambaUserArgs) error {
+	sambaMu.Lock()
+	defer sambaMu.Unlock()
 	if !usernameRe.MatchString(args.Username) {
 		return errInvalid("username Samba tidak valid")
+	}
+	managed, err := akunManagedSamba(args.Username)
+	if err != nil {
+		return err
+	}
+	if managed {
+		return errInvalid("akun Samba %q dikelola otomatis oleh share; gunakan rotasi password pada share", args.Username)
 	}
 	// smbpasswd hanya menerima user yang sudah ada di Unix — kalau tidak, entri
 	// dibuat tapi share tetap menolak login karena tidak ada UID yang cocok.
@@ -460,6 +983,8 @@ func sambaUserSet(args helperproto.SambaUserArgs) error {
 }
 
 func sambaUserDelete(username string) error {
+	sambaMu.Lock()
+	defer sambaMu.Unlock()
 	if !usernameRe.MatchString(username) {
 		return errInvalid("username Samba tidak valid")
 	}
@@ -470,49 +995,45 @@ func sambaUserDelete(username string) error {
 	if username == "root" {
 		return errInvalid("user Samba \"root\" tidak bisa dihapus — itu akun sistem yang dipakai proses internal Samba")
 	}
-	if _, err := run("smbpasswd", "-x", username); err != nil {
+	managed, err := akunManagedSamba(username)
+	if err != nil {
 		return err
 	}
-	// Share yang memakai user ini jadi menunjuk akun yang tidak ada lagi.
+	if managed {
+		return errInvalid("akun Samba %q dikelola otomatis oleh share; hapus share untuk membersihkan akun", username)
+	}
+	// Jangan pernah membuang kredensial lebih dahulu lalu mencoba memperbaiki
+	// config. Jika user masih direferensikan, operator harus memindahkan share
+	// secara eksplisit; ini menjaga valid_users tetap fail-closed.
 	shares, err := sambaList()
 	if err != nil {
-		return nil
+		return err
 	}
-	ubah := false
-	for i := range shares {
-		sisa := shares[i].ValidUsers[:0]
-		for _, u := range shares[i].ValidUsers {
-			if u != username {
-				sisa = append(sisa, u)
-			} else {
-				ubah = true
-			}
+	for _, share := range shares {
+		if contains(share.ValidUsers, username) {
+			return errInvalid("user Samba %q masih dipakai share %q; ubah share terlebih dahulu", username, share.Name)
 		}
-		shares[i].ValidUsers = sisa
 	}
-	if !ubah {
-		return nil
-	}
-	return writeSambaShares(shares)
+	_, err = run("smbpasswd", "-x", username)
+	return err
 }
 
 // ---- prasyarat audit autentikasi (dipakai jail fail2ban) ----
 
 const (
 	sambaTandaGlobal = "# ---- linux-dashboard: audit autentikasi (untuk fail2ban) ----"
-	sambaBackupConf  = sambaMainConf + ".lindash.bak"
 
-	sambaBarisMapToGuest = "   map to guest = Bad User"
+	sambaBarisMapToGuest = "   map to guest = Never"
 	// Persis seperti yang ditulis versi panel terdahulu — dicocokkan apa
 	// adanya supaya baris milik admin yang kebetulan bernilai sama tidak
 	// ikut tersentuh.
-	sambaBarisMapToGuestLama = "   map to guest = Never"
+	sambaBarisMapToGuestLama = "   map to guest = Bad User"
 )
 
-// perbaikiMapToGuestLama mengganti satu baris `map to guest = Never` yang
-// pernah ditulis panel di dalam bloknya sendiri. Dijalankan tiap kali blok
-// sudah ada, jadi server yang terlanjur dipatch versi lama ikut sembuh tanpa
-// perlu admin menghapus bloknya dengan tangan.
+// perbaikiMapToGuestLama mengganti `map to guest = Bad User` yang pernah
+// ditulis panel di dalam bloknya sendiri. Dijalankan tiap kali blok sudah ada,
+// jadi server lama ikut menolak pemetaan username tak dikenal ke guest tanpa
+// perlu admin mengedit smb.conf dengan tangan.
 func perbaikiMapToGuestLama(isi string, asli []byte) error {
 	baris := strings.Split(isi, "\n")
 	tandaKetemu := false
@@ -553,25 +1074,10 @@ func perbaikiMapToGuestLama(isi string, asli []byte) error {
 // pastikanGlobalAuditSamba menyiapkan [global] supaya kegagalan login Samba
 // benar-benar tercatat dan bisa dibaca fail2ban. Dua setelan dibutuhkan:
 //
-//   - map to guest = Bad User. Nilai ini menentukan apa yang terjadi pada
-//     username yang tidak dikenal: "Bad User" memetakannya ke akun guest,
-//     "Never" menolaknya.
-//
-//     Versi pertama blok ini memakai Never, dengan alasan yang benar tapi
-//     akibat yang tidak diperiksa: percobaan login memang jadi tercatat
-//     sebagai NT_STATUS_LOGON_FAILURE, TAPI share "guest ok = yes" berhenti
-//     bekerja sama sekali. Klien yang menyambung tanpa kredensial datang
-//     sebagai sesi anonim, dan Never menolaknya — Windows lalu menampilkan
-//     kotak minta username/password untuk share yang justru dibuat supaya
-//     tidak perlu login. Satu setelan audit mematikan satu fitur produk.
-//
-//     Bad User mengembalikan guest tanpa membuat fail2ban buta: brute force
-//     nyata menyasar akun yang ADA (root, admin, nama user server), dan untuk
-//     username yang dikenal dengan password salah Samba tetap menolak dan
-//     tetap mencetak NT_STATUS_LOGON_FAILURE. Yang lolos dari catatan hanya
-//     percobaan dengan username yang tidak ada sama sekali — dan itu memang
-//     tidak bisa menembus apa pun selain share yang sengaja dibuka untuk
-//     umum.
+//   - map to guest = Never. Username yang tidak dikenal harus ditolak, bukan
+//     diam-diam dipetakan ke akun guest. Share anonim tidak disediakan panel:
+//     satu klien LAN yang terinfeksi ransomware tidak boleh memperoleh akses
+//     tulis hanya karena mengetahui alamat server.
 //
 //   - log level = 0 auth_audit:3. Level umum tetap 0 supaya log tidak
 //     membengkak; hanya kelas auth_audit yang dinaikkan, dan itulah yang
@@ -593,11 +1099,9 @@ func pastikanGlobalAuditSamba() error {
 	// membuang bloknya, itu keputusannya, bukan sesuatu yang panel pulihkan
 	// diam-diam di belakangnya.
 	//
-	// Satu pengecualian: `map to guest = Never` yang ditulis versi panel
-	// terdahulu. Itu bukan keputusan admin melainkan bug panel, dan selama
-	// baris itu ada tidak ada satu pun share guest yang bisa dipakai. Yang
-	// diperbaiki hanya baris itu, hanya kalau masih persis seperti yang
-	// dulu ditulis panel sendiri.
+	// Satu pengecualian: `map to guest = Bad User` yang ditulis versi panel
+	// terdahulu. Baris milik panel itu dimigrasikan ke kebijakan fail-closed;
+	// baris admin di luar blok tidak disentuh.
 	if strings.Contains(isi, sambaTandaGlobal) {
 		return perbaikiMapToGuestLama(isi, b)
 	}
@@ -729,4 +1233,3 @@ func purgeSamba() error {
 	bersihkanSambaKonfigurasi()
 	return aptPurge("samba", "smbd", "nmbd", "samba-common", "samba-common-bin")
 }
-

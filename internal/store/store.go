@@ -98,6 +98,21 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at DATETIME NOT NULL,
   helper_token TEXT
 );
+
+CREATE TABLE IF NOT EXISTS user_totp (
+  username TEXT PRIMARY KEY,
+  secret_ciphertext BLOB NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  last_counter INTEGER NOT NULL DEFAULT -1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS user_totp_recovery (
+  username TEXT NOT NULL,
+  code_hash BLOB NOT NULL,
+  PRIMARY KEY(username, code_hash),
+  FOREIGN KEY(username) REFERENCES user_totp(username) ON DELETE CASCADE
+);
 `
 
 // Ambang default per metrik. Network sengaja tidak ada di sini: tanpa deteksi
@@ -155,6 +170,127 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// ---- TOTP ----
+
+type TOTPStatus struct {
+	Enabled           bool `json:"enabled"`
+	RecoveryRemaining int  `json:"recovery_remaining"`
+}
+
+func (s *Store) SetTOTPPending(username string, ciphertext []byte) error {
+	_, err := s.db.Exec(`INSERT INTO user_totp(username, secret_ciphertext, enabled, last_counter, updated_at)
+VALUES(?,?,0,-1,CURRENT_TIMESTAMP)
+ON CONFLICT(username) DO UPDATE SET secret_ciphertext=excluded.secret_ciphertext, enabled=0,
+last_counter=-1, updated_at=CURRENT_TIMESTAMP`, username, ciphertext)
+	if err == nil {
+		_, err = s.db.Exec(`DELETE FROM user_totp_recovery WHERE username=?`, username)
+	}
+	return err
+}
+
+func (s *Store) TOTPPending(username string) ([]byte, bool, error) {
+	var b []byte
+	err := s.db.QueryRow(`SELECT secret_ciphertext FROM user_totp WHERE username=? AND enabled=0`, username).Scan(&b)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	return b, err == nil, err
+}
+
+func (s *Store) TOTPSecret(username string) ([]byte, bool, error) {
+	var b []byte
+	err := s.db.QueryRow(`SELECT secret_ciphertext FROM user_totp WHERE username=? AND enabled=1`, username).Scan(&b)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	return b, err == nil, err
+}
+
+func (s *Store) EnableTOTP(username string, recoveryHashes [][]byte) error {
+	return s.EnableTOTPAt(username, recoveryHashes, -1)
+}
+
+func (s *Store) EnableTOTPAt(username string, recoveryHashes [][]byte, lastCounter int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE user_totp SET enabled=1,last_counter=?,updated_at=CURRENT_TIMESTAMP WHERE username=?`, lastCounter, username)
+	if err != nil {
+		return err
+	}
+	if err = mustAffect(res); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM user_totp_recovery WHERE username=?`, username); err != nil {
+		return err
+	}
+	for _, hash := range recoveryHashes {
+		if _, err = tx.Exec(`INSERT INTO user_totp_recovery(username,code_hash) VALUES(?,?)`, username, hash); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) TOTPStatus(username string) (TOTPStatus, error) {
+	var enabled int
+	err := s.db.QueryRow(`SELECT enabled FROM user_totp WHERE username=?`, username).Scan(&enabled)
+	if err == sql.ErrNoRows {
+		return TOTPStatus{}, nil
+	}
+	if err != nil {
+		return TOTPStatus{}, err
+	}
+	var count int
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM user_totp_recovery WHERE username=?`, username).Scan(&count); err != nil {
+		return TOTPStatus{}, err
+	}
+	return TOTPStatus{Enabled: enabled == 1, RecoveryRemaining: count}, nil
+}
+
+func (s *Store) AdvanceTOTPCounter(username string, counter int64) (bool, error) {
+	res, err := s.db.Exec(`UPDATE user_totp SET last_counter=?,updated_at=CURRENT_TIMESTAMP WHERE username=? AND enabled=1 AND last_counter < ?`, counter, username, counter)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+func (s *Store) ConsumeTOTPRecovery(username string, hash []byte) (bool, error) {
+	res, err := s.db.Exec(`DELETE FROM user_totp_recovery WHERE username=? AND code_hash=?`, username, hash)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+func (s *Store) DisableTOTP(username string) error {
+	_, err := s.db.Exec(`DELETE FROM user_totp WHERE username=?`, username)
+	return err
+}
+
+// DeleteUserSecurityState membuang faktor kedua milik identitas Linux yang
+// sudah dihapus. Username dapat dibuat ulang dengan UID/orang berbeda; seed dan
+// recovery code lama tidak boleh diwariskan ke identitas baru itu.
+func (s *Store) DeleteUserSecurityState(username string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`DELETE FROM sessions WHERE username=?`, username); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM user_totp WHERE username=?`, username); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
 // ---- sessions ----
 

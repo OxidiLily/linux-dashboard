@@ -33,6 +33,11 @@ type Server struct {
 	static    http.Handler
 	usage     *usageCache
 
+	// Tantangan faktor kedua hanya hidup di memori. Token helper tidak pernah
+	// dikirim ke browser atau ditulis ke SQLite sebelum TOTP berhasil.
+	totpMu         sync.Mutex
+	totpChallenges map[string]totpChallenge
+
 	// sudoMu/sudoCek mencatat kapan status sudo tiap sesi terakhir diperiksa
 	// ke helper (id sesi → waktu pemeriksaan). Sengaja di memori saja: ini
 	// hanya penghemat perjalanan ke helper, bukan data yang perlu bertahan
@@ -50,28 +55,32 @@ type Server struct {
 
 func New(cfg config.Config, st *store.Store, hc *helperclient.Client, col *metrics.Collector, static http.Handler) *Server {
 	s := &Server{
-		cfg:         cfg,
-		store:       st,
-		helper:      hc,
-		collector:   col,
-		terminals:   terminal.NewRegistry(),
-		throttle:    newThrottle(),
-		usage:       newUsageCache(),
-		static:      static,
-		wsIntervals: map[int64]time.Duration{},
-		sudoCek:     map[string]time.Time{},
+		cfg:            cfg,
+		store:          st,
+		helper:         hc,
+		collector:      col,
+		terminals:      terminal.NewRegistry(),
+		throttle:       newThrottle(),
+		usage:          newUsageCache(),
+		static:         static,
+		totpChallenges: map[string]totpChallenge{},
+		wsIntervals:    map[int64]time.Duration{},
+		sudoCek:        map[string]time.Time{},
 	}
 	go s.gcThrottle()
 	return s
 }
 
-// gcThrottle menyapu catatan percobaan login yang sudah lewat jendelanya.
-// Penyapuan juga terjadi saat ada percobaan baru, tapi key milik username acak
-// yang tidak pernah dicoba lagi hanya hilang kalau disapu dari sini.
+// gcThrottle menyapu catatan percobaan login yang sudah lewat jendelanya, plus
+// tantangan TOTP kedaluwarsa beserta token helper di dalamnya. Penyapuan juga
+// terjadi saat ada percobaan baru, tapi key milik username acak yang tidak
+// pernah dicoba lagi hanya hilang kalau disapu dari sini.
 func (s *Server) gcThrottle() {
 	t := time.NewTicker(10 * time.Minute)
 	for range t.C {
-		s.throttle.gc(time.Now())
+		now := time.Now()
+		s.throttle.gc(now)
+		s.gcTOTPChallenge(now)
 	}
 }
 
@@ -91,6 +100,7 @@ func (s *Server) Routes() http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/auth/login", s.handleLogin)
+		r.Post("/auth/totp", s.handleTOTPLogin)
 		// Nama host dipakai halaman login, jadi harus bisa dibaca sebelum ada
 		// sesi. Yang dibuka hanya nama mesin — sama dengan yang sudah terlihat
 		// dari sertifikat TLS, DNS, atau banner SSH di jaringan yang sama.
@@ -165,6 +175,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/samba/shares", s.handleSambaSave)
 			r.Put("/samba/shares", s.handleSambaSave)
 			r.Delete("/samba/shares/{name}", s.handleSambaDelete)
+			r.Post("/samba/shares/{name}/rotate", s.handleSambaRotate)
 			r.Get("/samba/users", s.handleSambaUserList)
 			r.Post("/samba/users", s.handleSambaUserSave)
 			r.Put("/samba/users/{name}", s.handleSambaUserSave)
@@ -189,6 +200,10 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/logs/notifications", s.handleLogNotifikasi)
 
 			r.Put("/settings/account/password", s.handleChangePassword)
+			r.Get("/settings/account/totp", s.handleTOTPStatus)
+			r.Post("/settings/account/totp/enroll", s.handleTOTPEnroll)
+			r.Post("/settings/account/totp/confirm", s.handleTOTPConfirm)
+			r.Delete("/settings/account/totp", s.handleTOTPDisable)
 			r.Put("/settings/account/hostname", s.handleSetHostname)
 			r.Get("/settings/account/users", s.handleUserList)
 			r.Post("/settings/account/users", s.handleUserCreate)

@@ -124,6 +124,18 @@ func NewServer(socketPath, secretPath, legacySecretPath, socketGroup string) (*S
 	}
 	go s.gcNonces()
 	go s.gcTokens()
+	// Migrasikan blok global yang pernah ditulis panel dari Bad User ke Never
+	// pada setiap start helper. Ini juga mengamankan instalasi lama tanpa perlu
+	// menunggu Samba/fail2ban dipasang ulang. Config admin di luar blok panel
+	// tetap tidak disentuh.
+	if installed("smbd") {
+		if err := pastikanGlobalAuditSamba(); err != nil {
+			log.Printf("peringatan: hardening global Samba gagal: %v", err)
+		}
+		if err := amankanShareGuestLama(); err != nil {
+			log.Printf("peringatan: migrasi share Guest OK gagal: %v", err)
+		}
+	}
 	go daftarkanPortSemuaKomponen()
 	// Port container menyusul di latar: daftarnya hanya bisa diketahui dengan
 	// bertanya ke docker, dan panel tidak boleh menunggu jawabannya saat start.
@@ -509,7 +521,13 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		return nil, sambaSave(args)
+		return jsonOf(sambaSave(args))
+	case helperproto.CmdSambaRotate:
+		args, err := decodeArgs[helperproto.PathArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(rotateSambaShare(args.Path))
 	case helperproto.CmdSambaDelete:
 		args, err := decodeArgs[helperproto.PathArgs](req)
 		if err != nil {
