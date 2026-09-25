@@ -28,6 +28,8 @@ import { tr, trf } from "@/stores/i18n"
 import { simpanBahasaPralogin, usePrefs } from "@/stores/prefs"
 import { cariBerkas, detailItemLog, rootAktif } from "@/views/files"
 import { bacaCrontab, cariJadwal, ukuranByte, ukuranCrontabTersimpan } from "@/views/cron"
+import { isianCertificatesValid } from "@/views/certificates"
+
 
 const gagal: string[] = []
 let jumlah = 0
@@ -188,6 +190,13 @@ cek(String(ukuranByte("é")), "2", "cron/byte-aksen")
 cek(String(ukuranByte("🇮🇩")), "8", "cron/byte-emoji")
 cek(String(ukuranCrontabTersimpan("abc")), "4", "cron/byte-termasuk-newline-otomatis")
 cek(String(ukuranCrontabTersimpan("abc\n")), "4", "cron/byte-newline-tidak-dobel")
+
+// Certificates: dua path wajib diisi bersama; menonaktifkan TLS berarti keduanya kosong.
+cek(String(isianCertificatesValid("", "")), "true", "certificates/nonaktif")
+cek(String(isianCertificatesValid("/cert.pem", "/key.pem")), "true", "certificates/pasangan")
+cek(String(isianCertificatesValid("/cert.pem", "")), "false", "certificates/key-kosong")
+cek(String(isianCertificatesValid("", "/key.pem")), "false", "certificates/cert-kosong")
+cek(String(isianCertificatesValid("cert.pem", "key.pem")), "false", "certificates/path-relatif")
 
 // Dialog isian: tombol simpan mati untuk isian kosong/spasi saja.
 cek(String(isiValid("")), "false", "prompt/kosong")

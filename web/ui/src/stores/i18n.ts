@@ -24,6 +24,7 @@ const kamus: Kamus = {
   "nav.settings": { id: "Settings", en: "Settings" },
   "nav.account": { id: "Akun", en: "Account" },
   "nav.network": { id: "Network", en: "Network" },
+  "nav.certificates": { id: "Certificates", en: "Certificates" },
   "nav.firewall": { id: "Firewall", en: "Firewall" },
   "nav.fail2ban": { id: "Fail2ban", en: "Fail2ban" },
   "nav.alerts": { id: "Alert Thresholds", en: "Alert Thresholds" },

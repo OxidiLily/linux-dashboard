@@ -30,6 +30,7 @@ import {
   ChevronsUpDown,
   Bot,
   CalendarClock,
+  KeyRound,
 } from "lucide-react"
 import { apiGet, apiSend } from "@/lib/api"
 import { pesanError } from "@/lib/pesan-error"
@@ -101,6 +102,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/settings/account", label: "nav.account", icon: UserCog, tersembunyi: true },
       { to: "/settings/network", label: "nav.network", icon: Network },
+      { to: "/settings/certificates", label: "nav.certificates", icon: KeyRound, sudo: true },
       { to: "/settings/firewall", label: "nav.firewall", icon: ShieldAlert, sudo: true },
       { to: "/settings/fail2ban", label: "nav.fail2ban", icon: ShieldBan, sudo: true },
       { to: "/settings/alerts", label: "nav.alerts", icon: Gauge },

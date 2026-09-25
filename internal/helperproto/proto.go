@@ -43,6 +43,12 @@ const (
 	CmdNetIfaceGet    = "net.iface_get"
 	CmdNetIfaceSet    = "net.iface_set"
 
+	// Certificates mengelola DASHBOARD_TLS_CERT/DASHBOARD_TLS_KEY pada
+	// /etc/default/linux-dashboard. Keduanya privileged karena berkas itu milik
+	// root dan perubahan memerlukan restart web app.
+	CmdCertificatesGet = "certificates.get"
+	CmdCertificatesSet = "certificates.set"
+
 	CmdProcKill = "proc.kill"
 
 	CmdSvcAction = "svc.action"
@@ -947,6 +953,28 @@ func Verify(secret, payload []byte, sig string) bool {
 
 // UpdateStatus melaporkan pembaruan panel dari repo: versi yang terpasang,
 // versi di remote, dan jalannya proses build+install yang sedang berlangsung.
+// CertificatesStatus adalah keadaan TLS langsung milik web app. Private key
+// tidak pernah dibaca atau dikirim; yang keluar hanya path dan metadata cert.
+type CertificatesStatus struct {
+	CertPath  string   `json:"cert_path"`
+	KeyPath   string   `json:"key_path"`
+	Active    bool     `json:"active"`
+	Valid     bool     `json:"valid"`
+	Subject   string   `json:"subject,omitempty"`
+	Issuer    string   `json:"issuer,omitempty"`
+	NotBefore string   `json:"not_before,omitempty"`
+	NotAfter  string   `json:"not_after,omitempty"`
+	DNSNames  []string `json:"dns_names,omitempty"`
+	Error     string   `json:"error,omitempty"`
+}
+
+// CertificatesSetArgs menyalakan TLS bila kedua path terisi, atau mematikannya
+// bila keduanya kosong. Kombinasi separuh selalu ditolak.
+type CertificatesSetArgs struct {
+	CertPath string `json:"cert_path"`
+	KeyPath  string `json:"key_path"`
+}
+
 type UpdateStatus struct {
 	Running bool `json:"running"`
 	// Log adalah ekor keluaran skrip pembaruan apa adanya — dipakai UI sebagai

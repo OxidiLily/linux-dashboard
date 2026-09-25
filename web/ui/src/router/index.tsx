@@ -39,6 +39,7 @@ const FileOperationsView = rute("/logs/file-operations", "FileOperationsView")
 const ActivityLogsView = rute("/logs/activity", "ActivityLogsView")
 const AccountView = rute("/settings/account", "AccountView")
 const NetworkView = rute("/settings/network", "NetworkView")
+const CertificatesView = rute("/settings/certificates", "CertificatesView")
 const FirewallView = rute("/settings/firewall", "FirewallView")
 const AlertThresholdsView = rute("/settings/alerts", "AlertThresholdsView")
 const ComponentsView = rute("/settings/components", "ComponentsView")
@@ -129,6 +130,7 @@ export const router = createBrowserRouter([
       { path: "logs/activity", element: <Lazy><ActivityLogsView /></Lazy> },
       { path: "settings/account", element: <Lazy><AccountView /></Lazy> },
       { path: "settings/network", element: <Lazy><NetworkView /></Lazy> },
+      { path: "settings/certificates", element: <Lazy><CertificatesView /></Lazy> },
       { path: "settings/firewall", element: <Lazy><FirewallView /></Lazy> },
       { path: "settings/fail2ban", element: <Dijaga name="fail2ban" label="fail2ban"><Fail2banView /></Dijaga> },
       { path: "settings/alerts", element: <Lazy><AlertThresholdsView /></Lazy> },
