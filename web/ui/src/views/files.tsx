@@ -195,6 +195,31 @@ export function detailItemLog(paths: string[]): string {
   return [...tampil, `… ${paths.length - tampil.length} item lain tidak ditampilkan.`].join("\n")
 }
 
+// Daftar direktori harus dibaca lagi setelah setiap percobaan upload. Response
+// bisa gagal setelah sebagian/seluruh berkas sudah tersimpan (mis. batas jumlah
+// part menghasilkan 413); tanpa finally, UI tetap basi sampai browser direfresh.
+export async function unggahLaluMuatUlang(
+  unggah: () => Promise<void>,
+  muatUlang: () => Promise<unknown>,
+): Promise<void> {
+  let errorUpload: unknown
+  try {
+    await unggah()
+  } catch (error) {
+    errorUpload = error
+  }
+
+  try {
+    await muatUlang()
+  } catch (errorMuat) {
+    // Kalau upload-nya sendiri berhasil, kegagalan refresh tetap harus terlihat.
+    // Kalau keduanya gagal, pertahankan sebab utama agar 413/error jaringan tidak
+    // berubah menjadi pesan sekunder dari pembacaan daftar.
+    if (errorUpload === undefined) throw errorMuat
+  }
+  if (errorUpload !== undefined) throw errorUpload
+}
+
 // Hasil pencarian rekursif dari server. Bentuknya sengaja tidak sama dengan
 // FileEntry: yang dibutuhkan baris hasil hanyalah nama, lokasi, dan ukuran,
 // dan `rel` (lokasi relatif ke folder awal) hanya ada di sini.
@@ -423,15 +448,18 @@ export function FileManagerView() {
     setLoading(true)
     setUnggahan({ nama, persen: 0, menulis: false })
     try {
-      await kirimUnggahan(
-        formData,
-        (persen) => setUnggahan({ nama, persen, menulis: false }),
-        // 100% terkirim BUKAN 100% selesai: helper masih menulis berkasnya ke
-        // disk, dan untuk folder besar itu bagian yang paling lama. Tanpa
-        // keadaan terpisah ini bar berdiri diam di 100% tanpa keterangan.
-        () => setUnggahan({ nama, persen: 100, menulis: true }),
+      await unggahLaluMuatUlang(
+        () =>
+          kirimUnggahan(
+            formData,
+            (persen) => setUnggahan({ nama, persen, menulis: false }),
+            // 100% terkirim BUKAN 100% selesai: helper masih menulis berkasnya ke
+            // disk, dan untuk folder besar itu bagian yang paling lama. Tanpa
+            // keadaan terpisah ini bar berdiri diam di 100% tanpa keterangan.
+            () => setUnggahan({ nama, persen: 100, menulis: true }),
+          ),
+        () => loadDir(currentPath),
       )
-      loadDir(currentPath)
     } catch (err: any) {
       notify.err(trf("Upload gagal: {0}", pesanError(err)))
     } finally {
