@@ -48,6 +48,9 @@ func pasangClientUji(t *testing.T, rekam *perekam, balasE *helperproto.Response)
 	if err := os.WriteFile(secretPath, []byte("secret-uji-client\n"), 0o600); err != nil {
 		t.Fatalf("tulis secret: %v", err)
 	}
+	if err := os.RemoveAll(sock); err != nil {
+		// ignore if not exists
+	}
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatalf("listen socket: %v", err)

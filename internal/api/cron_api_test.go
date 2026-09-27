@@ -41,8 +41,12 @@ func buatServerTTL(t *testing.T, tiruan *helperTiruan, jam int) (http.Handler, *
 	t.Cleanup(func() { st.Close() })
 
 	hc := pasangHelperTiruan(t, tiruan)
-	// Socket/secret tidak dipakai karena helperclient sudah diganti.
-	cfg := config.Config{Listen: "127.0.0.1:0", SocketPath: filepath.Join(dir, "x.sock"), SecretPath: filepath.Join(dir, "x.key"), SessionTTLHours: jam}
+	// Ensure stale socket removed before binding.
+	sock := filepath.Join(dir, "x.sock")
+	if err := os.RemoveAll(sock); err != nil {
+		// ignore if not exists
+	}
+	cfg := config.Config{Listen: "127.0.0.1:0", SocketPath: sock, SecretPath: filepath.Join(dir, "x.key"), SessionTTLHours: jam}
 	srv := New(cfg, st, hc, metrics.NewCollector(), http.NotFoundHandler())
 	return srv.Routes(), st
 }

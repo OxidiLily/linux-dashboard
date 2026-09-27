@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -36,6 +37,9 @@ func jalankanHelperSocket(t *testing.T) *helperSocketUji {
 	t.Helper()
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "helper.sock")
+	if err := os.RemoveAll(sock); err != nil {
+		// ignore if not exists
+	}
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatalf("listen socket uji: %v", err)

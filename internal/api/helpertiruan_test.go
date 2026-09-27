@@ -107,6 +107,7 @@ func (h *helperTiruan) riwayat() []string {
 // diganti hanya sisi seberangnya.
 func pasangHelperTiruan(t *testing.T, tiruan *helperTiruan) *helperclient.Client {
 	t.Helper()
+	// Use a per-test temporary directory for socket and secret files.
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "helper.sock")
 	secretPath := filepath.Join(dir, "secret.key")
@@ -115,10 +116,15 @@ func pasangHelperTiruan(t *testing.T, tiruan *helperTiruan) *helperclient.Client
 	if err := os.WriteFile(secretPath, []byte(secret+"\n"), 0o600); err != nil {
 		t.Fatalf("tulis secret: %v", err)
 	}
+	// Ensure stale socket removed before binding.
+	if err := os.RemoveAll(sock); err != nil {
+		// ignore if not exists
+	}
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatalf("listen socket: %v", err)
 	}
+
 	t.Cleanup(func() { ln.Close() })
 
 	go func() {

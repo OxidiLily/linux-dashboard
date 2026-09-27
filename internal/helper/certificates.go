@@ -1,13 +1,20 @@
 package helper
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,7 +26,22 @@ import (
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
 
-var dashboardDefaultPath = "/etc/default/linux-dashboard"
+var (
+	dashboardDefaultPath       = "/etc/default/linux-dashboard"
+	certificatesManagedDir     = "/etc/linux-dashboard"
+	pemilikCertificatesManaged = func() (int, int, error) {
+		u, err := user.Lookup("linux-dashboard")
+		if err != nil {
+			return 0, 0, err
+		}
+		uid, err := strconv.Atoi(u.Uid)
+		if err != nil {
+			return 0, 0, err
+		}
+		gid, err := strconv.Atoi(u.Gid)
+		return uid, gid, err
+	}
+)
 
 // Restart dijadwalkan lewat unit transient agar response HTTP sempat kembali ke
 // browser sebelum linux-dashboard-web mematikan proses yang sedang melayaninya.
@@ -72,6 +94,32 @@ func nilaiEnv(isi, key string) string {
 	return ""
 }
 
+func boolEnv(isi, key string) bool {
+	v, err := strconv.ParseBool(nilaiEnv(isi, key))
+	return err == nil && v
+}
+
+func alamatLoopbackCertificate(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func bolehMenonaktifkanTLS(isi string) bool {
+	listen := nilaiEnv(isi, "DASHBOARD_LISTEN")
+	if listen == "" {
+		// Unit bawaan menetapkan bind publik ini sebelum EnvironmentFile dibaca.
+		listen = "0.0.0.0:1122"
+	}
+	return alamatLoopbackCertificate(listen) || boolEnv(isi, "DASHBOARD_ALLOW_PLAINTEXT")
+}
+
 func ubahTLSDefault(isi, certPath, keyPath string) string {
 	var out []string
 	for _, baris := range strings.Split(strings.TrimSuffix(isi, "\n"), "\n") {
@@ -80,6 +128,11 @@ func ubahTLSDefault(isi, certPath, keyPath string) string {
 			continue
 		}
 		out = append(out, baris)
+	}
+	// Explicit Secure cookies belong to an upstream HTTPS terminator; without
+	// that setting, direct HTTP needs non-Secure cookies for login to work.
+	if certPath == "" && keyPath == "" && nilaiEnv(isi, "DASHBOARD_SECURE_COOKIE") == "" {
+		out = append(out, "DASHBOARD_SECURE_COOKIE=false")
 	}
 	if certPath != "" && keyPath != "" {
 		out = append(out,
@@ -181,6 +234,151 @@ func isiMetadataCertificate(st *helperproto.CertificatesStatus, cert *x509.Certi
 	st.DNSNames = append([]string(nil), cert.DNSNames...)
 }
 
+func tulisCertificatesManaged(certPEM, keyPEM []byte, now time.Time) (helperproto.CertificatesStatus, error) {
+	if len(certPEM) == 0 || len(keyPEM) == 0 {
+		return helperproto.CertificatesStatus{}, errInvalid("sertifikat dan private key wajib diisi")
+	}
+	if len(certPEM) > 512<<10 || len(keyPEM) > 512<<10 {
+		return helperproto.CertificatesStatus{}, errInvalid("sertifikat atau private key terlalu besar (maksimal 512 KiB per berkas)")
+	}
+	if _, err := tls.X509KeyPair(certPEM, keyPEM); err != nil {
+		return helperproto.CertificatesStatus{}, errInvalid("sertifikat dan private key tidak valid atau tidak cocok: %v", err)
+	}
+	uid, gid, err := pemilikCertificatesManaged()
+	if err != nil {
+		return helperproto.CertificatesStatus{}, fmt.Errorf("user service linux-dashboard tidak tersedia: %w", err)
+	}
+	if err := os.MkdirAll(certificatesManagedDir, 0o750); err != nil {
+		return helperproto.CertificatesStatus{}, err
+	}
+	if err := os.Chown(certificatesManagedDir, 0, gid); err != nil && os.Geteuid() == 0 {
+		return helperproto.CertificatesStatus{}, err
+	}
+	id := strconv.FormatInt(now.UnixNano(), 36)
+	certPath := filepath.Join(certificatesManagedDir, id+".crt")
+	keyPath := filepath.Join(certificatesManagedDir, id+".key")
+	if err := tulisBerkasTLSAtomic(certPath, certPEM, 0o644, 0, gid); err != nil {
+		return helperproto.CertificatesStatus{}, err
+	}
+	if err := tulisBerkasTLSAtomic(keyPath, keyPEM, 0o640, 0, gid); err != nil {
+		_ = os.Remove(certPath)
+		return helperproto.CertificatesStatus{}, err
+	}
+	_ = uid // UID dipastikan valid; berkas sengaja root-owned dan group-readable.
+	st, err := simpanCertificates(helperproto.CertificatesSetArgs{CertPath: certPath, KeyPath: keyPath}, now)
+	if err != nil {
+		_ = os.Remove(certPath)
+		_ = os.Remove(keyPath)
+		return helperproto.CertificatesStatus{}, err
+	}
+	return st, nil
+}
+
+func tulisBerkasTLSAtomic(path string, isi []byte, mode os.FileMode, uid, gid int) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tls-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chown(uid, gid); err != nil && os.Geteuid() == 0 {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(isi); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+func pasangCertificatesUpload(args helperproto.CertificatesUploadArgs, now time.Time) (helperproto.CertificatesStatus, error) {
+	return tulisCertificatesManaged([]byte(args.CertificatePEM), []byte(args.PrivateKeyPEM), now)
+}
+
+func buatCertificatesSelfSigned(args helperproto.CertificatesSelfSignedArgs, now time.Time) (helperproto.CertificatesStatus, error) {
+	args.CommonName = strings.TrimSpace(args.CommonName)
+	if args.CommonName == "" || len(args.CommonName) > 253 || strings.ContainsAny(args.CommonName, "\r\n\x00") {
+		return helperproto.CertificatesStatus{}, errInvalid("common name wajib diisi dan tidak boleh memuat baris baru")
+	}
+	if args.Days < 1 || args.Days > 825 {
+		return helperproto.CertificatesStatus{}, errInvalid("masa berlaku harus 1–825 hari")
+	}
+	if len(args.DNSNames)+len(args.IPAddresses) > 100 {
+		return helperproto.CertificatesStatus{}, errInvalid("maksimal 100 entri SAN")
+	}
+	dns := make([]string, 0, len(args.DNSNames)+1)
+	seenDNS := map[string]bool{}
+	commonIP := net.ParseIP(args.CommonName)
+	names := args.DNSNames
+	if commonIP == nil {
+		names = append([]string{args.CommonName}, names...)
+	}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || len(name) > 253 || strings.ContainsAny(name, "\r\n\x00") {
+			return helperproto.CertificatesStatus{}, errInvalid("DNS SAN tidak valid")
+		}
+		if !seenDNS[name] {
+			dns = append(dns, name)
+			seenDNS[name] = true
+		}
+	}
+	ips := make([]net.IP, 0, len(args.IPAddresses)+1)
+	if commonIP != nil {
+		ips = append(ips, commonIP)
+	}
+	for _, raw := range args.IPAddresses {
+		ip := net.ParseIP(strings.TrimSpace(raw))
+		if ip == nil {
+			return helperproto.CertificatesStatus{}, errInvalid("IP SAN tidak valid: %s", raw)
+		}
+		ips = append(ips, ip)
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		return helperproto.CertificatesStatus{}, err
+	}
+	serialLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, serialLimit)
+	if err != nil {
+		return helperproto.CertificatesStatus{}, err
+	}
+	tpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: args.CommonName},
+		DNSNames:              dns,
+		IPAddresses:           ips,
+		NotBefore:             now.Add(-5 * time.Minute),
+		NotAfter:              now.Add(time.Duration(args.Days) * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
+	if err != nil {
+		return helperproto.CertificatesStatus{}, err
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return helperproto.CertificatesStatus{}, err
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	return tulisCertificatesManaged(certPEM, keyPEM, now)
+}
+
 func simpanCertificates(args helperproto.CertificatesSetArgs, now time.Time) (helperproto.CertificatesStatus, error) {
 	args.CertPath = strings.TrimSpace(args.CertPath)
 	args.KeyPath = strings.TrimSpace(args.KeyPath)
@@ -203,6 +401,10 @@ func simpanCertificates(args helperproto.CertificatesSetArgs, now time.Time) (he
 	lamaAda := err == nil
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return helperproto.CertificatesStatus{}, err
+	}
+	if args.CertPath == "" && !bolehMenonaktifkanTLS(string(lama)) {
+		return helperproto.CertificatesStatus{}, errInvalid(
+			"TLS tidak boleh dinonaktifkan saat panel bind ke jaringan. Ubah DASHBOARD_LISTEN ke loopback atau set DASHBOARD_ALLOW_PLAINTEXT=true hanya bila TLS diterminasi reverse proxy")
 	}
 	isi := ubahTLSDefault(string(lama), args.CertPath, args.KeyPath)
 	if err := tulisDefaultAtomic(dashboardDefaultPath, []byte(isi)); err != nil {

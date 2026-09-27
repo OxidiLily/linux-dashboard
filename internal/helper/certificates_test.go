@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -78,6 +79,81 @@ func TestUbahTLSDefaultKosongMenonaktifkanTLS(t *testing.T) {
 	}
 }
 
+func TestSimpanCertificatesMenolakTLSKosongPadaBindPublik(t *testing.T) {
+	dir := t.TempDir()
+	defaultPath := filepath.Join(dir, "linux-dashboard")
+	lama := []byte("DASHBOARD_LISTEN=0.0.0.0:1122\nDASHBOARD_TLS_CERT=/lama.crt\nDASHBOARD_TLS_KEY=/lama.key\n")
+	if err := os.WriteFile(defaultPath, lama, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lamaPath := dashboardDefaultPath
+	lamaRestart := jadwalkanRestartWeb
+	dashboardDefaultPath = defaultPath
+	jadwalkanRestartWeb = func() error { return nil }
+	t.Cleanup(func() {
+		dashboardDefaultPath = lamaPath
+		jadwalkanRestartWeb = lamaRestart
+	})
+
+	if _, err := simpanCertificates(helperproto.CertificatesSetArgs{}, time.Now()); err == nil {
+		t.Fatal("TLS boleh dinonaktifkan pada bind publik tanpa opt-in plaintext")
+	}
+	got, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(lama) {
+		t.Fatalf("konfigurasi berubah setelah penolakan:\n%s", got)
+	}
+}
+
+func TestSimpanCertificatesBolehMenonaktifkanTLSUntukTerminasiEksternal(t *testing.T) {
+	dir := t.TempDir()
+	defaultPath := filepath.Join(dir, "linux-dashboard")
+	if err := os.WriteFile(defaultPath, []byte("DASHBOARD_LISTEN=0.0.0.0:1122\nDASHBOARD_ALLOW_PLAINTEXT=true\nDASHBOARD_SECURE_COOKIE=true\nDASHBOARD_TLS_CERT=/lama.crt\nDASHBOARD_TLS_KEY=/lama.key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lamaPath := dashboardDefaultPath
+	lamaRestart := jadwalkanRestartWeb
+	dashboardDefaultPath = defaultPath
+	jadwalkanRestartWeb = func() error { return nil }
+	t.Cleanup(func() {
+		dashboardDefaultPath = lamaPath
+		jadwalkanRestartWeb = lamaRestart
+	})
+
+	st, err := simpanCertificates(helperproto.CertificatesSetArgs{}, time.Now())
+	if err != nil {
+		t.Fatalf("terminasi TLS eksternal ditolak: %v", err)
+	}
+	if st.Active {
+		t.Fatalf("status masih aktif: %+v", st)
+	}
+	got, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nilaiEnv(string(got), "DASHBOARD_SECURE_COOKIE") != "true" {
+		t.Fatalf("cookie Secure proxy tidak dipertahankan: %s", got)
+	}
+}
+
+func TestUbahTLSDefaultMenonaktifkanSecureCookieUntukHTTP(t *testing.T) {
+	got := ubahTLSDefault("DASHBOARD_LISTEN=0.0.0.0:1122\nDASHBOARD_ALLOW_PLAINTEXT=true\nDASHBOARD_TLS_CERT=/x\nDASHBOARD_TLS_KEY=/y\n", "", "")
+	if nilaiEnv(got, "DASHBOARD_SECURE_COOKIE") != "false" {
+		t.Fatalf("HTTP langsung membutuhkan cookie non-Secure: %q", got)
+	}
+}
+
+func TestUbahTLSDefaultMempertahankanSecureCookieProxy(t *testing.T) {
+	got := ubahTLSDefault("DASHBOARD_LISTEN=127.0.0.1:1122\nDASHBOARD_SECURE_COOKIE=true\nDASHBOARD_TLS_CERT=/x\nDASHBOARD_TLS_KEY=/y\n", "", "")
+	if nilaiEnv(got, "DASHBOARD_SECURE_COOKIE") != "true" {
+		t.Fatalf("cookie Secure untuk terminasi HTTPS eksternal diturunkan: %q", got)
+	}
+}
+
 func TestUbahTLSDefaultMengenaliWhitespaceDiSekitarAssignment(t *testing.T) {
 	lama := " DASHBOARD_TLS_CERT = /lama.crt\n	DASHBOARD_TLS_KEY	=	/lama.key\nLAIN = tetap\n"
 	got := ubahTLSDefault(lama, "/baru.crt", "/baru.key")
@@ -89,6 +165,191 @@ func TestUbahTLSDefaultMengenaliWhitespaceDiSekitarAssignment(t *testing.T) {
 	}
 	if !strings.Contains(got, "LAIN = tetap") {
 		t.Fatalf("assignment lain berubah:\n%s", got)
+	}
+}
+
+func TestPasangCertificatesUploadMenyimpanPasanganTerkelola(t *testing.T) {
+	dir := t.TempDir()
+	cert, key := buatPasanganTLSUji(t, dir, "upload.local")
+	certPEM, err := os.ReadFile(cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM, err := os.ReadFile(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lamaDir := certificatesManagedDir
+	lamaPath := dashboardDefaultPath
+	lamaRestart := jadwalkanRestartWeb
+	lamaAkses := pastikanDapatDibacaService
+	lamaPemilik := pemilikCertificatesManaged
+	certificatesManagedDir = filepath.Join(dir, "managed")
+	dashboardDefaultPath = filepath.Join(dir, "linux-dashboard")
+	jadwalkanRestartWeb = func() error { return nil }
+	pastikanDapatDibacaService = func(_, _ string) error { return nil }
+	pemilikCertificatesManaged = func() (int, int, error) { return os.Getuid(), os.Getgid(), nil }
+	t.Cleanup(func() {
+		certificatesManagedDir = lamaDir
+		dashboardDefaultPath = lamaPath
+		jadwalkanRestartWeb = lamaRestart
+		pastikanDapatDibacaService = lamaAkses
+		pemilikCertificatesManaged = lamaPemilik
+	})
+	if err := os.WriteFile(dashboardDefaultPath, []byte("DASHBOARD_LISTEN=0.0.0.0:1122\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := pasangCertificatesUpload(helperproto.CertificatesUploadArgs{
+		CertificatePEM: string(certPEM), PrivateKeyPEM: string(keyPEM),
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if !st.Active || !st.Valid || st.Subject != "upload.local" {
+		t.Fatalf("status salah: %+v", st)
+	}
+	if filepath.Dir(st.CertPath) != certificatesManagedDir || filepath.Dir(st.KeyPath) != certificatesManagedDir ||
+		!strings.HasSuffix(st.CertPath, ".crt") || !strings.HasSuffix(st.KeyPath, ".key") {
+		t.Fatalf("path managed salah: %+v", st)
+	}
+	if strings.TrimSuffix(filepath.Base(st.CertPath), ".crt") != strings.TrimSuffix(filepath.Base(st.KeyPath), ".key") {
+		t.Fatalf("cert/key tidak memakai ID pasangan yang sama: %+v", st)
+	}
+	for path, mode := range map[string]os.FileMode{st.CertPath: 0o644, st.KeyPath: 0o640} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != mode {
+			t.Fatalf("mode %s = %o, ingin %o", path, info.Mode().Perm(), mode)
+		}
+	}
+}
+
+func TestBuatCertificatesSelfSignedMemuatSAN(t *testing.T) {
+	dir := t.TempDir()
+	lamaDir := certificatesManagedDir
+	lamaPath := dashboardDefaultPath
+	lamaRestart := jadwalkanRestartWeb
+	lamaAkses := pastikanDapatDibacaService
+	lamaPemilik := pemilikCertificatesManaged
+	certificatesManagedDir = filepath.Join(dir, "managed")
+	dashboardDefaultPath = filepath.Join(dir, "linux-dashboard")
+	jadwalkanRestartWeb = func() error { return nil }
+	pastikanDapatDibacaService = func(_, _ string) error { return nil }
+	pemilikCertificatesManaged = func() (int, int, error) { return os.Getuid(), os.Getgid(), nil }
+	t.Cleanup(func() {
+		certificatesManagedDir = lamaDir
+		dashboardDefaultPath = lamaPath
+		jadwalkanRestartWeb = lamaRestart
+		pastikanDapatDibacaService = lamaAkses
+		pemilikCertificatesManaged = lamaPemilik
+	})
+	if err := os.WriteFile(dashboardDefaultPath, []byte("DASHBOARD_LISTEN=0.0.0.0:1122\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Truncate(time.Second)
+	st, err := buatCertificatesSelfSigned(helperproto.CertificatesSelfSignedArgs{
+		CommonName: "panel.local", DNSNames: []string{"panel.local", "localhost"},
+		IPAddresses: []string{"127.0.0.1", "192.0.2.10"}, Days: 30,
+	}, now)
+	if err != nil {
+		t.Fatalf("self-signed: %v", err)
+	}
+	if !st.Valid || st.Subject != "panel.local" {
+		t.Fatalf("status salah: %+v", st)
+	}
+	cert, err := validasiPasanganTLS(st.CertPath, st.KeyPath, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cert.DNSNames, []string{"panel.local", "localhost"}) {
+		t.Fatalf("DNS SAN = %v", cert.DNSNames)
+	}
+	if got := []string{cert.IPAddresses[0].String(), cert.IPAddresses[1].String()}; !slices.Equal(got, []string{"127.0.0.1", "192.0.2.10"}) {
+		t.Fatalf("IP SAN = %v", got)
+	}
+	if cert.NotAfter.Sub(cert.NotBefore) < 30*24*time.Hour {
+		t.Fatalf("masa berlaku terlalu pendek: %s", cert.NotAfter.Sub(cert.NotBefore))
+	}
+}
+
+func TestBuatCertificatesSelfSignedCommonNameIPDiverifikasi(t *testing.T) {
+	dir := t.TempDir()
+	lamaDir, lamaPath := certificatesManagedDir, dashboardDefaultPath
+	lamaRestart, lamaAkses, lamaPemilik := jadwalkanRestartWeb, pastikanDapatDibacaService, pemilikCertificatesManaged
+	certificatesManagedDir = filepath.Join(dir, "managed")
+	dashboardDefaultPath = filepath.Join(dir, "linux-dashboard")
+	jadwalkanRestartWeb = func() error { return nil }
+	pastikanDapatDibacaService = func(_, _ string) error { return nil }
+	pemilikCertificatesManaged = func() (int, int, error) { return os.Getuid(), os.Getgid(), nil }
+	t.Cleanup(func() {
+		certificatesManagedDir, dashboardDefaultPath = lamaDir, lamaPath
+		jadwalkanRestartWeb, pastikanDapatDibacaService, pemilikCertificatesManaged = lamaRestart, lamaAkses, lamaPemilik
+	})
+	if err := os.WriteFile(dashboardDefaultPath, []byte("DASHBOARD_LISTEN=0.0.0.0:1122\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, ip := range []string{"192.0.2.10", "2001:db8::10"} {
+		t.Run(ip, func(t *testing.T) {
+			st, err := buatCertificatesSelfSigned(helperproto.CertificatesSelfSignedArgs{CommonName: ip, Days: 1}, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			cert, err := validasiPasanganTLS(st.CertPath, st.KeyPath, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cert.VerifyHostname(ip); err != nil {
+				t.Fatalf("sertifikat tidak valid untuk IP common name %q: %v", ip, err)
+			}
+			if len(cert.DNSNames) != 0 || len(cert.IPAddresses) != 1 {
+				t.Fatalf("SAN tidak sesuai untuk IP: DNS=%v IP=%v", cert.DNSNames, cert.IPAddresses)
+			}
+		})
+	}
+}
+
+func TestBuatCertificatesSelfSignedMenolakInputBerbahaya(t *testing.T) {
+	for _, args := range []helperproto.CertificatesSelfSignedArgs{
+		{CommonName: "", Days: 30},
+		{CommonName: "panel\n.local", Days: 30},
+		{CommonName: "panel.local", IPAddresses: []string{"bukan-ip"}, Days: 30},
+		{CommonName: "panel.local", Days: 0},
+		{CommonName: "panel.local", Days: 5000},
+	} {
+		if _, err := buatCertificatesSelfSigned(args, time.Now()); err == nil {
+			t.Fatalf("input tidak valid diterima: %+v", args)
+		}
+	}
+}
+
+func TestPasangCertificatesUploadMenolakPasanganTidakCocokTanpaMengubahConfig(t *testing.T) {
+	dir := t.TempDir()
+	certA, _ := buatPasanganTLSUji(t, dir, "a.local")
+	_, keyB := buatPasanganTLSUji(t, dir, "b.local")
+	certPEM, _ := os.ReadFile(certA)
+	keyPEM, _ := os.ReadFile(keyB)
+
+	lamaDir := certificatesManagedDir
+	lamaPath := dashboardDefaultPath
+	certificatesManagedDir = filepath.Join(dir, "managed")
+	dashboardDefaultPath = filepath.Join(dir, "linux-dashboard")
+	awal := []byte("DASHBOARD_TLS_CERT=/tetap.crt\nDASHBOARD_TLS_KEY=/tetap.key\n")
+	if err := os.WriteFile(dashboardDefaultPath, awal, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { certificatesManagedDir, dashboardDefaultPath = lamaDir, lamaPath })
+
+	if _, err := pasangCertificatesUpload(helperproto.CertificatesUploadArgs{CertificatePEM: string(certPEM), PrivateKeyPEM: string(keyPEM)}, time.Now()); err == nil {
+		t.Fatal("pasangan upload yang tidak cocok diterima")
+	}
+	got, _ := os.ReadFile(dashboardDefaultPath)
+	if string(got) != string(awal) {
+		t.Fatalf("config berubah setelah upload ditolak: %s", got)
 	}
 }
 
@@ -231,7 +492,12 @@ func TestSimpanCertificatesRollbackJikaPenjadwalanRestartGagal(t *testing.T) {
 }
 
 func TestCertificatesHelperMenolakTokenNonSudo(t *testing.T) {
-	for _, cmd := range []string{helperproto.CmdCertificatesGet, helperproto.CmdCertificatesSet} {
+	for _, cmd := range []string{
+		helperproto.CmdCertificatesGet,
+		helperproto.CmdCertificatesSet,
+		helperproto.CmdCertificatesUpload,
+		helperproto.CmdCertificatesSelfSigned,
+	} {
 		t.Run(cmd, func(t *testing.T) {
 			h := jalankanHelperSocket(t)
 			token, _ := h.srv.terbitkanToken(userUji("ani", false), sesiTTL)

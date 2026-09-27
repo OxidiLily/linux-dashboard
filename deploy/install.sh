@@ -2,7 +2,7 @@
 # Installer linux-dashboard — dua mode, satu skrip:
 #
 #   1. Satu baris (tanpa clone manual):
-#        curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
+#        cd / && curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
 #      Skrip memasang dependency build, mengambil sumber ke /usr/local/src,
 #      build UI + dua binary, lalu memasang service.
 #
@@ -30,6 +30,16 @@ INITIAL_PASSWORD="${INITIAL_PASSWORD:-}"
 log() { echo "[i] $*"; }
 ok() { echo "[✓] $*"; }
 die() { echo "[✗] $*" >&2; exit 1; }
+
+# Shell mewarisi current directory pemanggil. Jika installer dipipe dari curl
+# saat user berdiri di checkout yang baru saja diganti/dihapus proses lain,
+# getcwd() milik bash/sudo/apt mencetak "cannot access parent directories".
+# Mode stdin tidak membutuhkan cwd asal, jadi pindah ke direktori yang stabil
+# sebelum command eksternal pertama. Mode berkas tetap mempertahankan cwd karena
+# deteksi checkout lokal di bawah memang membutuhkannya.
+if [[ ! -f "${BASH_SOURCE[0]:-}" ]]; then
+  cd /
+fi
 
 # ---- 0. Naik ke root -----------------------------------------------------
 # Installer butuh root (pasang binary, unit systemd, user sistem). Kalau
@@ -171,6 +181,14 @@ fi
 cd "$REPO_ROOT"
 
 command -v apt-get >/dev/null || die "Butuh Debian/Ubuntu (apt-get tidak ada)."
+# Instalasi lama mungkin sudah punya Certbot tanpa plugin DNS Cloudflare.
+# Jangan pasang Certbot baru secara diam-diam bila komponen belum dipilih.
+if command -v certbot >/dev/null 2>&1 && ! paket_terpasang python3-certbot-dns-cloudflare; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq --no-install-recommends python3-certbot-dns-cloudflare || \
+    die "Gagal memasang plugin DNS-01 Cloudflare untuk Certbot"
+fi
 pastikan_keamanan_runtime
 
 # ---- 2. Build kalau binary belum ada ------------------------------------
@@ -237,6 +255,11 @@ pastikan_npm() {
   fi
 }
 
+# Sisa node_modules root-owned dari installer lama dapat menggagalkan npm ci
+# sebelum chown pasca-build sempat berjalan.
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" && -d web/ui/node_modules ]]; then
+  chown -R "${SUDO_USER}" web/ui/node_modules
+fi
 if (( need_build )); then
   if ! command -v go >/dev/null || ! command -v npm >/dev/null; then
     install_build_deps
@@ -245,6 +268,15 @@ if (( need_build )); then
   log "Build UI + dua binary (beberapa menit di mesin kecil)…"
   export GOTOOLCHAIN=auto
   make build
+fi
+
+# Build berjalan sebagai root di DALAM checkout milik ${SUDO_USER}. Tanpa
+# chown balik, artefak build (bin/, web/dist, node_modules) jadi root:root:
+# gate lokal berikutnya gagal EACCES dan user terpaksa membersihkannya dengan
+# sudo padahal ini artefak miliknya sendiri. Dijalankan setiap kali — artefak
+# root: dari instalasi sebelumnya ikut diperbaiki walau build kali ini dilewati.
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+  chown -R "${SUDO_USER}" bin web/dist web/ui/node_modules 2>/dev/null || true
 fi
 
 log "Arsitektur: $(uname -m)"
@@ -294,20 +326,36 @@ fi
 
 # Setelan per-device. Hanya dibuat kalau belum ada — isinya milik pemilik mesin,
 # dan menimpanya tiap Update akan mengembalikan port/secure cookie ke default.
+config_baru=false
 if [[ ! -f /etc/default/linux-dashboard ]]; then
+  config_baru=true
   install -m 0644 deploy/linux-dashboard.default /etc/default/linux-dashboard
   ok "Setelan per-device dibuat di /etc/default/linux-dashboard"
 else
   ok "Setelan per-device di /etc/default/linux-dashboard dipertahankan"
 fi
 
-install -d -o root -g "$SERVICE_USER" -m 0750 /var/lib/linux-dashboard
+# State web harus writable oleh proses web sejak start PERTAMA. Unit helper root
+# tidak lagi mengklaim direktori ini lewat StateDirectory; bila keduanya
+# mengklaim path yang sama, helper yang start lebih dulu mengubah ownership ke
+# root dan web sempat gagal membuka SQLite sebelum auto-restart.
+# Migrasi hanya dari direktori lama yang belum pernah dimiliki web. Setelah
+# itu web mendapat state-nya sendiri; state tepercaya helper tetap root-owned.
+helper_state=/var/lib/linux-dashboard-helper
+[[ ! -L "$helper_state" ]] || die "State helper tidak boleh symlink: $helper_state"
+install -d -o root -g "$SERVICE_USER" -m 0750 "$helper_state"
+if [[ -d /var/lib/linux-dashboard && ! -L /var/lib/linux-dashboard ]]; then
+  python3 deploy/migrate-helper-state.py /var/lib/linux-dashboard "$helper_state" || die "Migrasi state helper gagal"
+fi
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 /var/lib/linux-dashboard
+# Catatan firewall lama di state web tidak boleh dipromosikan: web pernah dapat
+# memalsukan Dibuat/Diabaikan. Helper membangun ulang state dari layanan + ufw;
+# rule yang tak dapat dibuktikan miliknya tidak dicabut hanya karena catatan lama.
 
 # ---- TLS native langsung, tanpa reverse proxy ----------------------------
-# Sertifikat custom dipertahankan. Jika belum ada, buat self-signed agar panel
-# publik tidak pernah lahir sebagai HTTP. Browser akan memberi peringatan sampai
-# cert ini dipercaya/import atau diganti cert CA, tetapi transport tetap
-# terenkripsi dan cookie selalu Secure.
+# Instalasi BARU: HTTP publik diminta eksplisit oleh operator. Password Linux,
+# OTP dan cookie sesi lewat tanpa enkripsi; peringatkan, jangan aktifkan
+# kembali pada update existing yang sudah memilih TLS.
 set_env_dashboard() { # key value
   local key="$1" value="$2" file=/etc/default/linux-dashboard tmp
   tmp=$(mktemp "${file}.XXXXXX")
@@ -324,6 +372,11 @@ ambil_env_dashboard() { # key
     cut -d= -f2- | tail -n 1 | tr -d '"'\'' '
 }
 
+if [[ "$config_baru" == true ]]; then
+  set_env_dashboard DASHBOARD_ALLOW_PLAINTEXT true
+  set_env_dashboard DASHBOARD_SECURE_COOKIE false
+  echo '[⚠] HTTP publik aktif pada instalasi baru: password, OTP, dan sesi bisa disadap. Aktifkan TLS sebelum mengekspos port 1122 ke internet.' >&2
+fi
 tls_cert=$(ambil_env_dashboard DASHBOARD_TLS_CERT)
 tls_key=$(ambil_env_dashboard DASHBOARD_TLS_KEY)
 # DASHBOARD_ALLOW_PLAINTEXT=true berarti operator sengaja menangani TLS di
@@ -351,11 +404,12 @@ if [[ -n "$tls_cert" || -n "$tls_key" ]]; then
   fi
   set_env_dashboard DASHBOARD_SECURE_COOKIE true
 elif [[ "$plaintext_dipilih" == true ]]; then
-  ok "DASHBOARD_ALLOW_PLAINTEXT=true — terminasi TLS eksternal dipertahankan; sertifikat native tidak dibuat/ditimpa"
-  # Mode ini khusus terminasi TLS eksternal: browser tetap membuka HTTPS,
-  # sehingga cookie wajib Secure. Akses HTTP langsung memang tidak dapat login;
-  # itu mencegah password/session terkirim plaintext karena salah konfigurasi.
-  set_env_dashboard DASHBOARD_SECURE_COOKIE true
+  ok "DASHBOARD_ALLOW_PLAINTEXT=true — sertifikat native tidak dibuat/ditimpa"
+  # Instalasi baru HTTP langsung perlu cookie non-Secure agar login berfungsi;
+  # konfigurasi lama dengan terminasi TLS eksternal tetap dipertahankan.
+  if [[ "$config_baru" == true ]]; then
+    set_env_dashboard DASHBOARD_SECURE_COOKIE false
+  fi
 else
   tls_dir=/etc/linux-dashboard
   tls_cert="${tls_dir}/tls.crt"

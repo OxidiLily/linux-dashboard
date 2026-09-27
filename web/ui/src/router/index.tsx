@@ -39,10 +39,10 @@ const FileOperationsView = rute("/logs/file-operations", "FileOperationsView")
 const ActivityLogsView = rute("/logs/activity", "ActivityLogsView")
 const AccountView = rute("/settings/account", "AccountView")
 const NetworkView = rute("/settings/network", "NetworkView")
-const CertificatesView = rute("/settings/certificates", "CertificatesView")
 const FirewallView = rute("/settings/firewall", "FirewallView")
 const AlertThresholdsView = rute("/settings/alerts", "AlertThresholdsView")
 const ComponentsView = rute("/settings/components", "ComponentsView")
+const ProxyManagerView = rute("/settings/proxy", "ProxyManagerView")
 const PrintServerView = rute("/settings/print", "PrintServerView")
 const AIAgentView = rute("/ai/agent", "AIAgentView")
 const ProcessesView = rute("/system/processes", "ProcessesView")
@@ -130,11 +130,11 @@ export const router = createBrowserRouter([
       { path: "logs/activity", element: <Lazy><ActivityLogsView /></Lazy> },
       { path: "settings/account", element: <Lazy><AccountView /></Lazy> },
       { path: "settings/network", element: <Lazy><NetworkView /></Lazy> },
-      { path: "settings/certificates", element: <Lazy><CertificatesView /></Lazy> },
       { path: "settings/firewall", element: <Lazy><FirewallView /></Lazy> },
       { path: "settings/fail2ban", element: <Dijaga name="fail2ban" label="fail2ban"><Fail2banView /></Dijaga> },
       { path: "settings/alerts", element: <Lazy><AlertThresholdsView /></Lazy> },
       { path: "settings/components", element: <Lazy><ComponentsView /></Lazy> },
+      { path: "settings/proxy", element: <Dijaga name="nginx" label="Proxy manager"><ProxyManagerView /></Dijaga> },
       { path: "settings/print", element: <Dijaga name="print-server" label="CUPS"><PrintServerView /></Dijaga> },
       { path: "ai/agent", element: <Lazy><AIAgentView /></Lazy> },
       { path: "system/processes", element: <Lazy><ProcessesView /></Lazy> },

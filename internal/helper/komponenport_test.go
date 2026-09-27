@@ -5,6 +5,12 @@ import (
 	"testing"
 )
 
+func TestStateKomponenDiDirektoriHelper(t *testing.T) {
+	if pathStatePortKomponen != "/var/lib/linux-dashboard-helper/komponen-ports.json" {
+		t.Fatalf("state firewall tidak boleh di direktori web: %s", pathStatePortKomponen)
+	}
+}
+
 // ---- label pemilik rule ----
 
 func TestPisahKomentar(t *testing.T) {

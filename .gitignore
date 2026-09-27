@@ -36,8 +36,13 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/helper/komponenport_test.go
 !internal/helper/komponenport_uji_test.go
 !internal/helper/komponenport_e2e_test.go
+!internal/helper/component_conflict_test.go
+!internal/helper/proxy_test.go
+!internal/helper/cloudflare_token_test.go
+!internal/api/proxy_api_test.go
 !internal/helper/stalwart_test.go
 !internal/helper/update_test.go
+!deploy/install_test.go
 
 # Test regresi keamanan (audit 2026-09-23). Sama alasannya dengan blok di atas:
 # perbaikan keamanan tidak boleh hanya hijau di mesin pengembang lalu hilang

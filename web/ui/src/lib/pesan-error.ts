@@ -26,6 +26,7 @@ const kalimat: Record<string, string> = {
   action_in_progress: "Masih ada aksi berjalan untuk komponen {0} — tunggu sampai selesai.",
   disk_has_filesystem: "{0} sudah berisi filesystem {1}.",
   disk_in_use: "{0} bukan disk kosong — sudah punya partisi, dipakai LVM/RAID, atau sedang ter-mount.",
+  port_conflict: "{0} tidak bisa dipasang: port {1} sudah dipakai {2}.",
   requires_sudo: "Aksi ini butuh akses sudo.",
 }
 
@@ -48,6 +49,7 @@ const kalimatEn: Record<string, string> = {
   action_in_progress: "An action is still running for component {0} — wait for it to finish.",
   disk_has_filesystem: "{0} already holds a {1} filesystem.",
   disk_in_use: "{0} is not an empty disk — it has partitions, is used by LVM/RAID, or is mounted.",
+  port_conflict: "{0} cannot be installed: port {1} is already used by {2}.",
   requires_sudo: "This action requires sudo access.",
 }
 
@@ -59,7 +61,12 @@ daftarkanTerjemahan(
 )
 
 /** Susun pesan error untuk ditampilkan ke user. */
-export function pesanError(e: unknown): string {
+export function pesanError(e: unknown, tampilkanDetail = false): string {
+  // Detail hanya untuk form yang meminta diagnosis spesifik; default tetap aman
+  // bagi caller lain yang sengaja hanya menampilkan pesan terstruktur.
+  if (tampilkanDetail && e instanceof ApiError && e.code === "value_invalid" && e.message && usePrefs.getState().bahasa !== "en") {
+    return e.message
+  }
   if (e instanceof ApiError && e.code && kalimat[e.code]) {
     return trf(kalimat[e.code], ...e.params)
   }

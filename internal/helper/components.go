@@ -76,6 +76,8 @@ type component struct {
 	// dibuka saat layanannya hidup, dicabut saat mati atau komponennya tidak
 	// ada lagi.
 	ports []portKomponen
+	portsPublik bool // true if component exposes public ports (e.g., nginx)
+
 	// Label adalah nama pemilik yang ditulis di rule firewall komponen ini
 	// ("Samba", "CUPS"), supaya `ufw status` menyebut layanan yang dikenal
 	// orang, bukan nama internal katalog yang boleh berubah. Kosong berarti
@@ -160,6 +162,19 @@ const (
 )
 
 var components = map[string]*component{
+	"nginx": &component{
+		Name: "nginx", Binary: "nginx", Service: "nginx",
+		Category: katRuntime, RequiredFor: "Settings → Proxy manager",
+		KelolaDi: "Settings → Proxy manager",
+		Description: "Web server untuk reverse proxy.",
+		install: func() error { return aptInstall("nginx") },
+		uninstall: func() error { return aptRemove("nginx") },
+		version: func() string { return firstLine(tryRun("nginx", "-v")) },
+		ports: []portKomponen{{"80", "tcp", ""}, {"443", "tcp", ""}},
+		portsPublik: true,
+	},
+	"certbot": wajib(aptComponent("certbot", "certbot", "", katRuntime,
+		"ACME client untuk sertifikat TLS otomatis.", "certbot", "python3-certbot-dns-cloudflare"), "Settings → Proxy manager (TLS otomatis)"),
 	"docker": {
 		Name: "docker", Binary: "docker", Service: "docker",
 		Category: katRuntime, RequiredFor: "System → Docker",
@@ -169,7 +184,9 @@ var components = map[string]*component{
 		purge:       purgeDocker,
 		version:     func() string { return firstLine(tryRun("docker", "--version")) },
 	},
+
 	// Supabase bukan paket dan bukan service systemd — ia stack docker compose
+
 	// yang dipasang setup.sh resmi ke /opt/supabase. Karena itu Service kosong
 	// dan KelolaDi menunjuk halaman yang benar-benar memegang kendalinya;
 	// tombol Jalankan/Hentikan untuk sepuluh container ada di sana, bukan di
@@ -462,7 +479,7 @@ var components = map[string]*component{
 // ComponentNames menentukan urutan tampil di halaman Components.
 func ComponentNames() []string {
 	return []string{
-		"docker", "nodejs", "tailscale", "cloudflared", "9router",
+		"nginx", "certbot", "docker", "nodejs", "tailscale", "cloudflared", "9router",
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
 		"rtk", "graphify", "ponytail", "browser-use", "arkon",
 		"supabase",
@@ -709,6 +726,12 @@ func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, er
 		// tanpa harus uninstall lalu install ulang.
 		daftarkanPortKomponen(c)
 		return componentStatus(name), nil
+	}
+	// nginx harus menguasai 80/443; tolak konflik sebelum apt mengubah sistem.
+	if name == "nginx" {
+		if err := preflightKonflikPort(c); err != nil {
+			return helperproto.ComponentStatus{}, err
+		}
 	}
 	if err := jalankanInstall(c, u); err != nil {
 		return helperproto.ComponentStatus{}, err
@@ -1969,7 +1992,7 @@ const (
 	// passFile9Router menyimpan password yang dibuat panel supaya bisa
 	// ditampilkan lagi di halaman Components — tanpa ini password acak
 	// hanya ada di drop-in systemd yang tidak pernah dilihat user.
-	passFile9Router = "/var/lib/linux-dashboard/9router-password"
+	passFile9Router = "/var/lib/linux-dashboard-helper/9router-password"
 	// passDefault9Router adalah nilai bawaan 9router. Rilis panel
 	// sebelumnya menuliskannya ke drop-in, yang justru TIDAK menyelesaikan
 	// apa pun (lihat pastikanPassword9Router) — nilai ini dipertahankan
@@ -2514,7 +2537,7 @@ const (
 	// bisa ditampilkan lagi di halaman Components — tanpa ini password acak
 	// hanya ada di satu baris log yang tercetak sekali lalu hilang. Pola yang
 	// sama dipakai 9router (passFile9Router).
-	passFileStalwart = "/var/lib/linux-dashboard/stalwart-password"
+	passFileStalwart = "/var/lib/linux-dashboard-helper/stalwart-password"
 	// kunciRecoveryStalwart adalah variabel yang dipakai Stalwart untuk memaku
 	// kredensial bootstrap/recovery (docs: configuration/bootstrap-mode dan
 	// configuration/recovery-mode), bentuknya `user:password`.

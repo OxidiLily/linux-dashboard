@@ -1,3 +1,4 @@
+import { useCallback } from "react"
 import { usePrefs } from "@/stores/prefs"
 
 // i18n seadanya: satu kamus datar, tanpa library. Panel ini hanya punya dua
@@ -24,11 +25,11 @@ const kamus: Kamus = {
   "nav.settings": { id: "Settings", en: "Settings" },
   "nav.account": { id: "Akun", en: "Account" },
   "nav.network": { id: "Network", en: "Network" },
-  "nav.certificates": { id: "Certificates", en: "Certificates" },
   "nav.firewall": { id: "Firewall", en: "Firewall" },
   "nav.fail2ban": { id: "Fail2ban", en: "Fail2ban" },
   "nav.alerts": { id: "Alert Thresholds", en: "Alert Thresholds" },
   "nav.components": { id: "Components", en: "Components" },
+  "nav.proxy": { id: "Proxy manager", en: "Proxy manager" },
   "nav.printServer": { id: "Print server", en: "Print server" },
   "nav.ai": { id: "AI", en: "AI" },
   "nav.aiAgent": { id: "AI Agent", en: "AI Agent" },
@@ -99,10 +100,12 @@ export function trf(teks: string, ...arg: (string | number)[]): string {
   return dasar.replace(/\{(\d+)\}/g, (_, i) => String(arg[Number(i)] ?? ""))
 }
 
-/** Versi hook agar komponen ikut render ulang saat bahasa berganti. */
+/** Versi hook agar komponen ikut render ulang saat bahasa berganti. Referensi
+ * fungsi stabil selama bahasanya sama, sehingga aman dijadikan dependency
+ * useCallback/useEffect tanpa memicu fetch ulang setiap render. */
 export function useTr(): (teks: string) => string {
   const bahasa = usePrefs((s) => s.bahasa)
-  return (teks: string) => (bahasa === "en" ? (kamusEn[teks] ?? teks) : teks)
+  return useCallback((teks: string) => (bahasa === "en" ? (kamusEn[teks] ?? teks) : teks), [bahasa])
 }
 
 /** Terjemahkan satu kunci. Kunci yang belum ada dikembalikan apa adanya. */

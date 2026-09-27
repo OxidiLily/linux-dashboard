@@ -63,7 +63,9 @@ const (
 // pathStatePortDocker menyimpan port mana yang dibuka reconciler. Variabel,
 // bukan konstanta: test menunjuknya ke direktori sementara supaya tidak
 // menyentuh catatan mesin sungguhan.
-var pathStatePortDocker = "/var/lib/linux-dashboard/docker-ports.json"
+// ponytail: state lama di direktori web tidak dimigrasikan: kepemilikan rule
+// tidak bisa dibuktikan setelah web pernah bisa mengubah berkas itu.
+var pathStatePortDocker = "/var/lib/linux-dashboard-helper/docker-ports.json"
 
 // formatInspectDocker mengambil tepat field yang dibutuhkan reconciler.
 //

@@ -28,7 +28,7 @@ import { tr, trf } from "@/stores/i18n"
 import { simpanBahasaPralogin, usePrefs } from "@/stores/prefs"
 import { cariBerkas, detailItemLog, rootAktif, unggahLaluMuatUlang } from "@/views/files"
 import { bacaCrontab, cariJadwal, ukuranByte, ukuranCrontabTersimpan } from "@/views/cron"
-import { isianCertificatesValid } from "@/views/certificates"
+import { tautanProxy } from "@/views/proxy"
 
 
 const gagal: string[] = []
@@ -37,6 +37,13 @@ const cek = (dapat: string, harap: string, nama: string) => {
   jumlah++
   if (dapat !== harap) gagal.push(`${nama}: dapat ${JSON.stringify(dapat)}, harap ${JSON.stringify(harap)}`)
 }
+
+// Tautan publik memakai host proxy, bukan scheme/port target upstream.
+cek(tautanProxy({ domain: "192.168.2.11", enabled: true, scheme: "https", tls_mode: "" }), "http://192.168.2.11/", "proxy/ip-http")
+cek(tautanProxy({ domain: "app.example.com", enabled: true, scheme: "http", tls_mode: "certbot" }), "https://app.example.com/", "proxy/domain-https")
+cek(tautanProxy({ domain: "", enabled: true, scheme: "http" }), "", "proxy/tanpa-domain")
+cek(tautanProxy({ domain: "app.example.com", enabled: false, scheme: "http" }), "", "proxy/nonaktif")
+cek(tautanProxy({ domain: "app.example.com:8085", enabled: true, scheme: "http" }), "", "proxy/host-invalid")
 
 // Bahasa Indonesia: kalimat dikembalikan apa adanya.
 cek(tr("Simpan Perubahan"), "Simpan Perubahan", "id/tr")
@@ -48,6 +55,11 @@ cek(tr("Belum ada bookmark folder."), "No folder bookmarks yet.", "en/tr-baru")
 cek(trf("Hapus {0} {1}?", tr("folder"), "foto"), "Delete folder foto?", "en/trf")
 cek(trf("{0} total proses", 12), "12 processes total", "en/trf-angka")
 cek(tr("Warning (Amber %)"), "Warning (Amber %)", "en/tr-sama")
+
+// useTr harus stabil selama bahasa tidak berubah. View yang memasukkannya ke
+// dependency useCallback/useEffect tidak boleh fetch ulang pada setiap render.
+const sumberI18n = readFileSync(resolve(process.cwd(), "src/stores/i18n.ts"), "utf8")
+cek(String(/function useTr[\s\S]*return useCallback\(/.test(sumberI18n)), "true", "i18n/useTr-stabil")
 
 // Pencarian ke dalam subfolder: kalimat statusnya harus ikut bahasa aktif.
 // Diletakkan di blok `en` karena pemeriksaan bahasa memakai state bahasa yang
@@ -78,6 +90,8 @@ cek(pesanError(new Error('zona waktu "Mars/Olympus" tidak dikenal')),
   'unknown time zone "Mars/Olympus"', "en/pola-kutip")
 
 usePrefs.setState({ bahasa: "id" })
+cek(pesanError(new ApiError(res, "nama domain atau IPv4 tidak valid: 192.168.2.11", "value_invalid", ["192.168.2.11"]), true),
+  "nama domain atau IPv4 tidak valid: 192.168.2.11", "id/proxy-error-detail")
 cek(pesanError(new Error("password lama salah")), "password lama salah", "id/kalimat")
 
 // File Manager: root mana yang ditandai aktif. Dulu memakai startsWith()
@@ -251,13 +265,6 @@ cek(String(ukuranByte("é")), "2", "cron/byte-aksen")
 cek(String(ukuranByte("🇮🇩")), "8", "cron/byte-emoji")
 cek(String(ukuranCrontabTersimpan("abc")), "4", "cron/byte-termasuk-newline-otomatis")
 cek(String(ukuranCrontabTersimpan("abc\n")), "4", "cron/byte-newline-tidak-dobel")
-
-// Certificates: dua path wajib diisi bersama; menonaktifkan TLS berarti keduanya kosong.
-cek(String(isianCertificatesValid("", "")), "true", "certificates/nonaktif")
-cek(String(isianCertificatesValid("/cert.pem", "/key.pem")), "true", "certificates/pasangan")
-cek(String(isianCertificatesValid("/cert.pem", "")), "false", "certificates/key-kosong")
-cek(String(isianCertificatesValid("", "/key.pem")), "false", "certificates/cert-kosong")
-cek(String(isianCertificatesValid("cert.pem", "key.pem")), "false", "certificates/path-relatif")
 
 // Dialog isian: tombol simpan mati untuk isian kosong/spasi saja.
 cek(String(isiValid("")), "false", "prompt/kosong")

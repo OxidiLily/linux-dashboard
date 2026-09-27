@@ -689,7 +689,7 @@ func versiPipx(paket string) func() string {
 // penandaPonytail mencatat bahwa plugin sudah didaftarkan. ponytail bukan
 // binary — ia plugin/harness directive per-CLI, jadi tidak ada yang bisa
 // dicari lewat PATH untuk menentukan statusnya.
-const penandaPonytail = "/var/lib/linux-dashboard/ponytail.terpasang"
+const penandaPonytail = "/var/lib/linux-dashboard-helper/ponytail.terpasang"
 
 // perintahPluginPonytail memetakan CLI agent → langkah pendaftaran plugin,
 // persis seperti tabel instalasi di README ponytail.

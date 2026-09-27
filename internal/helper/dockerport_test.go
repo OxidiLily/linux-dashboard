@@ -5,6 +5,12 @@ import (
 	"testing"
 )
 
+func TestStateDockerDiDirektoriHelper(t *testing.T) {
+	if pathStatePortDocker != "/var/lib/linux-dashboard-helper/docker-ports.json" {
+		t.Fatalf("state firewall tidak boleh di direktori web: %s", pathStatePortDocker)
+	}
+}
+
 func TestPortDariBarisInspect(t *testing.T) {
 	// Container biasa: satu port container diikat ke 0.0.0.0 DAN :: (v4 + v6).
 	// Keduanya port host yang sama, jadi rule ufw-nya satu.
