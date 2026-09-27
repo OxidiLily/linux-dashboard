@@ -341,7 +341,7 @@ func extractTailscaleKey(input string) string {
 // mengembalikan kuncinya lagi, jadi tidak ada tempat di sistem untuk
 // membacanya balik. Yang disimpan panel hanya bentuk tersamarnya — cukup untuk
 // menunjukkan kunci mana yang dipakai, dan tidak bisa dipakai siapa pun.
-const tailscaleMaskPath = "/var/lib/linux-dashboard/tailscale-authkey.mask"
+const tailscaleMaskPath = "/var/lib/linux-dashboard-helper/tailscale-authkey.mask"
 
 // tsTimeoutUp membatasi tunggu `tailscale up`. Cukup panjang untuk pertukaran
 // kunci dan pembentukan rute di jaringan lambat, cukup pendek supaya tombol

@@ -16,7 +16,7 @@ agar tetap ringan di mesin **2 core**.
 ## Instalasi cepat
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
+cd / && curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
 ```
 
 Skrip memasang dependency build serta keamanan (Go, Node 24, `libpam0g-dev`,

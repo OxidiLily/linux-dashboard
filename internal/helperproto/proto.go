@@ -46,8 +46,10 @@ const (
 	// Certificates mengelola DASHBOARD_TLS_CERT/DASHBOARD_TLS_KEY pada
 	// /etc/default/linux-dashboard. Keduanya privileged karena berkas itu milik
 	// root dan perubahan memerlukan restart web app.
-	CmdCertificatesGet = "certificates.get"
-	CmdCertificatesSet = "certificates.set"
+	CmdCertificatesGet        = "certificates.get"
+	CmdCertificatesSet        = "certificates.set"
+	CmdCertificatesUpload     = "certificates.upload"
+	CmdCertificatesSelfSigned = "certificates.self_signed"
 
 	CmdProcKill = "proc.kill"
 
@@ -152,6 +154,19 @@ const (
 	// berkala selama menunggu, jadi kontrak install lama tidak berubah.
 	CmdComponentProgress = "component.progress"
 
+	CmdProxyList                  = "proxy.list"
+	CmdProxySave                  = "proxy.save"
+	CmdProxyDelete                = "proxy.delete"
+	CmdProxyTest                  = "proxy.test"
+	CmdProxyStatus                = "proxy.status"
+	CmdProxyCertIssue             = "proxy.cert_issue"
+	CmdProxyCloudflareDNS         = "proxy.cloudflare_dns"
+	CmdProxyCloudflareList        = "proxy.cloudflare_list"
+	CmdProxyCloudflareDelete      = "proxy.cloudflare_delete"
+	CmdProxyCloudflareTokenStatus = "proxy.cloudflare_token_status"
+	CmdProxyCloudflareTokenSave   = "proxy.cloudflare_token_save"
+	CmdProxyCloudflareTokenDelete = "proxy.cloudflare_token_delete"
+
 	CmdDockerExec = "docker.exec"
 
 	CmdVPNStatus    = "vpn.status"
@@ -188,6 +203,7 @@ const (
 	ErrAksiBerjalan      = "action_in_progress"
 	ErrDiskAdaFS         = "disk_has_filesystem"
 	ErrDiskDipakai       = "disk_in_use"
+	ErrPortKonflik       = "port_conflict"
 	// ErrMirrorGagal: apt bisa membaca metadata repo tapi gagal mengunduh
 	// berkas paketnya. Ini kegagalan mirror, bukan paket yang tidak ada, dan
 	// perbedaan itu menentukan tindakan user: mengganti mirror, bukan mencari
@@ -240,6 +256,66 @@ type Response struct {
 }
 
 // ---- args per command (yang butuh struktur) ----
+
+type ProxyHost struct {
+	ID         string `json:"id,omitempty"`
+	Domain     string `json:"domain"`
+	TargetHost string `json:"target_host"`
+	TargetPort int    `json:"target_port"`
+	Scheme     string `json:"scheme"`
+	Enabled    bool   `json:"enabled"`
+	Managed    bool   `json:"managed,omitempty"`  // rule panel bawaan; tidak bisa dihapus
+	TLSMode    string `json:"tls_mode,omitempty"` // "", pending, certbot
+	// CertIssuer/CertNotAfter diisi helper saat membaca fullchain.pem milik
+	// domain. UI memakainya untuk menandai sertifikat Let's Encrypt STAGING
+	// (issuer mengandung "STAGING") yang tidak dipercaya browser.
+	CertIssuer   string `json:"cert_issuer,omitempty"`
+	CertNotAfter string `json:"cert_not_after,omitempty"`
+}
+
+type ProxyCertArgs struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	Staging       bool   `json:"staging"`
+	PanelTLS      bool   `json:"panel_tls"`
+	CloudflareDNS bool   `json:"cloudflare_dns"`
+}
+
+type CloudflareTokenArgs struct {
+	Token string `json:"token"`
+}
+
+type CloudflareTokenStatus struct {
+	Saved bool `json:"saved"`
+}
+
+type CloudflareDNSArgs struct {
+	Token   string `json:"token"`
+	Domain  string `json:"domain"`
+	Content string `json:"content"`
+	Proxied bool   `json:"proxied"`
+	// RecordID dipakai hapus: kosong = hapus semua record A untuk Domain.
+	RecordID string `json:"record_id,omitempty"`
+}
+
+type CloudflareDNSRecord struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+	Proxied bool   `json:"proxied"`
+}
+
+type ProxyDeleteArgs struct {
+	ID string `json:"id"`
+}
+
+type ProxyStatus struct {
+	Installed bool   `json:"installed"`
+	Running   bool   `json:"running"`
+	ConfigOK  bool   `json:"config_ok"`
+	Message   string `json:"message,omitempty"`
+}
 
 type LoginArgs struct {
 	Username string `json:"username"`
@@ -984,6 +1060,18 @@ type CertificatesStatus struct {
 type CertificatesSetArgs struct {
 	CertPath string `json:"cert_path"`
 	KeyPath  string `json:"key_path"`
+}
+
+type CertificatesUploadArgs struct {
+	CertificatePEM string `json:"certificate_pem"`
+	PrivateKeyPEM  string `json:"private_key_pem"`
+}
+
+type CertificatesSelfSignedArgs struct {
+	CommonName  string   `json:"common_name"`
+	DNSNames    []string `json:"dns_names,omitempty"`
+	IPAddresses []string `json:"ip_addresses,omitempty"`
+	Days        int      `json:"days"`
 }
 
 type UpdateStatus struct {

@@ -221,6 +221,14 @@ func (s *Server) Routes() http.Handler {
 
 			r.Get("/settings/certificates", s.handleCertificatesGet)
 			r.Put("/settings/certificates", s.handleCertificatesSet)
+			r.Post("/settings/certificates/upload", s.handleCertificatesUpload)
+			r.Post("/settings/certificates/self-signed", s.handleCertificatesSelfSigned)
+			r.Get("/proxy/cloudflare/token", s.handleCloudflareTokenStatus)
+			r.Put("/proxy/cloudflare/token", s.handleCloudflareTokenSave)
+			r.Delete("/proxy/cloudflare/token", s.handleCloudflareTokenDelete)
+			r.Put("/proxy/cloudflare/dns", s.handleProxyCloudflareDNS)
+			r.Post("/proxy/cloudflare/list", s.handleProxyCloudflareList)
+			r.Post("/proxy/cloudflare/delete", s.handleProxyCloudflareDelete)
 
 			r.Get("/firewall/rules", s.handleFirewallList)
 			r.Post("/firewall/rules", s.handleFirewallAdd)
@@ -246,6 +254,14 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/components/{name}/install", s.handleComponentInstall)
 			r.Post("/components/{name}/uninstall", s.handleComponentUninstall)
 			r.Post("/components/{name}/{action}", s.handleComponentService)
+
+			r.Get("/proxy/hosts", s.handleProxyList)
+			r.Post("/proxy/hosts", s.handleProxySave)
+			r.Put("/proxy/hosts/{id}", s.handleProxySave)
+			r.Delete("/proxy/hosts/{id}", s.handleProxyDelete)
+			r.Post("/proxy/test", s.handleProxyTest)
+			r.Get("/proxy/status", s.handleProxyStatus)
+			r.Post("/proxy/hosts/{id}/cert", s.handleProxyCertIssue)
 
 			r.Get("/docker/containers", s.handleDockerContainers)
 			r.Get("/docker/containers/{id}/logs", s.handleContainerLogs)
@@ -345,7 +361,8 @@ func writeHelperErr(w http.ResponseWriter, err error) {
 		status = http.StatusForbidden
 	case helperproto.ErrNotFound, helperproto.ErrFolderTidakAda, helperproto.ErrKomponenTidakAda:
 		status = http.StatusNotFound
-	case helperproto.ErrSudahAda, helperproto.ErrMasihTersambung, helperproto.ErrDikelolaLuar:
+	case helperproto.ErrSudahAda, helperproto.ErrMasihTersambung, helperproto.ErrDikelolaLuar,
+		helperproto.ErrPortKonflik:
 		status = http.StatusConflict
 	// Crontab yang berubah di antara muat dan simpan: 409 supaya UI bisa
 	// membedakannya dari penolakan isi dan menjawabnya dengan "muat ulang",

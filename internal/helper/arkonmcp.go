@@ -61,7 +61,7 @@ const (
 	// kredensial yang memberi akses ke seluruh isi knowledge hub sesuai
 	// tier-nya, dan tidak ada user biasa yang perlu membacanya dari sini —
 	// mereka menerimanya lewat config agent masing-masing.
-	dirTokenArkon = "/var/lib/linux-dashboard/arkon"
+	dirTokenArkon = "/var/lib/linux-dashboard-helper/arkon"
 
 	// batasAPIArkon sengaja pendek. Seluruh pendaftaran ini berjalan SEBELUM
 	// PTY dibuka (lihat handleTerminal), dan sesi pertama sebuah tier memanggil

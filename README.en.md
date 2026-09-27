@@ -16,7 +16,7 @@ stay light on a **2-core** machine.
 ## Quick install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
+cd / && curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
 ```
 
 The script installs build and security dependencies (Go, Node 24,

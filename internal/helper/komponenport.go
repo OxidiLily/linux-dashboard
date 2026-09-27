@@ -44,7 +44,8 @@ const (
 	jedaPortKomponen = 30 * time.Second
 )
 
-var pathStatePortKomponen = "/var/lib/linux-dashboard/komponen-ports.json"
+// State lama di direktori web tidak dipercaya, termasuk flag Dibuat/Diabaikan.
+var pathStatePortKomponen = "/var/lib/linux-dashboard-helper/komponen-ports.json"
 
 // entriStatePortKomponen adalah satu rule yang dipegang panel untuk sebuah
 // komponen. Sumber (Dari) ikut dicatat karena satu port bisa terdaftar lebih

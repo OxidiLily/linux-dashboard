@@ -463,6 +463,18 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 			return nil, err
 		}
 		return jsonOf(simpanCertificates(args, time.Now()))
+	case helperproto.CmdCertificatesUpload:
+		args, err := decodeArgs[helperproto.CertificatesUploadArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(pasangCertificatesUpload(args, time.Now()))
+	case helperproto.CmdCertificatesSelfSigned:
+		args, err := decodeArgs[helperproto.CertificatesSelfSignedArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(buatCertificatesSelfSigned(args, time.Now()))
 
 	case helperproto.CmdProcKill:
 		args, err := decodeArgs[helperproto.KillArgs](req)
@@ -783,6 +795,70 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 			return nil, err
 		}
 		return nil, componentService(args.Name, args.Action, u)
+
+	case helperproto.CmdProxyList:
+		return jsonOf(proxyPanelList())
+	case helperproto.CmdProxySave:
+		args, err := decodeArgs[helperproto.ProxyHost](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(proxySave(args))
+	case helperproto.CmdProxyDelete:
+		args, err := decodeArgs[helperproto.ProxyDeleteArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return nil, proxyDelete(args.ID)
+	case helperproto.CmdProxyTest:
+		return nil, proxyTest()
+	case helperproto.CmdProxyStatus:
+		return jsonOf(proxyStatus(), nil)
+	case helperproto.CmdProxyCertIssue:
+		args, err := decodeArgs[helperproto.ProxyCertArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(proxyCertIssue(args))
+	case helperproto.CmdProxyCloudflareTokenStatus:
+		saved, err := cloudflareTokenStatus()
+		return jsonOf(helperproto.CloudflareTokenStatus{Saved: saved}, err)
+	case helperproto.CmdProxyCloudflareTokenSave:
+		args, err := decodeArgs[helperproto.CloudflareTokenArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		if err := cloudflareTokenSave(args.Token); err != nil {
+			return nil, err
+		}
+		return jsonOf(helperproto.CloudflareTokenStatus{Saved: true}, nil)
+	case helperproto.CmdProxyCloudflareTokenDelete:
+		if err := cloudflareTokenDelete(); err != nil {
+			return nil, err
+		}
+		return jsonOf(helperproto.CloudflareTokenStatus{Saved: false}, nil)
+	case helperproto.CmdProxyCloudflareDNS:
+		args, err := decodeArgs[helperproto.CloudflareDNSArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(cloudflareDNSUpsertSafe(args))
+	case helperproto.CmdProxyCloudflareList:
+		args, err := decodeArgs[helperproto.CloudflareDNSArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(cloudflareDNSListSafe(args))
+	case helperproto.CmdProxyCloudflareDelete:
+		args, err := decodeArgs[helperproto.CloudflareDNSArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		n, err := cloudflareDNSDeleteSafe(args)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(map[string]int{"deleted": n}, nil)
 
 	case helperproto.CmdVPNStatus:
 		return jsonOf(vpnStatusAll(), nil)
