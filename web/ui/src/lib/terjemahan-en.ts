@@ -24,6 +24,9 @@ daftarkanTerjemahan({
   "Terpasang": "Installed",
   "Belum Terpasang": "Not Installed",
   "Proxy manager": "Proxy manager",
+  "Jenis DNS": "DNS record type",
+  "Data terstruktur (JSON, opsional jika Content diisi)": "Structured data (JSON; optional when Content is filled)",
+  "Gunakan Content untuk nilai DNS biasa, atau Data JSON untuk properti terpisah seperti flags, tag, dan value pada CAA. Jika Data diisi, Content tidak dikirim.": "Use Content for a plain DNS value, or JSON Data for separate properties such as CAA flags, tag, and value. When Data is filled, Content is not sent.",
   "Kelola nama domain dan teruskan trafiknya ke alamat IP serta port aplikasi.": "Manage domain names and forward their traffic to application IP addresses and ports.",
   "Belum ada proxy host": "No proxy hosts yet",
   "CRUD proxy host akan tersedia setelah logika Fase 1 tersambung ke nginx.": "Proxy host CRUD will be available after Phase 1 logic is connected to nginx.",
@@ -742,6 +745,12 @@ daftarkanTerjemahan({
   "Belum ada bookmark folder.": "No folder bookmarks yet.",
   "Pasang komponen {0}?": "Install component {0}?",
   "Perbarui {0} ke v{1}?": "Update {0} to v{1}?",
+  "Perbarui {0} ke commit terbaru?": "Update {0} to the latest commit?",
+  "Commit baru tersedia": "New commits available",
+  "Pembaruan lewat panel hanya tersedia untuk instalasi resmi milik user panel ini. Instalasi system-wide atau metode lain diperbarui lewat pengelola asalnya.":
+    "Panel updates are only available for official installations owned by this panel user. Update system-wide or other installations through their original package manager.",
+  "Agent diperbarui sebagai user pemilik instalasi. Sesi yang sedang berjalan bisa terganggu; data dan konfigurasi tetap disimpan. Bisa berjalan beberapa menit.":
+    "The agent updates as its owning user. Active sessions may be interrupted; data and settings are retained. This may take several minutes.",
   "Service dihentikan, paket ditarik ulang dari registry, unit systemd-nya ditulis ulang oleh panel, lalu dijalankan lagi. Bisa berjalan beberapa menit.":
     "The service is stopped, the package is re-pulled from the registry, its systemd unit is rewritten by the panel, then started again. May take a few minutes.",
   "Versi baru: v{0}": "New version: v{0}",
@@ -1434,7 +1443,10 @@ daftarkanTerjemahan({
   "Belum ada proxy host — buat host dulu di tab Proxy Manager.": "No proxy hosts yet — create a host in the Proxy Manager tab first.",
   "Belum ada sertifikat — host dilayani HTTP.": "No certificate yet — the host is served over HTTP.",
   "Matikan TLS": "Disable TLS",
+  "Sertifikat domain Proxy Manager akan dihapus permanen, termasuk yang mungkin dipakai layanan lain. Rule TLS akan dinonaktifkan. Tidak bisa dibatalkan.": "Proxy Manager domain certificates will be permanently deleted, including certificates other services might use. TLS rules will be disabled. This cannot be undone.",
+  "Semua domain dan rule Proxy Manager akan dihapus dari panel bersama konfigurasi nginx miliknya. Setelah nginx dipasang ulang, panel kembali ke rule bawaan tanpa domain. Sertifikat Certbot tidak ikut dihapus.": "All Proxy Manager domains and rules will be removed from the panel along with its nginx configuration. After reinstalling nginx, the panel returns to the default rule without a domain. Certbot certificates will not be deleted.",
   "Matikan TLS untuk host ini?": "Disable TLS for this host?",
+  "Peringatan: akses berikutnya memakai HTTP; password, OTP, dan sesi bisa disadap. Jangan matikan TLS pada domain untuk login panel.": "Warning: future access will use HTTP; passwords, OTPs, and sessions can be intercepted. Do not disable TLS on the panel login domain.",
   "TLS dimatikan; host kembali HTTP.": "TLS disabled; the host is back to HTTP.",
   "Gagal mematikan TLS": "Failed to disable TLS",
   "Token dan domain Cloudflare wajib diisi.": "Cloudflare token and domain are required.",

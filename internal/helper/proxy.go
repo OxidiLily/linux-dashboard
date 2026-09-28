@@ -330,6 +330,34 @@ func proxySave(h helperproto.ProxyHost) (helperproto.ProxyHost, error) {
 	return h, nil
 }
 
+// proxyDisableTLS is the only path that can turn a Certbot host back to HTTP.
+// Certificates remain on disk for renewal/history; nginx no longer serves them.
+func proxyDisableTLS(id string) (helperproto.ProxyHost, error) {
+	proxyMu.Lock()
+	defer proxyMu.Unlock()
+	if !proxyIDRe.MatchString(id) {
+		return helperproto.ProxyHost{}, errKode(helperproto.ErrNilaiTidakValid, "ID proxy host tidak valid")
+	}
+	list, err := proxyList()
+	if err != nil {
+		return helperproto.ProxyHost{}, err
+	}
+	for i := range list {
+		if list[i].ID != id {
+			continue
+		}
+		if list[i].TLSMode != "certbot" {
+			return helperproto.ProxyHost{}, errKode(helperproto.ErrNilaiTidakValid, "TLS Certbot belum aktif pada host ini")
+		}
+		list[i].TLSMode = ""
+		if err := terapkanProxy(list); err != nil {
+			return helperproto.ProxyHost{}, err
+		}
+		return list[i], nil
+	}
+	return helperproto.ProxyHost{}, &helperErr{code: helperproto.ErrNotFound, msg: "proxy host tidak ditemukan"}
+}
+
 func proxyDelete(id string) error {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
@@ -460,7 +488,13 @@ func terapkanProxy(list []helperproto.ProxyHost) error {
 		return rollback(errInvalid("konfigurasi nginx ditolak: %v", err))
 	}
 	if _, err := proxyRun("systemctl", "reload", "nginx"); err != nil {
-		return rollback(errInvalid("reload nginx gagal: %v", err))
+		cause := rollback(errInvalid("reload nginx gagal: %v", err))
+		// Reload may have applied the new (HTTP) config despite returning an
+		// error. Restore the old runtime too, not only files and state.
+		if _, reloadErr := proxyRun("systemctl", "reload", "nginx"); reloadErr != nil {
+			return errors.Join(cause, fmt.Errorf("reload pemulihan nginx gagal: %w", reloadErr))
+		}
+		return cause
 	}
 	return nil
 }

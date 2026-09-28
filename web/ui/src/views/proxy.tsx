@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { CheckCircle2, Pencil, Plus, RefreshCw, Route, ShieldCheck, Trash2, Cloud, ExternalLink } from "lucide-react"
+import { CheckCircle2, Pencil, Plus, RefreshCw, Route, ShieldCheck, Trash2, ExternalLink } from "lucide-react"
 import { apiGet, apiSend } from "@/lib/api"
 import { pesanError } from "@/lib/pesan-error"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { confirmDialog } from "@/components/ui/confirm"
 import { notify } from "@/components/ui/toast"
 import { useTr } from "@/stores/i18n"
+import { CloudflareManager } from "./cloudflare-manager"
 
 type ProxyHost = {
   id?: string
@@ -29,14 +30,6 @@ type ProxyStatus = {
   running: boolean
   config_ok: boolean
   message?: string
-}
-
-type CloudflareRecord = {
-  id: string
-  type: string
-  name: string
-  content: string
-  proxied: boolean
 }
 
 const kosong: ProxyHost = { domain: "", target_host: "127.0.0.1", target_port: 3000, scheme: "http", enabled: true }
@@ -66,12 +59,6 @@ export function ProxyManagerView() {
   const [cfToken, setCfToken] = useState("")
   const [cfTokenSaved, setCfTokenSaved] = useState(false)
   const [cfTokenBusy, setCfTokenBusy] = useState(false)
-  const [cfDomain, setCfDomain] = useState("")
-  const [cfIPv4, setCfIPv4] = useState("")
-  const [cfProxied, setCfProxied] = useState(true)
-  const [cfSaving, setCfSaving] = useState(false)
-  const [cfRecords, setCfRecords] = useState<CloudflareRecord[]>([])
-  const [cfLoading, setCfLoading] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -118,7 +105,6 @@ export function ProxyManagerView() {
       const status = await apiSend<{ saved: boolean }>("/api/proxy/cloudflare/token", "DELETE")
       setCfTokenSaved(status.saved)
       setCfToken("")
-      setCfRecords([])
       notify.ok(tr("Token DNS Cloudflare dihapus."))
     } catch (e) {
       notify.err(`${tr("Gagal menghapus token Cloudflare")}: ${pesanError(e)}`)
@@ -198,65 +184,13 @@ export function ProxyManagerView() {
   // Matikan TLS = kembali murni HTTP (config 443 ditarik oleh helper).
   const matikanTLS = async (h: ProxyHost) => {
     if (!h.id) return
-    if (!await confirmDialog({ title: tr("Matikan TLS untuk host ini?"), message: h.domain, confirmLabel: tr("Matikan TLS") })) return
+    if (!await confirmDialog({ title: tr("Matikan TLS untuk host ini?"), message: `${h.domain} — ${tr("Peringatan: akses berikutnya memakai HTTP; password, OTP, dan sesi bisa disadap. Jangan matikan TLS pada domain untuk login panel.")}`, confirmLabel: tr("Matikan TLS") })) return
     try {
-      await apiSend<ProxyHost>(`/api/proxy/hosts/${h.id}`, "PUT", { ...h, tls_mode: "" })
+      await apiSend<ProxyHost>(`/api/proxy/hosts/${h.id}/disable-tls`, "POST")
       notify.ok(tr("TLS dimatikan; host kembali HTTP."))
       await load()
     } catch (e) {
       notify.err(`${tr("Gagal mematikan TLS")}: ${pesanError(e)}`)
-    }
-  }
-
-  const loadCloudflare = async () => {
-    if ((!cfToken.trim() && !cfTokenSaved) || !cfDomain.trim()) {
-      notify.err(tr("Token tersimpan atau token baru dan domain Cloudflare wajib diisi."))
-      return
-    }
-    setCfLoading(true)
-    try {
-      const recs = await apiSend<CloudflareRecord[]>("/api/proxy/cloudflare/list", "POST", {
-        token: cfToken.trim(), domain: cfDomain.trim(),
-      })
-      setCfRecords(recs || [])
-      if (!recs?.length) notify.ok(tr("Belum ada record A untuk domain ini."))
-    } catch (e) {
-      notify.err(`${tr("Gagal membaca DNS Cloudflare")}: ${pesanError(e)}`)
-    } finally {
-      setCfLoading(false)
-    }
-  }
-
-  const saveCloudflare = async () => {
-    if ((!cfToken.trim() && !cfTokenSaved) || !cfDomain.trim() || !cfIPv4.trim()) {
-      notify.err(tr("Token tersimpan atau token baru, domain, dan IPv4 Cloudflare wajib diisi."))
-      return
-    }
-    setCfSaving(true)
-    try {
-      const record = await apiSend<CloudflareRecord>("/api/proxy/cloudflare/dns", "PUT", {
-        token: cfToken.trim(), domain: cfDomain.trim(), content: cfIPv4.trim(), proxied: cfProxied,
-      })
-      notify.ok(`${tr("DNS Cloudflare tersimpan")}: ${record.name}`)
-      setCfRecords((r) => [record, ...r.filter((x) => x.id !== record.id)])
-    } catch (e) {
-      notify.err(`${tr("Gagal mengatur DNS Cloudflare")}: ${pesanError(e)}`)
-    } finally {
-      setCfSaving(false)
-    }
-  }
-
-  const hapusCloudflare = async (rec: CloudflareRecord) => {
-    if ((!cfToken.trim() && !cfTokenSaved) || !cfDomain.trim()) return
-    if (!await confirmDialog({ title: tr("Hapus record DNS Cloudflare?"), message: `${rec.name} → ${rec.content}`, confirmLabel: tr("Hapus") })) return
-    try {
-      await apiSend<{ deleted: number }>("/api/proxy/cloudflare/delete", "POST", {
-        token: cfToken.trim(), domain: cfDomain.trim(), record_id: rec.id,
-      })
-      setCfRecords((r) => r.filter((x) => x.id !== rec.id))
-      notify.ok(tr("Record DNS dihapus."))
-    } catch (e) {
-      notify.err(`${tr("Gagal menghapus record DNS")}: ${pesanError(e)}`)
     }
   }
 
@@ -377,7 +311,7 @@ export function ProxyManagerView() {
       )}
 
       {tab === "dns" && (
-        <div className="grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        <div className="space-y-4">
           <div className="space-y-3 rounded-lg border border-border bg-surface-2/40 p-4">
             <h2 className="text-sm font-semibold">{tr("Cloudflare DNS")}</h2>
             <p className="text-xs text-muted-foreground">{tr("Token DNS Cloudflare memerlukan Zone Read dan DNS Write. Disimpan hanya di server; nilai tidak ditampilkan kembali. Token ini dipakai untuk tantangan DNS-01 saat penerbitan sertifikat di tab SSL/TLS.")}</p>
@@ -387,27 +321,10 @@ export function ProxyManagerView() {
               <Button size="sm" onClick={simpanTokenCloudflare} disabled={cfTokenBusy || !cfToken.trim()}>{tr("Simpan token")}</Button>
               {cfTokenSaved && <Button variant="outline" size="sm" className="text-crit" onClick={hapusTokenCloudflare} disabled={cfTokenBusy}>{tr("Hapus token")}</Button>}
             </div>
-            <label className="block text-xs text-muted-foreground">{tr("Nama domain")}<Input className="mt-1" placeholder="app.example.com" value={cfDomain} onChange={(e) => setCfDomain(e.target.value)} /></label>
-            <label className="block text-xs text-muted-foreground">IPv4<Input className="mt-1" placeholder="203.0.113.10" value={cfIPv4} onChange={(e) => setCfIPv4(e.target.value)} /></label>
-            <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={cfProxied} onChange={(e) => setCfProxied(e.target.checked)} />{tr("Aktifkan Cloudflare Proxy (orange cloud)")}</label>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={saveCloudflare} disabled={cfSaving}>{tr("Simpan DNS Cloudflare")}</Button>
-              <Button variant="outline" size="sm" onClick={loadCloudflare} disabled={cfLoading}><Cloud className="mr-1 size-3.5" />{tr("Muat record")}</Button>
-            </div>
+
           </div>
 
-          <div className="space-y-2">
-            {cfRecords.length === 0 && <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground"><Cloud className="mx-auto mb-2 size-6" />{tr("Belum ada record dimuat. Isi token + domain lalu tekan Muat record.")}</div>}
-            {cfRecords.map((r) => (
-              <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
-                <div className="min-w-0"><div className="font-medium">{r.name}</div><div className="num text-xs text-muted-foreground">{r.type} → {r.content}</div></div>
-                <div className="flex items-center gap-2">
-                  <Badge tone={r.proxied ? "ok" : "muted"}>{r.proxied ? tr("Proxy aktif") : tr("DNS only")}</Badge>
-                  <Button variant="outline" size="sm" className="text-crit" onClick={() => hapusCloudflare(r)}><Trash2 className="size-3.5" /></Button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <CloudflareManager enabled={cfTokenSaved} />
         </div>
       )}
     </Panel>

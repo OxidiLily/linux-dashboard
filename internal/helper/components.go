@@ -75,7 +75,7 @@ type component struct {
 	// dipakai dari LAN. Aturannya dijaga reconciler — lihat komponenport.go:
 	// dibuka saat layanannya hidup, dicabut saat mati atau komponennya tidak
 	// ada lagi.
-	ports []portKomponen
+	ports       []portKomponen
 	portsPublik bool // true if component exposes public ports (e.g., nginx)
 
 	// Label adalah nama pemilik yang ditulis di rule firewall komponen ini
@@ -165,16 +165,37 @@ var components = map[string]*component{
 	"nginx": &component{
 		Name: "nginx", Binary: "nginx", Service: "nginx",
 		Category: katRuntime, RequiredFor: "Settings → Proxy manager",
-		KelolaDi: "Settings → Proxy manager",
+		KelolaDi:    "Settings → Proxy manager",
 		Description: "Web server untuk reverse proxy.",
-		install: func() error { return aptInstall("nginx") },
-		uninstall: func() error { return aptRemove("nginx") },
-		version: func() string { return firstLine(tryRun("nginx", "-v")) },
-		ports: []portKomponen{{"80", "tcp", ""}, {"443", "tcp", ""}},
+		install:     func() error { return aptInstall("nginx") },
+		uninstall: func() error {
+			if err := prepareNginxUninstall(); err != nil {
+				return err
+			}
+			if err := aptRemove("nginx"); err != nil {
+				return err
+			}
+			return cleanupNginxProxy()
+		},
+		version:     func() string { return firstLine(tryRun("nginx", "-v")) },
+		ports:       []portKomponen{{"80", "tcp", ""}, {"443", "tcp", ""}},
 		portsPublik: true,
 	},
-	"certbot": wajib(aptComponent("certbot", "certbot", "", katRuntime,
-		"ACME client untuk sertifikat TLS otomatis.", "certbot", "python3-certbot-dns-cloudflare"), "Settings → Proxy manager (TLS otomatis)"),
+	"certbot": wajib(&component{
+		Name: "certbot", Binary: "certbot", Category: katRuntime,
+		Description: "ACME client untuk sertifikat TLS otomatis.",
+		install:     func() error { return aptInstall("certbot", "python3-certbot-dns-cloudflare") },
+		uninstall: func() error {
+			if err := prepareCertbotUninstall(); err != nil {
+				return err
+			}
+			if err := aptRemove("certbot", "python3-certbot-dns-cloudflare"); err != nil {
+				return err
+			}
+			return cleanupCertbotProxy()
+		},
+		version: func() string { return firstLine(tryRun("certbot", "--version")) },
+	}, "Settings → Proxy manager (TLS otomatis)"),
 	"docker": {
 		Name: "docker", Binary: "docker", Service: "docker",
 		Category: katRuntime, RequiredFor: "System → Docker",
@@ -521,11 +542,6 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	st.PunyaData = c.purge != nil
 	if st.Installed && name == "9router" {
 		st.Note = catatan9Router()
-		// Versi terpasang kosong (prefix npm lain) tidak dibandingkan: tombol
-		// Perbarui yang menyala permanen lebih menyesatkan daripada tidak ada.
-		if terbaru := versiTerbaruNpm("9router"); terbaru != "" && st.Version != "" && terbaru != st.Version {
-			st.VersiBaru = terbaru
-		}
 	}
 	if st.Installed && name == "docker" {
 		st.Note = catatanGrupDocker
@@ -653,6 +669,41 @@ func AllComponentStatus() []helperproto.ComponentStatus {
 	cacheMu.Lock()
 	cacheStatus, cacheWaktu = out, time.Now()
 	cacheMu.Unlock()
+	return out
+}
+
+// ComponentUpdates terpisah dari katalog: pemeriksaan registry/CLI tidak
+// menahan daftar komponen. Jangan sertakan komponen yang telah dicopot.
+func ComponentUpdates(base []helperproto.ComponentStatus, u *userInfo) []helperproto.ComponentStatus {
+	out := make([]helperproto.ComponentStatus, 0)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, st := range base {
+		if !st.Installed || st.Name != "9router" && !komponenAgenAI(st.Name) {
+			continue
+		}
+		wg.Add(1)
+		go func(st helperproto.ComponentStatus) {
+			defer wg.Done()
+			if st.Name == "9router" {
+				if st.Version != "" {
+					if terbaru := versiTerbaruNpm("9router"); terbaru != "" && terbaru != st.Version {
+						st.VersiBaru = terbaru
+					}
+				}
+			} else if u != nil {
+				if _, ok := agenMilikUser(st.Name, u); ok {
+					st.VersiBaru = versiBaruAgen(st.Name, u)
+				} else if st.Note == "" {
+					st.Note = "Pembaruan lewat panel hanya tersedia untuk instalasi resmi milik user panel ini. Instalasi system-wide atau metode lain diperbarui lewat pengelola asalnya."
+				}
+			}
+			mu.Lock()
+			out = append(out, st)
+			mu.Unlock()
+		}(st)
+	}
+	wg.Wait()
 	return out
 }
 
@@ -888,15 +939,15 @@ func componentService(name, action string, u *userInfo) error {
 	if !ok {
 		return errInvalid("component %q tidak dikenal", name)
 	}
-	// "update" bukan aksi systemctl: paketnya ditarik ulang dari registry
-	// lalu service-nya dijalankan lagi. Lewat endpoint service yang sama
-	// supaya UI tidak butuh jalur baru — cuma 9router yang punya jalur
-	// pembaruan di panel; agent AI memperbarui dirinya sendiri saat start.
+	// Pembaruan hanya untuk katalog yang diizinkan, bukan aksi systemctl.
 	if action == "update" {
-		if name != "9router" {
-			return errInvalid("component %s tidak punya pembaruan lewat panel", name)
+		if name == "9router" {
+			return update9Router(u)
 		}
-		return update9Router(u)
+		if komponenAgenAI(name) {
+			return updateAgen(name, u)
+		}
+		return errInvalid("component %s tidak punya pembaruan lewat panel", name)
 	}
 	if c.Service == "" {
 		return errInvalid("component %s tidak punya service", name)
