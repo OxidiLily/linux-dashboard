@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
@@ -60,6 +60,7 @@ export function ComponentsView() {
   const tr = useTr()
   const [list, setList] = useState<ComponentStatus[]>([])
   const [loading, setLoading] = useState(false)
+  const loadSeq = useRef(0)
   // Aksi yang sedang berjalan: apt bisa makan 1–2 menit, jadi UI harus
   // menunjukkan komponen mana yang sedang dikerjakan dan sudah berapa lama.
   // diadopsi = aksi ini ditemukan sudah berjalan waktu halaman dimuat, bukan
@@ -121,14 +122,31 @@ export function ComponentsView() {
   // Dipakai tombol Refresh dan setiap kali panel baru saja mengubah sesuatu;
   // pemuatan pertama halaman tetap boleh memakai cache.
   const load = async (fresh = false) => {
+    const seq = ++loadSeq.current
     setLoading(true)
     try {
       const data = await apiGet<ComponentStatus[]>(`/api/components${fresh ? "?fresh=1" : ""}`)
+      if (seq !== loadSeq.current) return
       setList(data || [])
-    } catch (e: any) {
-      notify.err(trf("Gagal memuat daftar komponen: {0}", pesanError(e)))
-    } finally {
       setLoading(false)
+      // Registry dan CLI update dicek setelah katalog tampil. Respons lama
+      // tidak boleh menimpa hasil Refresh atau aksi install/uninstall baru.
+      apiGet<ComponentStatus[]>("/api/components/updates")
+        .then((updates) => {
+          if (seq !== loadSeq.current) return
+          const byName = new Map(updates.map((item) => [item.name, item]))
+          setList((current) => current.map((item) => {
+            const update = byName.get(item.name)
+            return update && item.installed && item.version === update.version
+              ? { ...item, latest_version: update.latest_version, note: update.note || item.note }
+              : item
+          }))
+        })
+        .catch(() => undefined)
+    } catch (e: any) {
+      if (seq === loadSeq.current) notify.err(trf("Gagal memuat daftar komponen: {0}", pesanError(e)))
+    } finally {
+      if (seq === loadSeq.current) setLoading(false)
     }
   }
 
@@ -197,11 +215,15 @@ export function ComponentsView() {
     let hapusData = false
     const ok = await confirmDialog({
       title: trf("Hapus komponen {0} dari sistem?", name),
-      message: agen
-        ? tr("Biner, konfigurasi, dan data agent ini dihapus seluruhnya — termasuk riwayat sesi, daftar server MCP, dan kredensialnya. Alat yang dipakai bersama agent (rtk, graphify, ponytail, browser-use, arkon) tidak ikut terhapus. Tidak bisa dibatalkan.")
-        : punyaData
-          ? tr("Paketnya dicopot. Data yang sudah dibuat komponen ini tetap disimpan, kecuali kamu memilih menghapusnya di bawah.")
-          : tr("Paket dicopot lewat apt. Konfigurasi dan data yang sudah dibuat komponen ini tidak ikut dibersihkan."),
+      message: name === "certbot"
+        ? tr("Sertifikat domain Proxy Manager akan dihapus permanen, termasuk yang mungkin dipakai layanan lain. Rule TLS akan dinonaktifkan. Tidak bisa dibatalkan.")
+        : name === "nginx"
+          ? tr("Semua domain dan rule Proxy Manager akan dihapus dari panel bersama konfigurasi nginx miliknya. Setelah nginx dipasang ulang, panel kembali ke rule bawaan tanpa domain. Sertifikat Certbot tidak ikut dihapus.")
+          : agen
+            ? tr("Biner, konfigurasi, dan data agent ini dihapus seluruhnya — termasuk riwayat sesi, daftar server MCP, dan kredensialnya. Alat yang dipakai bersama agent (rtk, graphify, ponytail, browser-use, arkon) tidak ikut terhapus. Tidak bisa dibatalkan.")
+            : punyaData
+              ? tr("Paketnya dicopot. Data yang sudah dibuat komponen ini tetap disimpan, kecuali kamu memilih menghapusnya di bawah.")
+              : tr("Paket dicopot lewat apt. Konfigurasi dan data yang sudah dibuat komponen ini tidak ikut dibersihkan."),
       checkbox:
         punyaData && !agen
           ? {
@@ -240,8 +262,12 @@ export function ComponentsView() {
   const handleService = async (name: string, action: string, versiBaru?: string) => {
     if (action === "update") {
       const ok = await confirmDialog({
-        title: trf("Perbarui {0} ke v{1}?", name, versiBaru ?? ""),
-        message: tr("Service dihentikan, paket ditarik ulang dari registry, unit systemd-nya ditulis ulang oleh panel, lalu dijalankan lagi. Bisa berjalan beberapa menit."),
+        title: versiBaru === "commits"
+          ? trf("Perbarui {0} ke commit terbaru?", name)
+          : trf("Perbarui {0} ke v{1}?", name, versiBaru ?? ""),
+        message: AGEN_AI.includes(name)
+          ? tr("Agent diperbarui sebagai user pemilik instalasi. Sesi yang sedang berjalan bisa terganggu; data dan konfigurasi tetap disimpan. Bisa berjalan beberapa menit.")
+          : tr("Service dihentikan, paket ditarik ulang dari registry, unit systemd-nya ditulis ulang oleh panel, lalu dijalankan lagi. Bisa berjalan beberapa menit."),
         confirmLabel: tr("Perbarui"),
       })
       if (!ok) return
@@ -436,7 +462,7 @@ export function ComponentsView() {
                             <span className="num text-[10px] text-muted-foreground">{c.version}</span>
                           )}
                           {isInstalled && c.latest_version && (
-                            <Badge tone="warn">{trf("Versi baru: v{0}", c.latest_version)}</Badge>
+                            <Badge tone="warn">{c.latest_version === "commits" ? tr("Commit baru tersedia") : trf("Versi baru: v{0}", c.latest_version)}</Badge>
                           )}
                         </div>
                         {c.description && (

@@ -29,13 +29,37 @@ import { simpanBahasaPralogin, usePrefs } from "@/stores/prefs"
 import { cariBerkas, detailItemLog, rootAktif, unggahLaluMuatUlang } from "@/views/files"
 import { bacaCrontab, cariJadwal, ukuranByte, ukuranCrontabTersimpan } from "@/views/cron"
 import { tautanProxy } from "@/views/proxy"
-
+import { recordFields, recordPayload, recordTypes, priorityTypes, proxiedTypes } from "@/views/cloudflare-record-fields"
 
 const gagal: string[] = []
 let jumlah = 0
 const cek = (dapat: string, harap: string, nama: string) => {
   jumlah++
   if (dapat !== harap) gagal.push(`${nama}: dapat ${JSON.stringify(dapat)}, harap ${JSON.stringify(harap)}`)
+}
+
+// Form DNS: setiap jenis mengirim field sesuai schema, tanpa prioritas liar.
+cek(String(recordTypes.length), "21", "dns/types-count")
+cek(String(recordTypes.every((type) => priorityTypes.has(type) === ["MX", "URI"].includes(type))), "true", "dns/priority-only-mx-uri")
+cek(String(recordTypes.every((type) => proxiedTypes.has(type) === ["A", "AAAA", "CNAME"].includes(type))), "true", "dns/proxy-only-address")
+for (const type of recordTypes) {
+  const fields = recordFields[type]
+  const data = Object.fromEntries((fields || []).map((field) => [field.key, field.options?.[0] ?? (field.number ? "1" : "example")]))
+  const payload = recordPayload({ type, name: "example.com", ttl: 1, content: "example", priority: 10, proxied: true }, data)
+  cek(String("data" in payload), String(!!fields), `dns/${type}/data`)
+  cek(String("content" in payload), String(!fields), `dns/${type}/content`)
+  cek(String("priority" in payload), String(priorityTypes.has(type)), `dns/${type}/priority`)
+  cek(String("proxied" in payload), String(proxiedTypes.has(type)), `dns/${type}/proxied`)
+  if (fields) cek(JSON.stringify(Object.keys(payload.data as object).sort()), JSON.stringify(fields.map((f) => f.key).sort()), `dns/${type}/fields`)
+}
+const legacy = recordPayload({ id: "existing", type: "SRV", name: "example.com", ttl: 1, content: "1 2 443 target.example.com", priority: 5 }, {})
+cek(String("content" in legacy && !("data" in legacy) && !("priority" in legacy)), "true", "dns/srv-legacy")
+const unknown = recordPayload({ id: "existing", type: "NEWTYPE", name: "example.com", ttl: 1, data: { field: "kept" } }, {})
+cek(JSON.stringify(unknown.data), JSON.stringify({ field: "kept" }), "dns/unknown-existing")
+for (const [type, fields] of [["CAA", {}], ["MX", {}], ["SRV", { port: "not-a-number", priority: "1", weight: "1", target: "example.com" }]] as const) {
+  let rejected = false
+  try { recordPayload({ type, name: "example.com", ttl: 1, content: "example" }, fields) } catch { rejected = true }
+  cek(String(rejected), "true", `dns/${type}/invalid`)
 }
 
 // Tautan publik memakai host proxy, bukan scheme/port target upstream.

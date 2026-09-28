@@ -95,6 +95,21 @@ func (s *Server) handleProxyCertIssue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+func (s *Server) handleProxyDisableTLS(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	sess := sessionFrom(r)
+	var out helperproto.ProxyHost
+	if err := s.helper.Call(helperproto.CmdProxyDisableTLS, sess.HelperToken, helperproto.ProxyDeleteArgs{ID: id}, &out); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	s.store.LogActivity(sess.Username, "proxy_tls_disable", out.Domain, map[string]any{"id": id}, clientIP(r))
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (s *Server) handleCloudflareTokenStatus(w http.ResponseWriter, r *http.Request) {
 	if !requireSudo(w, r) {
 		return

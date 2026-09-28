@@ -229,6 +229,10 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/proxy/cloudflare/dns", s.handleProxyCloudflareDNS)
 			r.Post("/proxy/cloudflare/list", s.handleProxyCloudflareList)
 			r.Post("/proxy/cloudflare/delete", s.handleProxyCloudflareDelete)
+			r.Get("/proxy/cloudflare/zones", s.handleCloudflareZones)
+			r.Post("/proxy/cloudflare/records", s.handleCloudflareRecords)
+			r.Put("/proxy/cloudflare/records", s.handleCloudflareRecordSave)
+			r.Post("/proxy/cloudflare/records/delete", s.handleCloudflareRecordDelete)
 
 			r.Get("/firewall/rules", s.handleFirewallList)
 			r.Post("/firewall/rules", s.handleFirewallAdd)
@@ -250,6 +254,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/settings/reboot", s.handleReboot)
 
 			r.Get("/components", s.handleComponents)
+			r.Get("/components/updates", s.handleComponentUpdates)
 			r.Get("/components/progress", s.handleComponentProgress)
 			r.Post("/components/{name}/install", s.handleComponentInstall)
 			r.Post("/components/{name}/uninstall", s.handleComponentUninstall)
@@ -262,6 +267,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/proxy/test", s.handleProxyTest)
 			r.Get("/proxy/status", s.handleProxyStatus)
 			r.Post("/proxy/hosts/{id}/cert", s.handleProxyCertIssue)
+			r.Post("/proxy/hosts/{id}/disable-tls", s.handleProxyDisableTLS)
 
 			r.Get("/docker/containers", s.handleDockerContainers)
 			r.Get("/docker/containers/{id}/logs", s.handleContainerLogs)

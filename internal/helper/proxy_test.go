@@ -707,6 +707,79 @@ func TestCloudflareDNSDeleteMenghapusRecordTepat(t *testing.T) {
 	}
 }
 
+func TestProxyDisableTLSReloadGagalMemulihkanRuntimeDanState(t *testing.T) {
+	dir := t.TempDir()
+	oldState, oldDir, oldRun := proxyStatePath, proxyConfigDir, proxyRun
+	proxyStatePath, proxyConfigDir = filepath.Join(dir, "state.json"), filepath.Join(dir, "conf.d")
+	reloads := 0
+	proxyRun = func(name string, args ...string) (helperproto.ExecResult, error) {
+		if name == "systemctl" && len(args) == 2 && args[0] == "reload" && args[1] == "nginx" {
+			reloads++
+			if reloads == 3 {
+				return helperproto.ExecResult{}, fmt.Errorf("reload gagal setelah apply")
+			}
+		}
+		return helperproto.ExecResult{}, nil
+	}
+	t.Cleanup(func() { proxyStatePath, proxyConfigDir, proxyRun = oldState, oldDir, oldRun })
+	h, err := proxySave(helperproto.ProxyHost{Domain: "panel.example.com", TargetHost: "127.0.0.1", TargetPort: 1122, Scheme: "http", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.TLSMode = "certbot"
+	if err := terapkanProxy([]helperproto.ProxyHost{h}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := proxyDisableTLS(h.ID); err == nil {
+		t.Fatal("reload harus gagal")
+	}
+	if reloads != 4 {
+		t.Fatalf("pemulihan tidak me-reload nginx: %d", reloads)
+	}
+	stored, err := proxyList()
+	if err != nil || len(stored) != 1 || stored[0].TLSMode != "certbot" {
+		t.Fatalf("state: %+v %v", stored, err)
+	}
+	conf, err := os.ReadFile(proxyConfigPath(h.ID))
+	if err != nil || !strings.Contains(string(conf), "listen 443 ssl;") {
+		t.Fatalf("config: %s %v", conf, err)
+	}
+}
+
+func TestProxyDisableTLSDariCertbot(t *testing.T) {
+	dir := t.TempDir()
+	oldState, oldDir, oldRun := proxyStatePath, proxyConfigDir, proxyRun
+	proxyStatePath, proxyConfigDir = filepath.Join(dir, "state.json"), filepath.Join(dir, "conf.d")
+	proxyRun = func(string, ...string) (helperproto.ExecResult, error) { return helperproto.ExecResult{}, nil }
+	t.Cleanup(func() { proxyStatePath, proxyConfigDir, proxyRun = oldState, oldDir, oldRun })
+	h, err := proxySave(helperproto.ProxyHost{Domain: "panel.example.com", TargetHost: "127.0.0.1", TargetPort: 1122, Scheme: "http", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.TLSMode = "certbot"
+	if err := terapkanProxy([]helperproto.ProxyHost{h}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := proxyDisableTLS(h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TLSMode != "" {
+		t.Fatalf("TLS masih aktif: %+v", got)
+	}
+	stored, err := proxyList()
+	if err != nil || len(stored) != 1 || stored[0].TLSMode != "" {
+		t.Fatalf("state: %+v %v", stored, err)
+	}
+	conf, err := os.ReadFile(proxyConfigPath(h.ID))
+	if err != nil || strings.Contains(string(conf), "listen 443") || !strings.Contains(string(conf), "proxy_pass http://127.0.0.1:1122") {
+		t.Fatalf("config: %s %v", conf, err)
+	}
+	if _, err := proxyDisableTLS(h.ID); err == nil {
+		t.Fatal("TLS yang sudah nonaktif tidak boleh dinonaktifkan ulang")
+	}
+}
+
 func TestProxySaveTLSModeTidakDapatDiaturKlien(t *testing.T) {
 	dir := t.TempDir()
 	oldState, oldDir, oldRun := proxyStatePath, proxyConfigDir, proxyRun
@@ -877,6 +950,183 @@ func TestCloudflareListRecordsAllPages(t *testing.T) {
 	records, err := cloudflareListRecords("token", "zone", "app.example.com")
 	if err != nil || len(records) != 2 || pages != 2 || records[1].ID != "rec2" {
 		t.Fatalf("records=%+v pages=%d err=%v", records, pages, err)
+	}
+}
+
+func TestPrepareCertbotUninstallDeletesOnlyValidatedLineages(t *testing.T) {
+	dir := t.TempDir()
+	oldState, oldLive, oldRun, oldDir := proxyStatePath, letsEncryptLiveDir, proxyRun, proxyConfigDir
+	proxyStatePath, letsEncryptLiveDir, proxyConfigDir = filepath.Join(dir, "state.json"), filepath.Join(dir, "live"), filepath.Join(dir, "conf.d")
+	t.Cleanup(func() {
+		proxyStatePath, letsEncryptLiveDir, proxyRun, proxyConfigDir = oldState, oldLive, oldRun, oldDir
+	})
+	for _, domain := range []string{"app.example.com", "other.example.com", "unrelated.example.com"} {
+		if err := os.MkdirAll(filepath.Join(letsEncryptLiveDir, domain), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hosts := []helperproto.ProxyHost{
+		{ID: "abcdef123456", Domain: "app.example.com", TargetHost: "127.0.0.1", TargetPort: 3000, Scheme: "http", TLSMode: "certbot"},
+		{ID: "abcdef123457", Domain: "other.example.com", TargetHost: "127.0.0.1", TargetPort: 3001, Scheme: "http", TLSMode: "pending"},
+		{ID: "abcdef123458", Domain: "unrelated.example.com", TargetHost: "127.0.0.1", TargetPort: 3002, Scheme: "http"},
+	}
+	if err := tulisProxyState(hosts); err != nil {
+		t.Fatal(err)
+	}
+	var deleted []string
+	proxyRun = func(name string, args ...string) (helperproto.ExecResult, error) {
+		if name != "certbot" {
+			return helperproto.ExecResult{}, nil
+		}
+		if len(args) != 4 || args[0] != "delete" || args[1] != "--non-interactive" || args[2] != "--cert-name" {
+			t.Errorf("unexpected command %s %v", name, args)
+		}
+		deleted = append(deleted, args[len(args)-1])
+		return helperproto.ExecResult{}, nil
+	}
+	if err := prepareCertbotUninstall(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(deleted, ",") != "app.example.com,other.example.com" {
+		t.Fatalf("deleted: %v", deleted)
+	}
+	list, err := proxyList()
+	if err != nil || list[0].TLSMode != "pending" || list[0].Enabled {
+		t.Fatalf("TLS masih aktif sebelum aptRemove: %+v %v", list, err)
+	}
+}
+
+func TestPrepareCertbotUninstallRejectsBadStateBeforeDeletion(t *testing.T) {
+	dir := t.TempDir()
+	oldState, oldLive, oldRun, oldDir := proxyStatePath, letsEncryptLiveDir, proxyRun, proxyConfigDir
+	proxyStatePath, letsEncryptLiveDir, proxyConfigDir = filepath.Join(dir, "state.json"), filepath.Join(dir, "live"), filepath.Join(dir, "conf.d")
+	t.Cleanup(func() {
+		proxyStatePath, letsEncryptLiveDir, proxyRun, proxyConfigDir = oldState, oldLive, oldRun, oldDir
+	})
+	if err := os.MkdirAll(filepath.Join(letsEncryptLiveDir, "app.example.com"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proxyStatePath, []byte(`[{"id":"abcdef123456","domain":"app.example.com","tls_mode":"certbot"},{"id":"abcdef123457","domain":"../escape","tls_mode":"certbot"}]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	proxyRun = func(string, ...string) (helperproto.ExecResult, error) {
+		t.Fatal("command on invalid state")
+		return helperproto.ExecResult{}, nil
+	}
+	if err := prepareCertbotUninstall(); err == nil {
+		t.Fatal("accepted invalid domain")
+	}
+}
+
+func TestPrepareCertbotUninstallFailureKeepsStateForRetry(t *testing.T) {
+	dir := t.TempDir()
+	oldState, oldLive, oldRun, oldDir := proxyStatePath, letsEncryptLiveDir, proxyRun, proxyConfigDir
+	proxyStatePath, letsEncryptLiveDir, proxyConfigDir = filepath.Join(dir, "state.json"), filepath.Join(dir, "live"), filepath.Join(dir, "conf.d")
+	t.Cleanup(func() {
+		proxyStatePath, letsEncryptLiveDir, proxyRun, proxyConfigDir = oldState, oldLive, oldRun, oldDir
+	})
+	if err := os.MkdirAll(filepath.Join(letsEncryptLiveDir, "app.example.com"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := tulisProxyState([]helperproto.ProxyHost{{ID: "abcdef123456", Domain: "app.example.com", TLSMode: "certbot"}}); err != nil {
+		t.Fatal(err)
+	}
+	proxyRun = func(name string, _ ...string) (helperproto.ExecResult, error) {
+		if name == "certbot" {
+			return helperproto.ExecResult{}, fmt.Errorf("delete failed")
+		}
+		return helperproto.ExecResult{}, nil
+	}
+	if err := prepareCertbotUninstall(); err == nil {
+		t.Fatal("ignored delete error")
+	}
+	list, err := proxyList()
+	if err != nil || len(list) != 1 || list[0].TLSMode != "pending" || list[0].Enabled {
+		t.Fatalf("lineage retry lost: %+v %v", list, err)
+	}
+}
+
+func TestCleanupCertbotProxyDisablesTLSAndRemovesOnlyPanelAssets(t *testing.T) {
+	dir := t.TempDir()
+	oldState, oldDir, oldRun, oldHook, oldRoot, oldToken, oldUID := proxyStatePath, proxyConfigDir, proxyRun, certbotDeployHook, certbotWebroot, cloudflareTokenPath, cloudflareTokenOwnerUID
+	proxyStatePath, proxyConfigDir = filepath.Join(dir, "state.json"), filepath.Join(dir, "conf.d")
+	certbotDeployHook, certbotWebroot, cloudflareTokenPath = filepath.Join(dir, "hook"), filepath.Join(dir, "webroot"), filepath.Join(dir, "token")
+	cloudflareTokenOwnerUID = os.Getuid()
+	proxyRun = func(string, ...string) (helperproto.ExecResult, error) { return helperproto.ExecResult{}, nil }
+	t.Cleanup(func() {
+		proxyStatePath, proxyConfigDir, proxyRun, certbotDeployHook, certbotWebroot, cloudflareTokenPath, cloudflareTokenOwnerUID = oldState, oldDir, oldRun, oldHook, oldRoot, oldToken, oldUID
+	})
+	if err := tulisProxyState([]helperproto.ProxyHost{
+		{ID: "abcdef123456", Domain: "app.example.com", TargetHost: "127.0.0.1", TargetPort: 3000, Scheme: "http", Enabled: true, TLSMode: "certbot"},
+		{ID: "abcdef123457", Domain: "plain.example.com", TargetHost: "127.0.0.1", TargetPort: 3001, Scheme: "http", Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for path, value := range map[string]string{certbotDeployHook: "hook", cloudflareTokenPath: "token", filepath.Join(dir, "unrelated"): "keep"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(certbotWebroot, ".well-known", "acme-challenge"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(certbotWebroot, "unrelated"), []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	challenge := filepath.Join(certbotWebroot, ".well-known", "acme-challenge", "other-service")
+	if err := os.WriteFile(challenge, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupCertbotProxy(); err != nil {
+		t.Fatal(err)
+	}
+	list, err := proxyList()
+	if err != nil || len(list) != 2 || list[0].TLSMode != "" || list[0].Enabled || !list[1].Enabled {
+		t.Fatalf("TLS rule still active: %+v %v", list, err)
+	}
+	for _, path := range []string{certbotDeployHook, cloudflareTokenPath} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Errorf("asset remains %s: %v", path, err)
+		}
+	}
+	if b, err := os.ReadFile(challenge); err != nil || string(b) != "keep" {
+		t.Fatalf("challenge pihak lain berubah: %q %v", b, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(certbotWebroot, "unrelated")); err != nil || string(b) != "keep" {
+		t.Fatalf("webroot unrelated changed: %q %v", b, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "unrelated")); err != nil || string(b) != "keep" {
+		t.Fatalf("unrelated changed: %q %v", b, err)
+	}
+}
+
+func TestCleanupCertbotProxyRejectsSymlinkWebroot(t *testing.T) {
+	dir := t.TempDir()
+	oldState, oldRoot, oldHook, oldToken := proxyStatePath, certbotWebroot, certbotDeployHook, cloudflareTokenPath
+	proxyStatePath, certbotWebroot = filepath.Join(dir, "state.json"), filepath.Join(dir, "webroot")
+	certbotDeployHook, cloudflareTokenPath = filepath.Join(dir, "hook"), filepath.Join(dir, "token")
+	t.Cleanup(func() {
+		proxyStatePath, certbotWebroot, certbotDeployHook, cloudflareTokenPath = oldState, oldRoot, oldHook, oldToken
+	})
+	outside := filepath.Join(dir, "outside")
+	challenge := filepath.Join(outside, ".well-known", "acme-challenge")
+	if err := os.MkdirAll(challenge, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(challenge, "keep"), []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, certbotWebroot); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupCertbotProxy(); err == nil {
+		t.Fatal("accepted symlink webroot")
+	}
+	if _, err := os.Stat(filepath.Join(challenge, "keep")); err != nil {
+		t.Fatal("removed unrelated data", err)
 	}
 }
 

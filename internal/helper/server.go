@@ -777,6 +777,8 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 			lupakanCacheKomponen()
 		}
 		return jsonOf(AllComponentStatus(), nil)
+	case helperproto.CmdComponentUpdates:
+		return jsonOf(ComponentUpdates(AllComponentStatus(), u), nil)
 	case helperproto.CmdComponentInstall:
 		args, err := decodeArgs[helperproto.ComponentArgs](req)
 		if err != nil {
@@ -820,6 +822,12 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 			return nil, err
 		}
 		return jsonOf(proxyCertIssue(args))
+	case helperproto.CmdProxyDisableTLS:
+		args, err := decodeArgs[helperproto.ProxyDeleteArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(proxyDisableTLS(args.ID))
 	case helperproto.CmdProxyCloudflareTokenStatus:
 		saved, err := cloudflareTokenStatus()
 		return jsonOf(helperproto.CloudflareTokenStatus{Saved: saved}, err)
@@ -860,6 +868,47 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return jsonOf(map[string]int{"deleted": n}, nil)
 
+	case helperproto.CmdProxyCloudflareZones:
+		token, err := managedToken()
+		if err != nil {
+			return nil, err
+		}
+		zones, err := managedZones(token)
+		if err == nil {
+			err = rejectCloudflareTokenEcho(token, zones)
+		}
+		if err != nil {
+			return nil, managedError(err)
+		}
+		return jsonOf(zones, nil)
+	case helperproto.CmdProxyCloudflareRecords, helperproto.CmdProxyCloudflareRecordSave, helperproto.CmdProxyCloudflareRecordDelete:
+		args, err := decodeArgs[helperproto.CloudflareManagedArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		token, err := managedToken()
+		if err != nil {
+			return nil, err
+		}
+		switch req.Cmd {
+		case helperproto.CmdProxyCloudflareRecords:
+			out, err := managedRecords(token, args)
+			if err != nil {
+				return nil, managedError(err)
+			}
+			return jsonOf(out, nil)
+		case helperproto.CmdProxyCloudflareRecordSave:
+			out, err := managedSave(token, args)
+			if err != nil {
+				return nil, managedError(err)
+			}
+			return jsonOf(out, nil)
+		default:
+			if err := managedDelete(token, args); err != nil {
+				return nil, managedError(err)
+			}
+			return jsonOf(map[string]bool{"deleted": true}, nil)
+		}
 	case helperproto.CmdVPNStatus:
 		return jsonOf(vpnStatusAll(), nil)
 	case helperproto.CmdVPNConfigure:

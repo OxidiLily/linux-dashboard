@@ -73,6 +73,32 @@ func TestProxyAPICRUDMeneruskanKontrakHelper(t *testing.T) {
 	})
 }
 
+func TestProxyAPIDisableTLSButuhSudoDanMeneruskanID(t *testing.T) {
+	for _, sudo := range []bool{false, true} {
+		host := helperproto.ProxyHost{ID: "abc123abc123", Domain: "app.example.test", TLSMode: ""}
+		tiruan := &helperTiruan{balas: host}
+		r, st := buatServerCron(t, tiruan)
+		sess := buatSesi(t, st, "ani", sudo)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/proxy/hosts/abc123abc123/disable-tls", nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: sess})
+		r.ServeHTTP(w, req)
+		if !sudo {
+			if w.Code != http.StatusForbidden || len(tiruan.riwayatOperasi()) != 0 {
+				t.Fatalf("non-sudo: %d", w.Code)
+			}
+			continue
+		}
+		if w.Code != http.StatusOK || tiruan.cmd != helperproto.CmdProxyDisableTLS {
+			t.Fatalf("disable status=%d cmd=%q body=%s", w.Code, tiruan.cmd, w.Body.String())
+		}
+		var args helperproto.ProxyDeleteArgs
+		if json.Unmarshal(tiruan.args, &args) != nil || args.ID != host.ID {
+			t.Fatalf("disable args=%s", tiruan.args)
+		}
+	}
+}
+
 func TestProxyAPICertIssueMeneruskanEmailDanStaging(t *testing.T) {
 	host := helperproto.ProxyHost{ID: "abc123abc123", Domain: "app.example.test", TLSMode: "certbot"}
 	tiruan := &helperTiruan{balas: host}

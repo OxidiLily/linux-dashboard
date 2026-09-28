@@ -701,6 +701,20 @@ func (s *Server) handleComponents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handleComponentUpdates memisahkan pemeriksaan registry dari daftar awal.
+func (s *Server) handleComponentUpdates(w http.ResponseWriter, r *http.Request) {
+	var out []helperproto.ComponentStatus
+	if err := s.helper.Call(helperproto.CmdComponentUpdates, sessionFrom(r).HelperToken,
+		helperproto.ComponentArgs{Name: "all"}, &out); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	if out == nil {
+		out = []helperproto.ComponentStatus{}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // handleComponentProgress dibaca berkala oleh halaman Components selama
 // menunggu instalasi yang sedang berjalan. Perintah installnya sendiri tetap
 // sinkron — endpoint ini hanya jendela ke kemajuannya, jadi tidak ada kontrak

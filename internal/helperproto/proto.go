@@ -146,6 +146,7 @@ const (
 	CmdUserDelete = "user.delete"
 
 	CmdComponentStatusAll = "component.status.all"
+	CmdComponentUpdates   = "component.updates"
 	CmdComponentInstall   = "component.install"
 	CmdComponentUninstall = "component.uninstall"
 	CmdComponentService   = "component.service" // start/stop/restart, update (9router)
@@ -154,18 +155,23 @@ const (
 	// berkala selama menunggu, jadi kontrak install lama tidak berubah.
 	CmdComponentProgress = "component.progress"
 
-	CmdProxyList                  = "proxy.list"
-	CmdProxySave                  = "proxy.save"
-	CmdProxyDelete                = "proxy.delete"
-	CmdProxyTest                  = "proxy.test"
-	CmdProxyStatus                = "proxy.status"
-	CmdProxyCertIssue             = "proxy.cert_issue"
-	CmdProxyCloudflareDNS         = "proxy.cloudflare_dns"
-	CmdProxyCloudflareList        = "proxy.cloudflare_list"
-	CmdProxyCloudflareDelete      = "proxy.cloudflare_delete"
-	CmdProxyCloudflareTokenStatus = "proxy.cloudflare_token_status"
-	CmdProxyCloudflareTokenSave   = "proxy.cloudflare_token_save"
-	CmdProxyCloudflareTokenDelete = "proxy.cloudflare_token_delete"
+	CmdProxyList                   = "proxy.list"
+	CmdProxySave                   = "proxy.save"
+	CmdProxyDelete                 = "proxy.delete"
+	CmdProxyTest                   = "proxy.test"
+	CmdProxyStatus                 = "proxy.status"
+	CmdProxyCertIssue              = "proxy.cert_issue"
+	CmdProxyDisableTLS             = "proxy.disable_tls"
+	CmdProxyCloudflareDNS          = "proxy.cloudflare_dns"
+	CmdProxyCloudflareList         = "proxy.cloudflare_list"
+	CmdProxyCloudflareDelete       = "proxy.cloudflare_delete"
+	CmdProxyCloudflareTokenStatus  = "proxy.cloudflare_token_status"
+	CmdProxyCloudflareTokenSave    = "proxy.cloudflare_token_save"
+	CmdProxyCloudflareTokenDelete  = "proxy.cloudflare_token_delete"
+	CmdProxyCloudflareZones        = "proxy.cloudflare_zones"
+	CmdProxyCloudflareRecords      = "proxy.cloudflare_records"
+	CmdProxyCloudflareRecordSave   = "proxy.cloudflare_record_save"
+	CmdProxyCloudflareRecordDelete = "proxy.cloudflare_record_delete"
 
 	CmdDockerExec = "docker.exec"
 
@@ -304,6 +310,25 @@ type CloudflareDNSRecord struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
 	Proxied bool   `json:"proxied"`
+}
+
+type CloudflareZone struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type CloudflareManagedArgs struct {
+	ZoneID   string          `json:"zone_id"`
+	RecordID string          `json:"record_id,omitempty"`
+	Page     int             `json:"page,omitempty"`
+	Record   json.RawMessage `json:"record,omitempty"`
+}
+
+type CloudflareRecordPage struct {
+	Records    []json.RawMessage `json:"records"`
+	Page       int               `json:"page"`
+	TotalPages int               `json:"total_pages"`
+	TotalCount int               `json:"total_count"`
 }
 
 type ProxyDeleteArgs struct {
