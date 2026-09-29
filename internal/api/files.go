@@ -530,7 +530,10 @@ func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
 	}
 	zw := zip.NewWriter(w)
 	for _, p := range paths {
-		zipPath(zw, src, p, filepath.Base(p))
+		if err := zipPath(zw, src, p, filepath.Base(p)); err != nil {
+			// Jangan tulis central directory atau laporkan download sukses.
+			panic(http.ErrAbortHandler)
+		}
 	}
 	// Header sudah terkirim, jadi kegagalan di tengah tidak bisa lagi jadi
 	// status HTTP: zip yang tidak sempat ditutup akan terbaca rusak di sisi
@@ -552,12 +555,11 @@ type zipSumber struct {
 
 // zipPath membungkus satu path pilihan user. Jenisnya belum diketahui, jadi
 // diprobe sekali lewat list: berhasil = direktori, gagal = berkas biasa.
-func zipPath(zw *zip.Writer, src zipSumber, path, rel string) {
+func zipPath(zw *zip.Writer, src zipSumber, path, rel string) error {
 	if entries, err := src.list(path); err == nil {
-		zipDir(zw, src, rel, entries)
-		return
+		return zipDir(zw, src, rel, entries)
 	}
-	zipFile(zw, src, path, rel)
+	return zipFile(zw, src, path, rel)
 }
 
 // zipDir menulis isi satu direktori yang SUDAH terdaftar. Jenis tiap entri
@@ -567,32 +569,36 @@ func zipPath(zw *zip.Writer, src zipSumber, path, rel string) {
 //
 // Helper memakai Lstat, sehingga symlink ke folder terhitung berkas biasa dan
 // rekursi ini tidak bisa berputar.
-func zipDir(zw *zip.Writer, src zipSumber, rel string, entries []helperproto.FileEntry) {
+func zipDir(zw *zip.Writer, src zipSumber, rel string, entries []helperproto.FileEntry) error {
 	if len(entries) == 0 {
 		// Folder kosong tetap muncul di zip; tanpa entri ini strukturnya
 		// hilang begitu diekstrak.
-		_, _ = zw.Create(rel + "/")
-		return
+		_, err := zw.Create(rel + "/")
+		return err
 	}
 	for _, e := range entries {
 		if !e.IsDir {
-			zipFile(zw, src, e.Path, rel+"/"+e.Name)
+			if err := zipFile(zw, src, e.Path, rel+"/"+e.Name); err != nil {
+				return err
+			}
 			continue
 		}
 		sub, err := src.list(e.Path)
 		if err != nil {
-			continue
+			return err
 		}
-		zipDir(zw, src, rel+"/"+e.Name, sub)
+		if err := zipDir(zw, src, rel+"/"+e.Name, sub); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-// zipFile menyalin satu berkas ke dalam zip. Entri yang gagal dibaca dilewati
-// — satu berkas tanpa izin tidak boleh membatalkan seluruh unduhan.
-func zipFile(zw *zip.Writer, src zipSumber, path, rel string) {
+// zipFile menggagalkan arsip jika sumber tidak bisa dibaca lengkap.
+func zipFile(zw *zip.Writer, src zipSumber, path, rel string) error {
 	rc, err := src.read(path)
 	if err != nil {
-		return
+		return err
 	}
 	defer rc.Close()
 	// Store, bukan Deflate: isi folder di file manager didominasi media dan
@@ -600,9 +606,10 @@ func zipFile(zw *zip.Writer, src zipSumber, path, rel string) {
 	// memperlambat unduhan tanpa mengecilkan hasilnya.
 	f, err := zw.CreateHeader(&zip.FileHeader{Name: rel, Method: zip.Store})
 	if err != nil {
-		return
+		return err
 	}
-	_, _ = io.Copy(f, rc)
+	_, err = io.Copy(f, rc)
+	return err
 }
 
 // usageTTL menentukan kapan hasil dianggap perlu dihitung ulang. Ukuran folder

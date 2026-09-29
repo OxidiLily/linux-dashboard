@@ -108,7 +108,12 @@ func (h *helperTiruan) riwayat() []string {
 func pasangHelperTiruan(t *testing.T, tiruan *helperTiruan) *helperclient.Client {
 	t.Helper()
 	// Use a per-test temporary directory for socket and secret files.
-	dir := t.TempDir()
+	// Nama pendek menjaga path socket di bawah batas sockaddr_un.
+	dir, err := os.MkdirTemp("", "sock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "helper.sock")
 	secretPath := filepath.Join(dir, "secret.key")
 

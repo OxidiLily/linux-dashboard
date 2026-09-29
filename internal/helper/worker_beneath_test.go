@@ -571,6 +571,53 @@ func TestWorkerJailTolakRantaiSymlinkKeluar(t *testing.T) {
 	}
 }
 
+func TestWorkerCopyMenolakInodeSama(t *testing.T) {
+	for _, mode := range []string{"sudo", "jail"} {
+		for _, tujuan := range []string{"sama", "hardlink", "symlink", "baru", "timpa"} {
+			t.Run(mode+"/"+tujuan, func(t *testing.T) {
+				home := t.TempDir()
+				src := filepath.Join(home, "sumber")
+				dst := filepath.Join(home, "tujuan")
+				const isi = "isi sumber harus tetap utuh"
+				if err := os.WriteFile(src, []byte(isi), 0o640); err != nil {
+					t.Fatal(err)
+				}
+				switch tujuan {
+				case "sama":
+					dst = src
+				case "hardlink":
+					if err := os.Link(src, dst); err != nil {
+						t.Fatal(err)
+					}
+				case "symlink":
+					if err := os.Symlink("sumber", dst); err != nil {
+						t.Fatal(err)
+					}
+				case "timpa":
+					if err := os.WriteFile(dst, []byte(strings.Repeat("lama", 30)), 0o640); err != nil {
+						t.Fatal(err)
+					}
+				}
+				jail := ""
+				if mode == "jail" {
+					jail = home
+				}
+				res := opWorker(t, jail, workerOp{Op: "copy", Path: src, Dest: dst}, nil)
+				wantOK := tujuan == "baru" || tujuan == "timpa"
+				if res.OK != wantOK {
+					t.Errorf("copy OK=%v, ingin %v: %+v", res.OK, wantOK, res)
+				}
+				for _, path := range []string{src, dst} {
+					got, err := os.ReadFile(path)
+					if err != nil || string(got) != isi {
+						t.Errorf("isi %s berubah: %q, %v", path, got, err)
+					}
+				}
+			})
+		}
+	}
+}
+
 // Copy mempertahankan symlink sebagai symlink (tidak pernah mengikuti
 // targetnya), sama seperti copyPath dulu.
 func TestWorkerJailCopyMempertahankanSymlink(t *testing.T) {

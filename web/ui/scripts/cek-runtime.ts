@@ -38,6 +38,17 @@ const cek = (dapat: string, harap: string, nama: string) => {
   if (dapat !== harap) gagal.push(`${nama}: dapat ${JSON.stringify(dapat)}, harap ${JSON.stringify(harap)}`)
 }
 
+// Crontab tidak boleh mengubah whitespace di dalam argumen shell.
+const quotedCron = bacaCrontab('* * * * * printf "a  b"\n')
+cek(quotedCron[0].kind === "schedule" ? quotedCron[0].command : "", 'printf "a  b"', "cron/quoted-whitespace")
+cek(String(cariJadwal(quotedCron, "a  b").length), "1", "cron/search-literal-whitespace")
+
+// Setiap invalidasi request pencarian juga harus melepas status sibuk.
+const sumberFiles = readFileSync(resolve(process.cwd(), "src/views/files.tsx"), "utf8")
+for (const [i, match] of [...sumberFiles.matchAll(/urutanCari\.current\+\+([^]*?)(?:\n\s*\/\/|\n\s*})/g)].entries()) {
+  cek(String(match[1].includes("setCariProses(false)")), "true", `files/cancel-busy-${i}`)
+}
+
 // Form DNS: setiap jenis mengirim field sesuai schema, tanpa prioritas liar.
 cek(String(recordTypes.length), "21", "dns/types-count")
 cek(String(recordTypes.every((type) => priorityTypes.has(type) === ["MX", "URI"].includes(type))), "true", "dns/priority-only-mx-uri")

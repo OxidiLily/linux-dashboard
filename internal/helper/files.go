@@ -3,9 +3,11 @@ package helper
 import (
 	"bufio"
 	"encoding/json"
+	"io/fs"
 	"net"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -161,19 +163,13 @@ func chownPath(path, owner, group string, recursive bool) error {
 }
 
 func filepathWalkChown(root string, uid, gid int) error {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return os.Lchown(root, uid, gid)
-	}
-	if err := os.Lchown(root, uid, gid); err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if err := filepathWalkChown(root+"/"+e.Name(), uid, gid); err != nil {
+	// WalkDir memakai Lstat: symlink di akar maupun anak tidak ditelusuri.
+	return filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		return os.Lchown(path, uid, gid)
+	})
 }
 
 // handleFileRead menstream isi file: response OK dulu (berisi ukuran), lalu

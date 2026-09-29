@@ -263,6 +263,7 @@ func updateAgen(name string, u *userInfo) error {
 		return err
 	}
 	defer selesaiProgres()
+	defer lupakanCacheUpdates()
 	// Jangan gunakan target cache lama saat update tertunda lama di tab browser.
 	if cekVersiBaruAgen(name, u, path) == "" {
 		return errInvalid("update %s sudah tidak tersedia atau kanal tidak dapat diperiksa", name)

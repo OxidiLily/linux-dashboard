@@ -35,7 +35,12 @@ type helperSocketUji struct {
 // yang dijalankan tetap handle() yang sama dengan produksi.
 func jalankanHelperSocket(t *testing.T) *helperSocketUji {
 	t.Helper()
-	dir := t.TempDir()
+	// Nama pendek menjaga path socket di bawah batas sockaddr_un.
+	dir, err := os.MkdirTemp("", "sock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "helper.sock")
 	if err := os.RemoveAll(sock); err != nil {
 		// ignore if not exists

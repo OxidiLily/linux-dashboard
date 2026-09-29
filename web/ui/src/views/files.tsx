@@ -354,6 +354,8 @@ export function FileManagerView() {
       setCariAlasan("")
       setCariDirs(0)
       urutanCari.current++
+      setCariProses(false)
+      setKueriTerkirim("")
       // Sinkronkan path ke URL supaya bookmark bisa di-share dan tombol
       // back browser bekerja.
       setSearchParams((p) => {
@@ -687,6 +689,8 @@ export function FileManagerView() {
   const cariSampaiDalam = async () => {
     const q = cari.trim()
     if (!q) {
+      urutanCari.current++
+      setCariProses(false)
       setKueriTerkirim("")
       setHasilCari([])
       setCariTerpotong(false)
@@ -727,6 +731,7 @@ export function FileManagerView() {
   /** Kosongkan pencarian dan kembali ke daftar folder biasa. */
   const keluarCariDalam = () => {
     urutanCari.current++
+    setCariProses(false)
     setCari("")
     setKueriTerkirim("")
     setHasilCari([])

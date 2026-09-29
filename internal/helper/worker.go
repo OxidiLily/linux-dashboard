@@ -577,11 +577,30 @@ func copyPath(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode().Perm())
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY, fi.Mode().Perm())
 	if err != nil {
 		return err
 	}
 	defer out.Close()
+	return copyFile(in, out)
+}
+
+// Periksa inode descriptor sebelum truncate; stat(path) masih bisa dirace.
+func copyFile(in, out *os.File) error {
+	src, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	dst, err := out.Stat()
+	if err != nil {
+		return err
+	}
+	if os.SameFile(src, dst) {
+		return fmt.Errorf("sumber dan tujuan copy adalah berkas yang sama")
+	}
+	if err := out.Truncate(0); err != nil {
+		return err
+	}
 	_, err = io.Copy(out, in)
 	return err
 }

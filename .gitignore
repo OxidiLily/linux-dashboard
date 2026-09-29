@@ -2,6 +2,7 @@ bin/
 node_modules/
 web/dist/
 *.tsbuildinfo
+__pycache__/
 *.db
 *.db-wal
 *.db-shm
@@ -97,4 +98,6 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 # Lifecycle akun Samba managed: GECOS kompatibel /etc/passwd, urutan baca-config
 # sebelum akun dibuat, dan pencabutan ACL fail-closed saat share dihapus.
 !internal/helper/samba_lifecycle_test.go
+!internal/helper/files_chown_symlink_test.go
+!internal/api/files_zip_error_test.go
 web/dist.bak/

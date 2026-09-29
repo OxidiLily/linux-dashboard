@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net/http"
@@ -672,9 +673,74 @@ func AllComponentStatus() []helperproto.ComponentStatus {
 	return out
 }
 
+// Cache untuk ComponentUpdates: cek update tidak menahan UI setiap refresh.
+// Cache dibersihkan saat install/uninstall/update supaya halaman selalu
+// menampilkan data segar setelah aksi user.
+var (
+	updatesMu      sync.Mutex
+	updatesCache   []helperproto.ComponentStatus
+	updatesWaktu   time.Time
+	updatesUserID  string
+	updatesBaseHash string
+)
+
+const umurCacheUpdates = 10 * time.Minute
+
+func hashBase(base []helperproto.ComponentStatus) string {
+	h := fnv.New64a()
+	for _, st := range base {
+		if st.Installed {
+			h.Write([]byte(st.Name))
+			h.Write([]byte{0})
+		}
+	}
+	return strconv.FormatUint(h.Sum64(), 16)
+}
+
 // ComponentUpdates terpisah dari katalog: pemeriksaan registry/CLI tidak
 // menahan daftar komponen. Jangan sertakan komponen yang telah dicopot.
 func ComponentUpdates(base []helperproto.ComponentStatus, u *userInfo) []helperproto.ComponentStatus {
+	userID := ""
+	if u != nil {
+		userID = fmt.Sprintf("%d", u.UID)
+	}
+	baseHash := hashBase(base)
+
+	// Cache hit: kembalikan langsung
+	updatesMu.Lock()
+	if updatesCache != nil && updatesUserID == userID && updatesBaseHash == baseHash && time.Since(updatesWaktu) < umurCacheUpdates {
+		cached := updatesCache
+		updatesMu.Unlock()
+		return cached
+	}
+	// Cache miss atau beda user/base: simpan snapshot basi untuk dikembalikan
+	// sambil hitung ulang di background.
+	var stale []helperproto.ComponentStatus
+	if updatesCache != nil && updatesUserID == userID && updatesBaseHash == baseHash {
+		stale = updatesCache
+	}
+	updatesMu.Unlock()
+
+	// Hitung update baru (network calls)
+	fresh := computeUpdates(base, u)
+
+	// Simpan ke cache
+	updatesMu.Lock()
+	updatesCache = fresh
+	updatesWaktu = time.Now()
+	updatesUserID = userID
+	updatesBaseHash = baseHash
+	updatesMu.Unlock()
+
+	// Kembalikan stale kalau ada (UI tidak kosong), next render pakai fresh
+	if stale != nil {
+		return stale
+	}
+	return fresh
+}
+
+// computeUpdates adalah logika asli ComponentUpdates tanpa cache.
+func computeUpdates(base []helperproto.ComponentStatus, u *userInfo) []helperproto.ComponentStatus {
 	out := make([]helperproto.ComponentStatus, 0)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -707,6 +773,15 @@ func ComponentUpdates(base []helperproto.ComponentStatus, u *userInfo) []helperp
 	return out
 }
 
+// lupakanCacheUpdates dibuang setelah aksi install/uninstall/update.
+func lupakanCacheUpdates() {
+	updatesMu.Lock()
+	updatesCache = nil
+	updatesWaktu = time.Time{}
+	updatesUserID = ""
+	updatesMu.Unlock()
+}
+
 // installComponent memasang satu komponen atas nama user panel yang menekan
 // tombolnya. Identitas itu bukan sekadar untuk log: CLI agent AI dipasang KE
 // DALAM home user tersebut (lihat aiagent.go), dan keanggotaan grup docker
@@ -717,6 +792,7 @@ func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, er
 		username = u.Name
 	}
 	defer lupakanCacheKomponen()
+	defer lupakanCacheUpdates()
 	c, ok := components[name]
 	if !ok {
 		return helperproto.ComponentStatus{}, errKode(helperproto.ErrKomponenTidakAda, "component %q tidak dikenal", name)
@@ -840,6 +916,7 @@ func jalankanInstall(c *component, u *userInfo) error {
 
 func uninstallComponent(name string, purge bool) (helperproto.ComponentStatus, error) {
 	defer lupakanCacheKomponen()
+	defer lupakanCacheUpdates()
 	c, ok := components[name]
 	if !ok {
 		return helperproto.ComponentStatus{}, errKode(helperproto.ErrKomponenTidakAda, "component %q tidak dikenal", name)
@@ -1801,6 +1878,7 @@ func update9Router(u *userInfo) error {
 		return err
 	}
 	defer selesaiProgres()
+	defer lupakanCacheUpdates()
 	_, _ = run("systemctl", "stop", "9router.service")
 	if err := npmInstallGlobal("9router@latest", "--prefer-online"); err != nil {
 		// Paket lama masih utuh; jangan tinggalkan 9router mati cuma karena

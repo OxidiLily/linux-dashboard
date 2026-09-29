@@ -42,7 +42,12 @@ func (p *perekam) terakhir(t *testing.T) helperproto.Request {
 // membalas sesuai balasE (kosong = sukses).
 func pasangClientUji(t *testing.T, rekam *perekam, balasE *helperproto.Response) *Client {
 	t.Helper()
-	dir := t.TempDir()
+	// Nama pendek menjaga path socket di bawah batas sockaddr_un.
+	dir, err := os.MkdirTemp("", "sock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "helper.sock")
 	secretPath := filepath.Join(dir, "secret.key")
 	if err := os.WriteFile(secretPath, []byte("secret-uji-client\n"), 0o600); err != nil {
