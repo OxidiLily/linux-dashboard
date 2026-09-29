@@ -91,13 +91,13 @@ export function bacaCrontab(isi: string): Baris[] {
       out.push({ kind: "schedule", line, spec: t.slice(0, spasi), command: t.slice(spasi).trim() })
       return
     }
-    const kolom = t.split(/\s+/)
-    if (kolom.length >= 6) {
+    const kolom = t.match(/^(\S+\s+){5}([^]+)$/)
+    if (kolom) {
       out.push({
         kind: "schedule",
         line,
-        spec: kolom.slice(0, 5).join(" "),
-        command: kolom.slice(5).join(" "),
+        spec: t.slice(0, t.length - kolom[2].length).trim().split(/\s+/).join(" "),
+        command: kolom[2],
       })
       return
     }

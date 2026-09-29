@@ -32,7 +32,6 @@ package helper
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -949,13 +948,12 @@ func (r resolusiJail) kopiRel(srel, drel string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := r.p.buka(drel, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, uint32(fi.Mode().Perm()))
+	out, err := r.p.buka(drel, os.O_CREATE|os.O_WRONLY, uint32(fi.Mode().Perm()))
 	if err != nil {
 		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	return copyFile(in, out)
 }
 
 // ---- penelusuran ----
