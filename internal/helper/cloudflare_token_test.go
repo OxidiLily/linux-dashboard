@@ -12,8 +12,13 @@ import (
 
 func TestCloudflareTokenLifecycle(t *testing.T) {
 	oldPath, oldUID := cloudflareTokenPath, cloudflareTokenOwnerUID
-	cloudflareTokenPath = filepath.Join(t.TempDir(), "cloudflare-dns-token")
+	tmpDir := t.TempDir()
+	cloudflareTokenPath = filepath.Join(tmpDir, "cloudflare-dns-token")
 	cloudflareTokenOwnerUID = os.Getuid()
+	// Ensure parent dir has correct permissions (0700) for the security check
+	if err := os.Chmod(tmpDir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
+	}
 	t.Cleanup(func() { cloudflareTokenPath, cloudflareTokenOwnerUID = oldPath, oldUID })
 	if saved, err := cloudflareTokenStatus(); err != nil || saved {
 		t.Fatalf("initial status: %v %v", saved, err)
@@ -48,8 +53,13 @@ func TestCloudflareTokenLifecycle(t *testing.T) {
 
 func TestCloudflareDNSStoredTokenAndSafeErrors(t *testing.T) {
 	oldPath, oldUID := cloudflareTokenPath, cloudflareTokenOwnerUID
-	cloudflareTokenPath = filepath.Join(t.TempDir(), "token")
+	tmpDir := t.TempDir()
+	cloudflareTokenPath = filepath.Join(tmpDir, "token")
 	cloudflareTokenOwnerUID = os.Getuid()
+	// Ensure parent dir has correct permissions (0700) for the security check
+	if err := os.Chmod(tmpDir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
+	}
 	t.Cleanup(func() { cloudflareTokenPath, cloudflareTokenOwnerUID = oldPath, oldUID })
 	if err := cloudflareTokenSave("test-secret"); err != nil {
 		t.Fatal(err)
@@ -90,7 +100,12 @@ func TestCloudflareDNSStoredTokenAndSafeErrors(t *testing.T) {
 
 func TestCloudflareDNSResponseCannotEchoToken(t *testing.T) {
 	oldPath, oldUID := cloudflareTokenPath, cloudflareTokenOwnerUID
-	cloudflareTokenPath, cloudflareTokenOwnerUID = filepath.Join(t.TempDir(), "token"), os.Getuid()
+	tmpDir := t.TempDir()
+	cloudflareTokenPath, cloudflareTokenOwnerUID = filepath.Join(tmpDir, "token"), os.Getuid()
+	// Ensure parent dir has correct permissions (0700) for the security check
+	if err := os.Chmod(tmpDir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
+	}
 	t.Cleanup(func() { cloudflareTokenPath, cloudflareTokenOwnerUID = oldPath, oldUID })
 	if err := cloudflareTokenSave("test-secret"); err != nil {
 		t.Fatal(err)

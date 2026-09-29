@@ -284,6 +284,10 @@ func TestProxyCertIssueCloudflareDNS01TidakMemantulkanTokenPadaError(t *testing.
 	proxyStatePath, proxyConfigDir = filepath.Join(dir, "hosts.json"), filepath.Join(dir, "nginx")
 	letsEncryptLiveDir, certbotWebroot, certbotDeployHook = filepath.Join(dir, "live"), filepath.Join(dir, "webroot"), filepath.Join(dir, "hook")
 	cloudflareTokenPath, cloudflareTokenOwnerUID = filepath.Join(dir, "cloudflare-dns-token"), os.Getuid()
+	// Ensure parent dir has correct permissions (0700) for the security check
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
+	}
 	certbotTerpasang = func() bool { return true }
 	proxyRun = func(name string, args ...string) (helperproto.ExecResult, error) {
 		if name == "certbot" {
@@ -314,6 +318,10 @@ func TestProxyCertIssueCloudflareDNS01MenolakTokenYangSudahDihapus(t *testing.T)
 	proxyStatePath, proxyConfigDir = filepath.Join(dir, "hosts.json"), filepath.Join(dir, "nginx")
 	letsEncryptLiveDir, certbotWebroot, certbotDeployHook = filepath.Join(dir, "live"), filepath.Join(dir, "webroot"), filepath.Join(dir, "hook")
 	cloudflareTokenPath, cloudflareTokenOwnerUID = filepath.Join(dir, "cloudflare-dns-token"), os.Getuid()
+	// Ensure parent dir has correct permissions (0700) for the security check
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
+	}
 	certbotTerpasang = func() bool { return true }
 	called := false
 	proxyRun = func(name string, args ...string) (helperproto.ExecResult, error) {
@@ -342,6 +350,10 @@ func TestProxyCertIssueCloudflareDNS01MemakaiCredentialTanpaTokenDiArgumen(t *te
 	proxyStatePath, proxyConfigDir = filepath.Join(dir, "hosts.json"), filepath.Join(dir, "nginx")
 	letsEncryptLiveDir, certbotWebroot, certbotDeployHook = filepath.Join(dir, "live"), filepath.Join(dir, "webroot"), filepath.Join(dir, "hook")
 	cloudflareTokenPath, cloudflareTokenOwnerUID = filepath.Join(dir, "cloudflare-dns-token"), os.Getuid()
+	// Ensure parent dir has correct permissions (0700) for the security check
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
+	}
 	certbotTerpasang = func() bool { return true }
 	t.Cleanup(func() {
 		proxyStatePath, proxyConfigDir, proxyRun, letsEncryptLiveDir, certbotWebroot, certbotDeployHook, certbotTerpasang = oldState, oldDir, oldRun, oldLive, oldRoot, oldHook, oldInstalled
