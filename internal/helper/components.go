@@ -677,11 +677,12 @@ func AllComponentStatus() []helperproto.ComponentStatus {
 // Cache dibersihkan saat install/uninstall/update supaya halaman selalu
 // menampilkan data segar setelah aksi user.
 var (
-	updatesMu      sync.Mutex
-	updatesCache   []helperproto.ComponentStatus
-	updatesWaktu   time.Time
-	updatesUserID  string
-	updatesBaseHash string
+	updatesMu        sync.Mutex
+	updatesCache     []helperproto.ComponentStatus
+	updatesWaktu     time.Time
+	updatesUserID    string
+	updatesBaseHash  string
+	updatesComputing bool // true saat goroutine background sedang menghitung
 )
 
 const umurCacheUpdates = 10 * time.Minute
@@ -698,7 +699,12 @@ func hashBase(base []helperproto.ComponentStatus) string {
 }
 
 // ComponentUpdates terpisah dari katalog: pemeriksaan registry/CLI tidak
-// menahan daftar komponen. Jangan sertakan komponen yang telah dicopot.
+// menahan daftar komponen.
+//
+// Selalu return cepat: kalau cache masih segar, pakai itu. Kalau basi atau
+// kosong, kembalikan apa yang ada (bisa kosong) dan hitung ulang di
+// background. UI meminta ulang setelah delay pendek dan mendapatkan data
+// yang sudah dihitung goroutine background.
 func ComponentUpdates(base []helperproto.ComponentStatus, u *userInfo) []helperproto.ComponentStatus {
 	userID := ""
 	if u != nil {
@@ -706,37 +712,40 @@ func ComponentUpdates(base []helperproto.ComponentStatus, u *userInfo) []helperp
 	}
 	baseHash := hashBase(base)
 
-	// Cache hit: kembalikan langsung
 	updatesMu.Lock()
+	// Cache hit segar: kembalikan langsung
 	if updatesCache != nil && updatesUserID == userID && updatesBaseHash == baseHash && time.Since(updatesWaktu) < umurCacheUpdates {
 		cached := updatesCache
 		updatesMu.Unlock()
 		return cached
 	}
-	// Cache miss atau beda user/base: simpan snapshot basi untuk dikembalikan
-	// sambil hitung ulang di background.
+	// Simpan stale untuk dikembalikan langsung
 	var stale []helperproto.ComponentStatus
 	if updatesCache != nil && updatesUserID == userID && updatesBaseHash == baseHash {
 		stale = updatesCache
 	}
+	// Mulai background compute kalau belum ada yang jalan
+	if !updatesComputing {
+		updatesComputing = true
+		go func() {
+			fresh := computeUpdates(base, u)
+			updatesMu.Lock()
+			updatesCache = fresh
+			updatesWaktu = time.Now()
+			updatesUserID = userID
+			updatesBaseHash = baseHash
+			updatesComputing = false
+			updatesMu.Unlock()
+		}()
+	}
 	updatesMu.Unlock()
 
-	// Hitung update baru (network calls)
-	fresh := computeUpdates(base, u)
-
-	// Simpan ke cache
-	updatesMu.Lock()
-	updatesCache = fresh
-	updatesWaktu = time.Now()
-	updatesUserID = userID
-	updatesBaseHash = baseHash
-	updatesMu.Unlock()
-
-	// Kembalikan stale kalau ada (UI tidak kosong), next render pakai fresh
+	// Kembalikan stale (bisa nil/kosong) — UI langsung render, poll berikutnya
+	// mendapat data segar dari goroutine yang sedang menghitung.
 	if stale != nil {
 		return stale
 	}
-	return fresh
+	return []helperproto.ComponentStatus{}
 }
 
 // computeUpdates adalah logika asli ComponentUpdates tanpa cache.
@@ -779,6 +788,7 @@ func lupakanCacheUpdates() {
 	updatesCache = nil
 	updatesWaktu = time.Time{}
 	updatesUserID = ""
+	updatesComputing = false
 	updatesMu.Unlock()
 }
 
@@ -1010,11 +1020,11 @@ func CopotSemuaKomponen() int {
 	return 0
 }
 
-func componentService(name, action string, u *userInfo) error {
+func componentService(name, action string, u *userInfo) (*helperproto.ComponentActionResult, error) {
 	defer lupakanCacheKomponen()
 	c, ok := components[name]
 	if !ok {
-		return errInvalid("component %q tidak dikenal", name)
+		return nil, errInvalid("component %q tidak dikenal", name)
 	}
 	// Pembaruan hanya untuk katalog yang diizinkan, bukan aksi systemctl.
 	if action == "update" {
@@ -1024,16 +1034,16 @@ func componentService(name, action string, u *userInfo) error {
 		if komponenAgenAI(name) {
 			return updateAgen(name, u)
 		}
-		return errInvalid("component %s tidak punya pembaruan lewat panel", name)
+		return nil, errInvalid("component %s tidak punya pembaruan lewat panel", name)
 	}
 	if c.Service == "" {
-		return errInvalid("component %s tidak punya service", name)
+		return nil, errInvalid("component %s tidak punya service", name)
 	}
 	// Komponen yang service-nya dikelola halaman lain tidak bisa dijalankan
 	// dari sini — penolakannya di helper, bukan cuma tombol yang disembunyikan
 	// UI, karena endpoint-nya tetap bisa dipanggil langsung.
 	if c.KelolaDi != "" {
-		return errInvalid(
+		return nil, errInvalid(
 			"service %s dijalankan dan dihentikan dari %s, bukan dari halaman Components",
 			c.Service, c.KelolaDi)
 	}
@@ -1042,7 +1052,7 @@ func componentService(name, action string, u *userInfo) error {
 	// service mendapat pesan jelas yang sama — sebelumnya smartd
 	// diam-diam gagal lalu UI menampilkan "Nonaktif" tanpa alasan.
 	if hasNoSystemd() {
-		return errInvalid(
+		return nil, errInvalid(
 			"mesin ini tidak menjalankan systemd — service %s tidak bisa "+
 				"dikontrol lewat systemctl. Jalankan daemon secara manual atau "+
 				"aktifkan systemd (WSL: `wsl --update` lalu restart dengan init)",
@@ -1096,7 +1106,7 @@ func componentService(name, action string, u *userInfo) error {
 		if name == "headroom" {
 			ganti, err := pastikanUnitHeadroom(u)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			rebutHeadroomDari9router(u)
 			if ganti {
@@ -1110,7 +1120,7 @@ func componentService(name, action string, u *userInfo) error {
 		// failed" — pesan yang tidak menyebut sama sekali bahwa masalahnya
 		// mesin ini memang bukan guest QEMU.
 		if name == "qemu-guest-agent" && !guestQEMU() {
-			return errInvalid(
+			return nil, errInvalid(
 				"mesin ini bukan guest QEMU/KVM — perangkat %s tidak ada, jadi "+
 					"qemu-guest-agent tidak bisa dijalankan. Agent ini hanya "+
 					"berguna di VM Proxmox/QEMU", portVirtioQEMU)
@@ -1124,8 +1134,10 @@ func componentService(name, action string, u *userInfo) error {
 		}
 	}
 	if name == "9router" && action == "stop" {
-		_, err := run("systemctl", "stop", "9router.service", "headroom.service")
-		return err
+		if _, err := run("systemctl", "stop", "9router.service", "headroom.service"); err != nil {
+			return nil, err
+		}
+		return &helperproto.ComponentActionResult{Status: "ok", Updated: true}, nil
 	}
 	if name == "9router" && action == "restart" {
 		ganti, err := pastikanUnitHeadroom(u)
@@ -1135,10 +1147,19 @@ func componentService(name, action string, u *userInfo) error {
 				_, _ = run("systemctl", "restart", "headroom.service")
 			}
 		}
-		_, err = run("systemctl", "restart", "headroom.service", "9router.service")
-		return err
+		if _, err := run("systemctl", "restart", "headroom.service", "9router.service"); err != nil {
+			return nil, err
+		}
+		return &helperproto.ComponentActionResult{Status: "ok", Updated: true}, nil
 	}
-	return serviceAction(helperproto.ServiceArgs{Name: c.Service, Action: action})
+	if err := serviceAction(helperproto.ServiceArgs{Name: c.Service, Action: action}); err != nil {
+		return nil, err
+	}
+	return &helperproto.ComponentActionResult{
+		Status:  "ok",
+		Updated: true,
+		Message: fmt.Sprintf("service %s %s berhasil", name, action),
+	}, nil
 }
 
 // portVirtioQEMU adalah perangkat virtio-serial yang dipasang QEMU untuk
@@ -1873,18 +1894,43 @@ func install9Router(u *userInfo) error {
 // binary yang tidak disentuh npm global, jadi tanpa ini pembaruan selesai
 // tapi yang dijalankan tetap versi lama. Drop-in password & user tidak ikut
 // dihapus: keduanya di direktori terpisah dan tetap berlaku untuk unit baru.
-func update9Router(u *userInfo) error {
+func update9Router(u *userInfo) (*helperproto.ComponentActionResult, error) {
+	c := components["9router"]
+	current := ""
+	if c != nil && c.version != nil {
+		current = c.version()
+	}
+	if current == "" {
+		current = versiNpmGlobal("9router")()
+	}
+
+	lupakanVersiTerbaru("9router")
+	latest := versiTerbaruNpm("9router")
+	if latest == "" {
+		return nil, errInvalid("gagal memeriksa versi terbaru 9router dari registry npm")
+	}
+
+	if current != "" && !bandingVersi(current, latest) {
+		return &helperproto.ComponentActionResult{
+			Status:  "ok",
+			Updated: false,
+			Message: "Sudah di versi yang terbaru",
+		}, nil
+	}
+
 	if err := mulaiProgres("9router", "install"); err != nil {
-		return err
+		return nil, err
 	}
 	defer selesaiProgres()
 	defer lupakanCacheUpdates()
+	defer lupakanCacheKomponen()
+
 	_, _ = run("systemctl", "stop", "9router.service")
 	if err := npmInstallGlobal("9router@latest", "--prefer-online"); err != nil {
 		// Paket lama masih utuh; jangan tinggalkan 9router mati cuma karena
 		// registry tidak terjangkau.
 		_, _ = run("systemctl", "start", "9router.service")
-		return err
+		return nil, err
 	}
 	lupakanVersiTerbaru("9router")
 	// Unit lama baru dihapus setelah penggantinya dipastikan ada — kalau
@@ -1892,7 +1938,14 @@ func update9Router(u *userInfo) error {
 	if sumber, err := bacaUnit9Router(); err == nil && len(sumber) > 0 {
 		_ = os.Remove(unitDst9Router)
 	}
-	return pasangUnit9Router(u)
+	if err := pasangUnit9Router(u); err != nil {
+		return nil, err
+	}
+	return &helperproto.ComponentActionResult{
+		Status:  "ok",
+		Updated: true,
+		Message: "9router berhasil diperbarui",
+	}, nil
 }
 
 func unit9RouterPerluGanti(isi string) bool {

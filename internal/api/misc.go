@@ -767,12 +767,16 @@ func (s *Server) handleComponentService(w http.ResponseWriter, r *http.Request) 
 	}
 	sess := sessionFrom(r)
 	name, action := chi.URLParam(r, "name"), chi.URLParam(r, "action")
+	var res helperproto.ComponentActionResult
 	if err := s.helper.Call(helperproto.CmdComponentService, sess.HelperToken,
-		helperproto.ComponentArgs{Name: name, Action: action}, nil); err != nil {
+		helperproto.ComponentArgs{Name: name, Action: action}, &res); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
 	s.store.LogActivity(sess.Username, "component_service", action,
-		map[string]any{"component": name}, clientIP(r))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		map[string]any{"component": name, "updated": res.Updated}, clientIP(r))
+	if res.Status == "" {
+		res.Status = "ok"
+	}
+	writeJSON(w, http.StatusOK, res)
 }

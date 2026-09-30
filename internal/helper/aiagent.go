@@ -264,6 +264,7 @@ func envAgen(u *userInfo) []string {
 		"LOGNAME=" + u.Name,
 		"SHELL=" + shell,
 		"DEBIAN_FRONTEND=noninteractive",
+		"GIT_TERMINAL_PROMPT=0",
 		"LC_ALL=C",
 	}
 }

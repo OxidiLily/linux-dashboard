@@ -131,18 +131,35 @@ export function ComponentsView() {
       setLoading(false)
       // Registry dan CLI update dicek setelah katalog tampil. Respons lama
       // tidak boleh menimpa hasil Refresh atau aksi install/uninstall baru.
-      apiGet<ComponentStatus[]>("/api/components/updates")
-        .then((updates) => {
-          if (seq !== loadSeq.current) return
-          const byName = new Map(updates.map((item) => [item.name, item]))
-          setList((current) => current.map((item) => {
-            const update = byName.get(item.name)
-            return update && item.installed && item.version === update.version
-              ? { ...item, latest_version: update.latest_version, note: update.note || item.note }
-              : item
-          }))
-        })
-        .catch(() => undefined)
+      // Backend menghitung update di background — respons pertama bisa kosong
+      // saat cache belum terisi (hermes update --check bisa makan 25+ detik).
+      // Poll berkala sampai data tersedia.
+      const applyUpdates = (updates: ComponentStatus[]) => {
+        if (seq !== loadSeq.current) return
+        if (updates.length === 0) return
+        const byName = new Map(updates.map((item) => [item.name, item]))
+        setList((current) => current.map((item) => {
+          const update = byName.get(item.name)
+          return update && item.installed
+            ? { ...item, latest_version: update.latest_version, note: update.note || item.note, version: update.version || item.version }
+            : item
+        }))
+      }
+      const pollUpdates = (sisaPercobaan: number) => {
+        apiGet<ComponentStatus[]>("/api/components/updates")
+          .then((updates) => {
+            applyUpdates(updates)
+            // Respons kosong = backend masih menghitung, coba lagi
+            if (updates.length === 0 && sisaPercobaan > 0 && seq === loadSeq.current) {
+              setTimeout(() => {
+                if (seq !== loadSeq.current) return
+                pollUpdates(sisaPercobaan - 1)
+              }, 5000)
+            }
+          })
+          .catch(() => undefined)
+      }
+      pollUpdates(8) // 8 x 5s = 40 detik cukup untuk hermes update --check
     } catch (e: any) {
       if (seq === loadSeq.current) notify.err(trf("Gagal memuat daftar komponen: {0}", pesanError(e)))
     } finally {
@@ -259,19 +276,8 @@ export function ComponentsView() {
     }
   }
 
-  const handleService = async (name: string, action: string, versiBaru?: string) => {
-    if (action === "update") {
-      const ok = await confirmDialog({
-        title: versiBaru === "commits"
-          ? trf("Perbarui {0} ke commit terbaru?", name)
-          : trf("Perbarui {0} ke v{1}?", name, versiBaru ?? ""),
-        message: AGEN_AI.includes(name)
-          ? tr("Agent diperbarui sebagai user pemilik instalasi. Sesi yang sedang berjalan bisa terganggu; data dan konfigurasi tetap disimpan. Bisa berjalan beberapa menit.")
-          : tr("Service dihentikan, paket ditarik ulang dari registry, unit systemd-nya ditulis ulang oleh panel, lalu dijalankan lagi. Bisa berjalan beberapa menit."),
-        confirmLabel: tr("Perbarui"),
-      })
-      if (!ok) return
-    } else if (action !== "start") {
+  const handleService = async (name: string, action: string) => {
+    if (action !== "update" && action !== "start") {
       const ok = await confirmDialog({
         title: trf("Jalankan \"{0}\" pada service {1}?", action, name),
         message:
@@ -286,15 +292,29 @@ export function ComponentsView() {
     // start/stop service jauh lebih cepat dari apt, tapi tetap dikunci lewat
     // state yang sama supaya tidak ada dua aksi berjalan bersamaan.
     setAksi({ name, jenis: "uninstall", mulai: Date.now() })
-    // Sebelumnya aksi ini TIDAK punya pesan berhasil sama sekali — hanya kartu
-    // yang berubah sendiri, yang tidak terlihat kalau user sedang menggulir
-    // atau sudah pindah halaman.
     try {
-      await notify.tugas(apiSend(`/api/components/${name}/${action}`, "POST"), {
-        jalan: trf("Service {0}: {1}…", name, action),
-        sukses: trf("Service {0}: {1} berhasil.", name, action),
-        gagal: (e) => trf("Gagal menjalankan aksi {0}: {1}", action, pesanError(e)),
-      })
+      await notify.tugas(
+        apiSend<{ status?: string; updated?: boolean; message?: string }>(
+          `/api/components/${name}/${action}`,
+          "POST",
+        ),
+        {
+          jalan:
+            action === "update"
+              ? trf("Memeriksa pembaruan {0}…", name)
+              : trf("Service {0}: {1}…", name, action),
+          sukses: (res) => {
+            if (action === "update") {
+              if (res && res.updated === false) {
+                return tr("Sudah di versi yang terbaru")
+              }
+              return trf("{0} berhasil diperbarui.", name)
+            }
+            return trf("Service {0}: {1} berhasil.", name, action)
+          },
+          gagal: (e) => trf("Gagal menjalankan aksi {0}: {1}", action, pesanError(e)),
+        },
+      )
       load(true)
     } catch {
       // Pesan gagalnya sudah ditampilkan notify.tugas.
@@ -541,10 +561,13 @@ export function ComponentsView() {
                               </Button>
                             )}
                             {c.latest_version && (
+                              <Badge tone="warn">{c.latest_version === "commits" ? tr("Commit baru tersedia") : trf("Versi baru: v{0}", c.latest_version)}</Badge>
+                            )}
+                            {(AGEN_AI.includes(c.name) || c.name === "9router") && (
                               <Button
                                 size="sm"
                                 disabled={actionLoading !== null}
-                                onClick={() => handleService(c.name, "update", c.latest_version)}
+                                onClick={() => handleService(c.name, "update")}
                               >
                                 <ArrowUpCircle className="mr-1 size-3.5" /> {tr("Perbarui")}
                               </Button>

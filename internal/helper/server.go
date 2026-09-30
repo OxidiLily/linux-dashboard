@@ -796,7 +796,8 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		return nil, componentService(args.Name, args.Action, u)
+		res, err := componentService(args.Name, args.Action, u)
+		return jsonOf(res, err)
 
 	case helperproto.CmdProxyList:
 		return jsonOf(proxyPanelList())
