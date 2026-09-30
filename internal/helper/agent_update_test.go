@@ -65,7 +65,7 @@ func TestAgenMilikUserMenolakSymlinkKeluarHome(t *testing.T) {
 	if err := os.Symlink(shim, link); err != nil {
 		t.Fatal(err)
 	}
-	u := &userInfo{Home: home, UID: os.Getuid()}
+	u := &userInfo{Home: home, UID: os.Getuid(), GID: os.Getgid()}
 	if _, ok := agenMilikUser("hermes", u); !ok {
 		t.Fatal("binary milik user tidak dikenali")
 	}
@@ -78,7 +78,84 @@ func TestAgenMilikUserMenolakSymlinkKeluarHome(t *testing.T) {
 	if _, ok := agenMilikUser("hermes", u); ok {
 		t.Fatal("symlink keluar HOME diterima")
 	}
-	if err := updateAgen("nginx", u); err == nil {
+	if _, err := updateAgen("nginx", u); err == nil {
 		t.Fatal("komponen lain boleh update sebagai agent")
+	}
+}
+
+func TestUpdateAgenSudahTerbaru(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local/bin")
+	if err := os.MkdirAll(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	owned := filepath.Join(home, ".hermes/hermes-agent/.hermes/bin/hermes")
+	if err := os.MkdirAll(filepath.Dir(owned), 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Tanpa baris 'Update available:' atau commit behind — kondisi up to date
+	if err := os.WriteFile(owned, []byte("#!/bin/sh\ncase \"$1\" in\n--version) printf 'Hermes Agent v0.21.5\\nInstall method: git\\n';;\nesac\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(bin, "hermes")
+	if err := os.WriteFile(shim, []byte("#!/bin/sh\nexec "+owned+" \"$@\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	u := &userInfo{Home: home, UID: os.Getuid(), GID: os.Getgid()}
+	res, err := updateAgen("hermes", u)
+	if err != nil {
+		t.Fatalf("updateAgen gagal: %v", err)
+	}
+	if res.Updated {
+		t.Fatalf("seharusnya tidak ada update, tapi updated=true")
+	}
+	if res.Message != "Sudah di versi yang terbaru" {
+		t.Fatalf("pesan tidak sesuai: %q", res.Message)
+	}
+}
+
+func TestUpdateAgenAdaUpdate(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local/bin")
+	if err := os.MkdirAll(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	owned := filepath.Join(home, ".hermes/hermes-agent/.hermes/bin/hermes")
+	if err := os.MkdirAll(filepath.Dir(owned), 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Ada notice 'Update available: 5 commits behind'
+	script := `#!/bin/sh
+case "$1" in
+--version)
+  if [ -f "` + home + `/updated" ]; then
+    printf 'Hermes Agent v0.21.6\nInstall method: git\n'
+  else
+    printf 'Hermes Agent v0.21.5\nInstall method: git\nUpdate available: 5 commits behind\n'
+  fi
+  ;;
+update)
+  touch "` + home + `/updated"
+  printf 'Successfully updated\n'
+  ;;
+esac
+`
+	if err := os.WriteFile(owned, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(bin, "hermes")
+	if err := os.WriteFile(shim, []byte("#!/bin/sh\nexec "+owned+" \"$@\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	u := &userInfo{Home: home, UID: os.Getuid(), GID: os.Getgid()}
+	res, err := updateAgen("hermes", u)
+	if err != nil {
+		t.Fatalf("updateAgen gagal: %v", err)
+	}
+	t.Logf("res: %+v", res)
+	if !res.Updated {
+		t.Fatalf("seharusnya updated=true, tapi updated=false")
 	}
 }

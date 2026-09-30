@@ -25,6 +25,9 @@ type userInfo struct {
 }
 
 func (u *userInfo) credential() *syscall.Credential {
+	if os.Geteuid() != 0 {
+		return nil
+	}
 	return &syscall.Credential{
 		Uid:    uint32(u.UID),
 		Gid:    uint32(u.GID),

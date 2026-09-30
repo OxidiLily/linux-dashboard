@@ -23,6 +23,8 @@ daftarkanTerjemahan({
   "Nonaktif": "Inactive",
   "Terpasang": "Installed",
   "Belum Terpasang": "Not Installed",
+  "Sudah di versi yang terbaru": "Already on the latest version",
+  "Memeriksa pembaruan {0}…": "Checking updates for {0}…",
   "Proxy manager": "Proxy manager",
   "Jenis DNS": "DNS record type",
   "Data terstruktur (JSON, opsional jika Content diisi)": "Structured data (JSON; optional when Content is filled)",
@@ -746,6 +748,7 @@ daftarkanTerjemahan({
   "Pasang komponen {0}?": "Install component {0}?",
   "Perbarui {0} ke v{1}?": "Update {0} to v{1}?",
   "Perbarui {0} ke commit terbaru?": "Update {0} to the latest commit?",
+  "Perbarui {0}": "Update {0}",
   "Commit baru tersedia": "New commits available",
   "Pembaruan lewat panel hanya tersedia untuk instalasi resmi milik user panel ini. Instalasi system-wide atau metode lain diperbarui lewat pengelola asalnya.":
     "Panel updates are only available for official installations owned by this panel user. Update system-wide or other installations through their original package manager.",

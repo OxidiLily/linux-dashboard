@@ -938,6 +938,12 @@ type ComponentProgress struct {
 	Aktif bool `json:"aktif"`
 }
 
+type ComponentActionResult struct {
+	Status  string `json:"status"`            // "ok"
+	Updated bool   `json:"updated"`           // true jika berhasil diperbarui, false jika sudah versi terbaru
+	Message string `json:"message,omitempty"` // pesan ringkas untuk UI/toast
+}
+
 type ComponentStatus struct {
 	Name      string `json:"name"`
 	Installed bool   `json:"installed"`

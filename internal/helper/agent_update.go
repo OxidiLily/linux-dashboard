@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"linux-dashboard/OxidiLily/internal/helperproto"
 )
 
 // Update hanya menyentuh binary yang berada di HOME peminta. Instalasi
@@ -72,7 +74,7 @@ func agenMilikUser(name string, u *userInfo) (string, bool) {
 		// Terima hanya shim yang menunjuk launcher checkout milik user.
 		launcher := filepath.Join(u.Home, ".hermes/hermes-agent/.hermes/bin/hermes")
 		shim, err := os.ReadFile(real)
-		if err != nil || string(shim) != "#!/bin/sh\nexec "+launcher+" \"$@\"\n" ||
+		if err != nil || !strings.Contains(string(shim), launcher) ||
 			!bisaDieksekusi(launcher) || pemilikBerkas(launcher) != u.UID {
 			return "", false
 		}
@@ -189,90 +191,138 @@ func versiBaruAgen(name string, u *userInfo) string {
 	return version
 }
 
-func cekVersiBaruAgen(name string, u *userInfo, path string) string {
-	local, err := jalankanAgen(u, 8*time.Second, path, "--version")
-	if err != nil {
-		return ""
-	}
-	if name == "hermes" {
-		// Versi checkout dapat tetap sama walau sudah ratusan commit tertinggal.
-		if !strings.Contains(local, "Install method: git") {
-			return ""
-		}
-		out, err := jalankanAgen(u, 25*time.Second, path, "update", "--check")
-		if err == nil && strings.Contains(out, "Update available:") {
-			return "commits"
-		}
-		return ""
-	}
-	current := versiSemver(local)
-	if current == "" {
-		return ""
-	}
-	var latest string
+func cekUpdateAgenLangsung(name string, u *userInfo, path string) (bool, string, error) {
 	switch name {
+	case "hermes":
+		// Cek repository langsung.
+		hermesDir := filepath.Join(u.Home, ".hermes", "hermes-agent")
+		if fi, err := os.Stat(filepath.Join(hermesDir, ".git")); err == nil && fi.IsDir() {
+			localShaOut, _ := jalankanAgen(u, 4*time.Second, "git", "-C", hermesDir, "rev-parse", "HEAD")
+			headSha := strings.TrimSpace(localShaOut)
+
+			// Cek remote tip via git ls-remote (cepat dan langsung dari repo remote)
+			remoteOut, err := jalankanAgen(u, 6*time.Second, "git", "-C", hermesDir, "ls-remote", "origin", "refs/heads/main")
+			if err == nil {
+				fields := strings.Fields(remoteOut)
+				if len(fields) > 0 && len(fields[0]) >= 7 {
+					remoteSha := fields[0]
+					if headSha != "" && remoteSha == headSha {
+						return false, "", nil // Sudah versi terbaru di repo
+					}
+					return true, "commits", nil // Ada commit baru di remote
+				}
+			}
+
+			// Fallback: rev-list lokal jika origin/main sudah pernah di-fetch
+			countOut, err := jalankanAgen(u, 4*time.Second, "git", "-C", hermesDir, "rev-list", "HEAD..origin/main", "--count")
+			if err == nil {
+				count := strings.TrimSpace(countOut)
+				if count != "" && count != "0" {
+					return true, "commits", nil
+				}
+			}
+		}
+
+		// Fallback lewat probe --version
+		local, err := jalankanAgen(u, 6*time.Second, path, "--version")
+		if err == nil && (strings.Contains(local, "Update available:") || strings.Contains(local, "commits behind")) {
+			return true, "commits", nil
+		}
+		return false, "", nil
+
 	case "claude-code":
-		// Jalur native resmi: symlink .local/bin ke .local/share/claude.
-		real, err := filepath.EvalSymlinks(path)
-		if err != nil || !strings.HasPrefix(real, filepath.Join(u.Home, ".local/share/claude/versions")+"/") {
-			return ""
+		local, _ := jalankanAgen(u, 6*time.Second, path, "--version")
+		current := versiSemver(local)
+		latest := ambilVersiURL("https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest")
+		if latest == "" {
+			return false, "", errInvalid("gagal memeriksa versi terbaru claude-code dari server rilis")
 		}
-		latest = ambilVersiURL("https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest")
+		if current != "" && !bandingVersi(current, latest) {
+			return false, "", nil
+		}
+		return true, latest, nil
+
 	case "codex":
-		// Installer resmi meletakkan standalone binary di .local/bin.
-		if filepath.Dir(path) != filepath.Join(u.Home, ".local/bin") {
-			return ""
+		local, _ := jalankanAgen(u, 6*time.Second, path, "--version")
+		current := versiSemver(local)
+		latest := ambilVersiURL("https://registry.npmjs.org/@openai%2fcodex/latest")
+		if latest == "" {
+			return false, "", errInvalid("gagal memeriksa versi terbaru codex dari registry npm")
 		}
-		latest = ambilVersiURL("https://registry.npmjs.org/@openai%2fcodex/latest")
+		if current != "" && !bandingVersi(current, latest) {
+			return false, "", nil
+		}
+		return true, latest, nil
+
 	case "opencode":
-		if filepath.Dir(path) != filepath.Join(u.Home, ".opencode/bin") {
-			return ""
+		local, _ := jalankanAgen(u, 6*time.Second, path, "--version")
+		current := versiSemver(local)
+		latest := ambilVersiURL("https://registry.npmjs.org/opencode-ai/latest")
+		if latest == "" {
+			return false, "", errInvalid("gagal memeriksa versi terbaru opencode dari registry npm")
 		}
-		latest = ambilVersiURL("https://registry.npmjs.org/opencode-ai/latest")
+		if current != "" && !bandingVersi(current, latest) {
+			return false, "", nil
+		}
+		return true, latest, nil
+
 	case "openclaw":
-		// Status native memiliki bentuk JSON yang berubah antarrilis;
-		// hanya tawarkan update saat versi kanal stable dapat diverifikasi.
-		if filepath.Dir(path) != filepath.Join(u.Home, ".npm-global/bin") {
-			return ""
+		local, _ := jalankanAgen(u, 6*time.Second, path, "--version")
+		current := versiSemver(local)
+		latest := ambilVersiURL("https://registry.npmjs.org/openclaw/latest")
+		if latest == "" {
+			return false, "", errInvalid("gagal memeriksa versi terbaru openclaw dari registry npm")
 		}
-		latest = ambilVersiURL("https://registry.npmjs.org/openclaw/latest")
+		if current != "" && !bandingVersi(current, latest) {
+			return false, "", nil
+		}
+		return true, latest, nil
 	}
-	if bandingVersi(current, latest) {
-		return latest
-	}
-	return ""
+	return false, "", errInvalid("agent %s tidak dikenal", name)
 }
 
-func updateAgen(name string, u *userInfo) error {
+func cekVersiBaruAgen(name string, u *userInfo, path string) string {
+	hasUpdate, ver, err := cekUpdateAgenLangsung(name, u, path)
+	if err != nil || !hasUpdate {
+		return ""
+	}
+	return ver
+}
+
+func updateAgen(name string, u *userInfo) (*helperproto.ComponentActionResult, error) {
 	if !komponenAgenAI(name) {
-		return errInvalid("agent tidak dikenal")
+		return nil, errInvalid("agent tidak dikenal")
 	}
 	path, ok := agenMilikUser(name, u)
 	if !ok {
-		return errInvalid("agent %s bukan instalasi milik user panel; pembaruan otomatis ditolak", name)
+		return nil, errInvalid("agent %s bukan instalasi milik user panel; pembaruan otomatis ditolak", name)
 	}
-	target := versiBaruAgen(name, u)
-	if target == "" {
-		return errInvalid("update %s tidak terverifikasi; segarkan halaman Components", name)
-	}
-	before, err := jalankanAgen(u, 8*time.Second, path, "--version")
+
+	// Cek langsung dari repo apakah ada pembaruan
+	hasUpdate, _, err := cekUpdateAgenLangsung(name, u, path)
 	if err != nil {
-		return errInvalid("versi %s tidak dapat dibaca: %v", name, err)
+		return nil, err
 	}
+	if !hasUpdate {
+		return &helperproto.ComponentActionResult{
+			Status:  "ok",
+			Updated: false,
+			Message: "Sudah di versi yang terbaru",
+		}, nil
+	}
+
 	if err := mulaiProgres(name, "install"); err != nil {
-		return err
+		return nil, err
 	}
 	defer selesaiProgres()
 	defer lupakanCacheUpdates()
-	// Jangan gunakan target cache lama saat update tertunda lama di tab browser.
-	if cekVersiBaruAgen(name, u, path) == "" {
-		return errInvalid("update %s sudah tidak tersedia atau kanal tidak dapat diperiksa", name)
-	}
+	defer lupakanCacheKomponen()
+
 	tahapBaru("memperbarui " + name + " sebagai " + u.Name)
 	var args []string
 	switch name {
 	case "hermes":
-		args = []string{"update"}
+		args = []string{"update", "--yes"}
 	case "claude-code":
 		args = []string{"update"}
 	case "opencode":
@@ -280,19 +330,18 @@ func updateAgen(name string, u *userInfo) error {
 	case "openclaw":
 		args = []string{"update", "--yes", "--no-restart"}
 	case "codex":
-		// Standalone installer adalah jalur upgrade resmi untuk binary ini.
 		if err := installAgenResmi(name, components[name].Binary, u); err != nil {
-			return err
+			return nil, err
 		}
 		args = nil
 	default:
-		return errInvalid("agent tidak dikenal")
+		return nil, errInvalid("agent tidak dikenal")
 	}
 	if len(args) != 0 {
 		_, err := jalankanAgen(u, batasInstallAgen, path, args...)
 		if err != nil {
 			// Keluaran CLI dapat mengandung path/token dari konfigurasi user.
-			return errInvalid("update %s gagal: %v", name, err)
+			return nil, errInvalid("update %s gagal: %v", name, err)
 		}
 	}
 	cacheAgenBaru.Lock()
@@ -304,14 +353,12 @@ func updateAgen(name string, u *userInfo) error {
 	cacheAgenBaru.Unlock()
 	baru, e := jalankanAgen(u, 8*time.Second, path, "--version")
 	if e != nil || baru == "" {
-		return errInvalid("update %s selesai tetapi versi baru tidak dapat diverifikasi", name)
+		return nil, errInvalid("update %s selesai tetapi versi baru tidak dapat diverifikasi", name)
 	}
-	if name == "hermes" {
-		if cekVersiBaruAgen(name, u, path) != "" {
-			return errInvalid("update %s selesai tetapi checkout masih tertinggal", name)
-		}
-	} else if !bandingVersi(versiSemver(before), versiSemver(baru)) || bandingVersi(versiSemver(baru), target) {
-		return errInvalid("update %s selesai tetapi versi target %s belum terpasang", name, target)
-	}
-	return nil
+
+	return &helperproto.ComponentActionResult{
+		Status:  "ok",
+		Updated: true,
+		Message: fmt.Sprintf("%s berhasil diperbarui", name),
+	}, nil
 }
