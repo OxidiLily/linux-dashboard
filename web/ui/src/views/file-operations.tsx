@@ -46,25 +46,25 @@ export function FileOperationsView() {
         </Button>
       }
     >
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="tabel-kartu w-full text-left text-xs">
           <thead>
-            <tr className="border-b border-border text-muted-foreground">
-              <th className="pb-2 font-medium">{tr("Waktu")}</th>
-              <th className="pb-2 font-medium">{tr("User")}</th>
-              <th className="pb-2 font-medium">{tr("Operasi")}</th>
-              <th className="pb-2 font-medium">{tr("Sumber")}</th>
-              <th className="pb-2 font-medium">{tr("Tujuan")}</th>
+            <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+              <th className="p-2.5 font-medium">{tr("Waktu")}</th>
+              <th className="p-2.5 font-medium">{tr("User")}</th>
+              <th className="p-2.5 font-medium">{tr("Operasi")}</th>
+              <th className="p-2.5 font-medium">{tr("Sumber")}</th>
+              <th className="p-2.5 font-medium">{tr("Tujuan")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {logs.map((l) => (
-              <tr key={l.id} className="hover:bg-secondary/40">
-                <td data-label={tr("Waktu")} className="num py-2 text-muted-foreground whitespace-nowrap">
+              <tr key={l.id} className="hover:bg-secondary/40 transition-colors">
+                <td data-label={tr("Waktu")} className="num p-2.5 text-muted-foreground whitespace-nowrap">
                   {formatWaktu(l.created_at)}
                 </td>
-                <td data-label={tr("User")} className="py-2 font-medium">{l.username}</td>
-                <td data-label={tr("Operasi")} className="py-2">
+                <td data-label={tr("User")} className="p-2.5 font-medium">{l.username}</td>
+                <td data-label={tr("Operasi")} className="p-2.5">
                   {/* w-fit: Badge adalah inline-flex, tapi beberapa style
                       global membuat ia stretch ke lebar cell. Bungkus
                       dengan width-fit (lebar = konten + padding) supaya
@@ -75,17 +75,17 @@ export function FileOperationsView() {
                     </Badge>
                   </div>
                 </td>
-                <td data-label={tr("Sumber")} className="num py-2 text-muted-foreground max-w-xs truncate" title={l.source_path}>
+                <td data-label={tr("Sumber")} className="num p-2.5 text-muted-foreground max-w-xs truncate" title={l.source_path}>
                   {l.source_path || "—"}
                 </td>
-                <td data-label={tr("Tujuan")} className="num py-2 text-muted-foreground max-w-xs truncate" title={l.dest_path}>
+                <td data-label={tr("Tujuan")} className="num p-2.5 text-muted-foreground max-w-xs truncate" title={l.dest_path}>
                   {l.dest_path || "—"}
                 </td>
               </tr>
             ))}
             {logs.length === 0 && !loading && (
               <tr>
-                <td data-label="" colSpan={5} className="py-6 text-center text-muted-foreground">
+                <td data-label="" colSpan={5} className="p-6 text-center text-muted-foreground">
                   {tr("Belum ada log operasi file.")}
                 </td>
               </tr>

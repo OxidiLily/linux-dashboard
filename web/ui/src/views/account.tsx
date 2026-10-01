@@ -388,21 +388,21 @@ export function AccountView() {
             </Button>
           }
         >
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="tabel-kartu w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="pb-2 font-medium">{tr("User / UID")}</th>
-                  <th className="pb-2 font-medium">{tr("Home")}</th>
-                  <th className="pb-2 font-medium">{tr("Shell")}</th>
-                  <th className="pb-2 font-medium">{tr("Grup / Status")}</th>
-                  <th className="pb-2 text-right font-medium">{tr("Aksi")}</th>
+                <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                  <th className="p-2.5 font-medium">{tr("User / UID")}</th>
+                  <th className="p-2.5 font-medium">{tr("Home")}</th>
+                  <th className="p-2.5 font-medium">{tr("Shell")}</th>
+                  <th className="p-2.5 font-medium">{tr("Grup / Status")}</th>
+                  <th className="p-2.5 text-right font-medium">{tr("Aksi")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {users.map((u) => (
-                  <tr key={u.username} className="hover:bg-secondary/40">
-                    <td data-label="" className="py-2.5">
+                  <tr key={u.username} className="hover:bg-secondary/40 transition-colors">
+                    <td data-label="" className="p-2.5">
                       <div className="flex items-center gap-2">
                         {u.groups?.includes("sudo") ? <Shield className="size-4 text-signal" /> : <UserCheck className="size-4 text-muted-foreground" />}
                         <div>
@@ -411,9 +411,9 @@ export function AccountView() {
                         </div>
                       </div>
                     </td>
-                    <td data-label={tr("Home")} className="num py-2.5 text-muted-foreground">{u.home}</td>
-                    <td data-label={tr("Shell")} className="num py-2.5 text-muted-foreground">{u.shell}</td>
-                    <td data-label={tr("Grup / Status")} className="py-2.5">
+                    <td data-label={tr("Home")} className="num p-2.5 text-muted-foreground">{u.home}</td>
+                    <td data-label={tr("Shell")} className="num p-2.5 text-muted-foreground">{u.shell}</td>
+                    <td data-label={tr("Grup / Status")} className="p-2.5">
                       <div className="flex flex-wrap gap-1">
                         {(() => {
                           const g = badgeGrup(u.groups)
@@ -436,7 +436,7 @@ export function AccountView() {
                         })()}
                       </div>
                     </td>
-                    <td data-label="" className="py-2.5 text-right">
+                    <td data-label="" className="p-2.5 text-right">
                       <div className="flex justify-end gap-1">
                         <Button
                           variant="ghost"

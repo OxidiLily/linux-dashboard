@@ -811,21 +811,21 @@ export function DockerView() {
 
     {/* Containers */}
     <Panel title={tr("Docker Containers")} hint={`${containers.length} container terdeteksi`}>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="tabel-kartu w-full text-left text-xs">
           <thead>
-            <tr className="border-b border-border text-muted-foreground">
-              <th className="pb-2 font-medium">{tr("Nama / ID")}</th>
-              <th className="pb-2 font-medium">{tr("Image")}</th>
-              <th className="pb-2 font-medium">{tr("Status")}</th>
-              <th className="pb-2 font-medium">{tr("Port Mappings")}</th>
-              <th className="pb-2 text-right font-medium">{tr("Aksi")}</th>
+            <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+              <th className="p-2.5 font-medium">{tr("Nama / ID")}</th>
+              <th className="p-2.5 font-medium">{tr("Image")}</th>
+              <th className="p-2.5 font-medium">{tr("Status")}</th>
+              <th className="p-2.5 font-medium">{tr("Port Mappings")}</th>
+              <th className="p-2.5 text-right font-medium">{tr("Aksi")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {containersTampil.map((c) => (
-              <tr key={c.id} className="hover:bg-secondary/40">
-                <td data-label="" className="py-2">
+              <tr key={c.id} className="hover:bg-secondary/40 transition-colors">
+                <td data-label="" className="p-2.5">
                   <div className="flex items-center gap-2">
                     <Container className="size-4 text-signal" />
                     <div>
@@ -834,12 +834,12 @@ export function DockerView() {
                     </div>
                   </div>
                 </td>
-                <td data-label={tr("Image")} className="num py-2 text-muted-foreground">{c.image}</td>
-                <td data-label={tr("Status")} className="py-2">
+                <td data-label={tr("Image")} className="num p-2.5 text-muted-foreground">{c.image}</td>
+                <td data-label={tr("Status")} className="p-2.5">
                   <Badge tone={c.state === "running" ? "ok" : "muted"}>{c.status}</Badge>
                 </td>
-                <td data-label={tr("Port Mappings")} className="num py-2 text-muted-foreground max-w-xs truncate">{c.ports || "—"}</td>
-                <td data-label="" className="py-2">
+                <td data-label={tr("Port Mappings")} className="num p-2.5 text-muted-foreground max-w-xs truncate">{c.ports || "—"}</td>
+                <td data-label="" className="p-2.5">
                   <div className="flex items-center justify-end gap-1">
                     {c.state === "running" ? (
                       <>
@@ -996,58 +996,58 @@ export function DockerView() {
           membuat orang membuka panel ini, dan jawabannya tidak boleh ikut
           tersembunyi di balik pemilih tab. */}
       {df.length > 0 && (
-        <div className="mb-3 overflow-x-auto rounded border border-border">
+        <div className="mb-3 overflow-x-auto rounded-lg border border-border">
           <table className="tabel-kartu w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="pb-2 pl-2 font-medium">{tr("Pemakaian disk")}</th>
-                <th className="pb-2 font-medium">{tr("Jumlah")}</th>
-                <th className="pb-2 font-medium">{tr("Aktif")}</th>
-                <th className="pb-2 font-medium">{tr("Ukuran")}</th>
-                <th className="pb-2 pr-2 font-medium">{tr("Bisa dibebaskan")}</th>
+              <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                <th className="p-2.5 font-medium">{tr("Pemakaian disk")}</th>
+                <th className="p-2.5 font-medium">{tr("Jumlah")}</th>
+                <th className="p-2.5 font-medium">{tr("Aktif")}</th>
+                <th className="p-2.5 font-medium">{tr("Ukuran")}</th>
+                <th className="p-2.5 font-medium">{tr("Bisa dibebaskan")}</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border">
               {df.map((row) => (
-                <tr key={row.type} className="border-b border-border/50 last:border-0">
-                  <td className="py-1.5 pl-2 font-medium">{tr(row.type)}</td>
-                  <td className="num py-1.5">{row.total}</td>
-                  <td className="num py-1.5">{row.active}</td>
-                  <td className="num py-1.5">{row.size}</td>
-                  <td className="num py-1.5 pr-2">{row.reclaimable}</td>
+                <tr key={row.type} className="hover:bg-secondary/40 transition-colors">
+                  <td className="p-2.5 font-medium">{tr(row.type)}</td>
+                  <td className="num p-2.5">{row.total}</td>
+                  <td className="num p-2.5">{row.active}</td>
+                  <td className="num p-2.5">{row.size}</td>
+                  <td className="num p-2.5">{row.reclaimable}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border border-border">
         {daya === "images" && (
           <table className="tabel-kartu w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="pb-2 font-medium">{tr("Repository")}</th>
-                <th className="pb-2 font-medium">Tag</th>
-                <th className="pb-2 font-medium">ID</th>
-                <th className="pb-2 font-medium">{tr("Ukuran")}</th>
-                <th className="pb-2 font-medium">{tr("Dibuat")}</th>
-                <th className="pb-2 font-medium"></th>
+              <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                <th className="p-2.5 font-medium">{tr("Repository")}</th>
+                <th className="p-2.5 font-medium">Tag</th>
+                <th className="p-2.5 font-medium">ID</th>
+                <th className="p-2.5 font-medium">{tr("Ukuran")}</th>
+                <th className="p-2.5 font-medium">{tr("Dibuat")}</th>
+                <th className="p-2.5 font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {imagesTampil.map((im) => (
-                <tr key={im.id} className="hover:bg-secondary/40">
-                  <td data-label={tr("Repository")} className="py-2 font-medium">
+                <tr key={im.id} className="hover:bg-secondary/40 transition-colors">
+                  <td data-label={tr("Repository")} className="p-2.5 font-medium">
                     <div className="flex items-center gap-2">
                       <span className="truncate">{im.repository}</span>
                       {im.dangling && <Badge tone="warn">dangling</Badge>}
                     </div>
                   </td>
-                  <td data-label="Tag" className="num py-2 text-muted-foreground">{im.tag}</td>
-                  <td data-label="ID" className="num py-2 text-muted-foreground">{im.id}</td>
-                  <td data-label={tr("Ukuran")} className="num py-2 text-muted-foreground">{im.size}</td>
-                  <td data-label={tr("Dibuat")} className="py-2 text-muted-foreground">{im.created}</td>
-                  <td data-label="" className="py-2">
+                  <td data-label="Tag" className="num p-2.5 text-muted-foreground">{im.tag}</td>
+                  <td data-label="ID" className="num p-2.5 text-muted-foreground">{im.id}</td>
+                  <td data-label={tr("Ukuran")} className="num p-2.5 text-muted-foreground">{im.size}</td>
+                  <td data-label={tr("Dibuat")} className="p-2.5 text-muted-foreground">{im.created}</td>
+                  <td data-label="" className="p-2.5 text-right">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1063,7 +1063,7 @@ export function DockerView() {
               ))}
               {imagesTampil.length === 0 && !loadingDaya && (
                 <tr>
-                  <td data-label="" colSpan={6} className="py-6 text-center text-muted-foreground">
+                  <td data-label="" colSpan={6} className="p-6 text-center text-muted-foreground">
                     {cari ? tr("Tidak ada yang cocok dengan pencarian.") : tr("Belum ada image di host ini.")}
                   </td>
                 </tr>
@@ -1075,24 +1075,24 @@ export function DockerView() {
         {daya === "volumes" && (
           <table className="tabel-kartu w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="pb-2 font-medium">{tr("Nama")}</th>
-                <th className="pb-2 font-medium">Driver</th>
-                <th className="pb-2 font-medium">Mountpoint</th>
-                <th className="pb-2 font-medium"></th>
+              <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                <th className="p-2.5 font-medium">{tr("Nama")}</th>
+                <th className="p-2.5 font-medium">Driver</th>
+                <th className="p-2.5 font-medium">Mountpoint</th>
+                <th className="p-2.5 font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {volumesTampil.map((v) => (
-                <tr key={v.name} className="hover:bg-secondary/40">
-                  <td data-label={tr("Nama")} className="py-2 font-medium">
+                <tr key={v.name} className="hover:bg-secondary/40 transition-colors">
+                  <td data-label={tr("Nama")} className="p-2.5 font-medium">
                     <span className="break-all">{v.name}</span>
                   </td>
-                  <td data-label="Driver" className="num py-2 text-muted-foreground">{v.driver}</td>
-                  <td data-label="Mountpoint" className="num py-2 text-muted-foreground">
+                  <td data-label="Driver" className="num p-2.5 text-muted-foreground">{v.driver}</td>
+                  <td data-label="Mountpoint" className="num p-2.5 text-muted-foreground">
                     <span className="break-all">{v.mountpoint}</span>
                   </td>
-                  <td data-label="" className="py-2">
+                  <td data-label="" className="p-2.5 text-right">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1108,7 +1108,7 @@ export function DockerView() {
               ))}
               {volumesTampil.length === 0 && !loadingDaya && (
                 <tr>
-                  <td data-label="" colSpan={4} className="py-6 text-center text-muted-foreground">
+                  <td data-label="" colSpan={4} className="p-6 text-center text-muted-foreground">
                     {/* Kalimat kedua ada karena pertanyaan yang sama muncul terus:
                         stack yang compose-nya penuh baris `volumes:` tetap
                         menghasilkan daftar kosong di sini. Bind mount memang bukan
@@ -1129,28 +1129,28 @@ export function DockerView() {
         {daya === "networks" && (
           <table className="tabel-kartu w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="pb-2 font-medium">{tr("Nama")}</th>
-                <th className="pb-2 font-medium">Driver</th>
-                <th className="pb-2 font-medium">Scope</th>
-                <th className="pb-2 font-medium">ID</th>
-                <th className="pb-2 font-medium"></th>
+              <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                <th className="p-2.5 font-medium">{tr("Nama")}</th>
+                <th className="p-2.5 font-medium">Driver</th>
+                <th className="p-2.5 font-medium">Scope</th>
+                <th className="p-2.5 font-medium">ID</th>
+                <th className="p-2.5 font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {networksTampil.map((n) => (
-                <tr key={n.id} className="hover:bg-secondary/40">
-                  <td data-label={tr("Nama")} className="py-2 font-medium">
+                <tr key={n.id} className="hover:bg-secondary/40 transition-colors">
+                  <td data-label={tr("Nama")} className="p-2.5 font-medium">
                     <div className="flex items-center gap-2">
                       <span className="break-all">{n.name}</span>
                       {n.builtin && <Badge tone="muted">{tr("bawaan")}</Badge>}
                       {n.internal && <Badge tone="warn">internal</Badge>}
                     </div>
                   </td>
-                  <td data-label="Driver" className="num py-2 text-muted-foreground">{n.driver}</td>
-                  <td data-label="Scope" className="num py-2 text-muted-foreground">{n.scope}</td>
-                  <td data-label="ID" className="num py-2 text-muted-foreground">{n.id}</td>
-                  <td data-label="" className="py-2">
+                  <td data-label="Driver" className="num p-2.5 text-muted-foreground">{n.driver}</td>
+                  <td data-label="Scope" className="num p-2.5 text-muted-foreground">{n.scope}</td>
+                  <td data-label="ID" className="num p-2.5 text-muted-foreground">{n.id}</td>
+                  <td data-label="" className="p-2.5 text-right">
                     {/* Network bawaan tidak punya tombol hapus: daemon selalu
                         menolaknya, jadi tombolnya hanya menawarkan kegagalan. */}
                     {!n.builtin && (
@@ -1170,7 +1170,7 @@ export function DockerView() {
               ))}
               {networksTampil.length === 0 && !loadingDaya && (
                 <tr>
-                  <td data-label="" colSpan={5} className="py-6 text-center text-muted-foreground">
+                  <td data-label="" colSpan={5} className="p-6 text-center text-muted-foreground">
                     {cari ? tr("Tidak ada yang cocok dengan pencarian.") : tr("Belum ada network di host ini.")}
                   </td>
                 </tr>

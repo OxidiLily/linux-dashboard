@@ -229,21 +229,92 @@ export function ProxyManagerView() {
 
       {tab === "proxy" && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="space-y-2">
-            {!loading && hosts.length === 0 && <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground"><Route className="mx-auto mb-2 size-6" />{tr("Belum ada proxy host")}</div>}
-            {hosts.map((h) => (
-              <div key={h.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
-                <div className="min-w-0"><div className="font-medium">{h.domain || tr("Panel bawaan — domain belum diatur")}</div><div className="num text-xs text-muted-foreground">{h.scheme}://{h.target_host}:{h.target_port}</div></div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {h.managed && <Badge tone="muted">{tr("Panel bawaan")}</Badge>}
-                  <Badge tone={h.enabled ? "signal" : "muted"}>{h.enabled ? tr("Aktif") : tr("Nonaktif")}</Badge>
-                  <Badge tone={h.tls_mode === "certbot" ? "ok" : "muted"}>{h.tls_mode === "certbot" ? "HTTPS" : "HTTP"}</Badge>
-                  {tautanProxy(h) && <Button asChild variant="outline" size="sm"><a href={tautanProxy(h)} target="_blank" rel="noopener noreferrer" title={`${tr("Buka")} ${h.domain} ${tr("di tab baru")}`}><ExternalLink className="mr-1 size-3.5" />{tr("Buka")}</a></Button>}
-                  <Button variant="outline" size="sm" onClick={() => setForm(h)} aria-label={`${tr("Edit proxy host")}: ${h.domain || tr("Panel bawaan")}`}><Pencil className="size-3.5" /></Button>
-                  {!h.managed && <Button variant="outline" size="sm" className="text-crit" onClick={() => remove(h)}><Trash2 className="size-3.5" /></Button>}
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto rounded-lg border border-border self-start">
+            <table className="tabel-kartu w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                  <th className="p-2.5 font-medium">{tr("Domain")}</th>
+                  <th className="p-2.5 font-medium">{tr("Target Upstream")}</th>
+                  <th className="p-2.5 font-medium">{tr("Status")}</th>
+                  <th className="p-2.5 font-medium">{tr("TLS")}</th>
+                  <th className="p-2.5 text-right font-medium">{tr("Aksi")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {!loading && hosts.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} data-label="" className="p-6 text-center text-muted-foreground">
+                      <Route className="mx-auto mb-2 size-5 text-muted-foreground" />
+                      {tr("Belum ada proxy host")}
+                    </td>
+                  </tr>
+                ) : (
+                  hosts.map((h) => (
+                    <tr key={h.id} className="hover:bg-secondary/40 transition-colors">
+                      <td data-label={tr("Domain")} className="p-2.5 font-medium text-foreground break-all">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{h.domain || tr("Panel bawaan — domain belum diatur")}</span>
+                          {h.managed && <Badge tone="muted">{tr("Panel bawaan")}</Badge>}
+                        </div>
+                      </td>
+                      <td data-label={tr("Target Upstream")} className="p-2.5 num font-mono text-xs text-muted-foreground">
+                        {h.scheme}://{h.target_host}:{h.target_port}
+                      </td>
+                      <td data-label={tr("Status")} className="p-2.5">
+                        <Badge tone={h.enabled ? "signal" : "muted"}>
+                          {h.enabled ? tr("Aktif") : tr("Nonaktif")}
+                        </Badge>
+                      </td>
+                      <td data-label={tr("TLS")} className="p-2.5">
+                        <Badge tone={h.tls_mode === "certbot" ? "ok" : "muted"}>
+                          {h.tls_mode === "certbot" ? "HTTPS" : "HTTP"}
+                        </Badge>
+                      </td>
+                      <td data-label={tr("Aksi")} className="p-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {tautanProxy(h) && (
+                            <Button asChild variant="outline" size="sm" className="h-7 px-2 text-xs">
+                              <a
+                                href={tautanProxy(h)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`${tr("Buka")} ${h.domain} ${tr("di tab baru")}`}
+                              >
+                                <ExternalLink className="mr-1 size-3" />
+                                {tr("Buka")}
+                              </a>
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => setForm(h)}
+                            aria-label={`${tr("Edit proxy host")}: ${h.domain || tr("Panel bawaan")}`}
+                            title={tr("Edit proxy host")}
+                          >
+                            <Pencil className="mr-1 size-3" />
+                            {tr("Edit")}
+                          </Button>
+                          {!h.managed && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-crit hover:bg-crit/10"
+                              onClick={() => remove(h)}
+                              title={tr("Hapus proxy host")}
+                            >
+                              <Trash2 className="mr-1 size-3" />
+                              {tr("Hapus")}
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
 
           <div className="space-y-3 rounded-lg border border-border bg-surface-2/40 p-4">
@@ -264,31 +335,122 @@ export function ProxyManagerView() {
       {tab === "ssl" && (
         <div className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-            <div className="space-y-2">
-              {!loading && hosts.length === 0 && <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground"><ShieldCheck className="mx-auto mb-2 size-6" />{tr("Belum ada proxy host — buat host dulu di tab Proxy Manager.")}</div>}
-              {hosts.map((h) => (
-                <div key={h.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="font-medium">{h.domain || tr("Panel bawaan — domain belum diatur")}</div>
-                    <div className="num text-xs text-muted-foreground">
-                      {h.tls_mode === "certbot"
-                        ? `${h.cert_issuer || "certbot"}${h.cert_not_after ? ` · ${tr("Kedaluwarsa")} ${h.cert_not_after.slice(0, 10)}` : ""}`
-                        : tr("Belum ada sertifikat — host dilayani HTTP.")}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {h.managed && <Badge tone="muted">{tr("Panel bawaan")}</Badge>}
-                    <Badge tone={h.tls_mode === "certbot" ? "ok" : "muted"}>{h.tls_mode === "certbot" ? "HTTPS" : "HTTP"}</Badge>
-                    {h.tls_mode === "certbot" && h.cert_issuer?.toUpperCase().includes("STAGING") && <Badge tone="warn">{tr("Sertifikat staging — tidak dipercaya browser")}</Badge>}
-                    {!h.domain && <Button variant="outline" size="sm" onClick={() => { setForm(h); setTab("proxy") }}>{tr("Atur domain")}</Button>}
-                    {h.domain && !h.domain.endsWith(".local") && !/^\d+\.\d+\.\d+\.\d+$/.test(h.domain) && <Button variant="outline" size="sm" onClick={() => bukaTLS(h)}>{h.tls_mode === "certbot" ? tr("Terbitkan ulang") : tr("Aktifkan TLS")}</Button>}
-                    {/^\d+\.\d+\.\d+\.\d+$/.test(h.domain) && <span className="text-xs text-muted-foreground">{tr("IP privat hanya HTTP; Certbot tidak menerbitkan sertifikat untuk IP ini.")}</span>}
-                    {h.domain.endsWith(".local") && <span className="text-xs text-muted-foreground">{tr("Domain .local memerlukan sertifikat privat; Let's Encrypt tidak menerbitkannya.")}</span>}
-                    {h.managed && <Button variant="outline" size="sm" onClick={() => { setForm(h); setTab("proxy") }}>{tr("Edit proxy host")}</Button>}
-                    {h.tls_mode === "certbot" && <Button variant="outline" size="sm" className="text-crit" onClick={() => matikanTLS(h)}>{tr("Matikan TLS")}</Button>}
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto rounded-lg border border-border self-start">
+              <table className="tabel-kartu w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                    <th className="p-2.5 font-medium">{tr("Domain")}</th>
+                    <th className="p-2.5 font-medium">{tr("Status TLS")}</th>
+                    <th className="p-2.5 font-medium">{tr("Sertifikat / Masa Berlaku")}</th>
+                    <th className="p-2.5 text-right font-medium">{tr("Aksi")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {!loading && hosts.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} data-label="" className="p-6 text-center text-muted-foreground">
+                        <ShieldCheck className="mx-auto mb-2 size-5 text-muted-foreground" />
+                        {tr("Belum ada proxy host — buat host dulu di tab Proxy Manager.")}
+                      </td>
+                    </tr>
+                  ) : (
+                    hosts.map((h) => (
+                      <tr key={h.id} className="hover:bg-secondary/40 transition-colors">
+                        <td data-label={tr("Domain")} className="p-2.5 font-medium text-foreground break-all">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{h.domain || tr("Panel bawaan — domain belum diatur")}</span>
+                            {h.managed && <Badge tone="muted">{tr("Panel bawaan")}</Badge>}
+                          </div>
+                        </td>
+                        <td data-label={tr("Status TLS")} className="p-2.5">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <Badge tone={h.tls_mode === "certbot" ? "ok" : "muted"}>
+                              {h.tls_mode === "certbot" ? "HTTPS" : "HTTP"}
+                            </Badge>
+                            {h.tls_mode === "certbot" && h.cert_issuer?.toUpperCase().includes("STAGING") && (
+                              <Badge tone="warn">{tr("Sertifikat staging — tidak dipercaya browser")}</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td data-label={tr("Sertifikat / Masa Berlaku")} className="p-2.5 num text-xs text-muted-foreground">
+                          {h.tls_mode === "certbot" ? (
+                            <div>
+                              <span className="font-medium text-foreground">{h.cert_issuer || "certbot"}</span>
+                              {h.cert_not_after && (
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {tr("Kedaluwarsa")} {h.cert_not_after.slice(0, 10)}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">{tr("Belum ada sertifikat — host dilayani HTTP.")}</span>
+                          )}
+                        </td>
+                        <td data-label={tr("Aksi")} className="p-2.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            {!h.domain && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  setForm(h)
+                                  setTab("proxy")
+                                }}
+                              >
+                                {tr("Atur domain")}
+                              </Button>
+                            )}
+                            {h.domain && !h.domain.endsWith(".local") && !/^\d+\.\d+\.\d+\.\d+$/.test(h.domain) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => bukaTLS(h)}
+                              >
+                                {h.tls_mode === "certbot" ? tr("Terbitkan ulang") : tr("Aktifkan TLS")}
+                              </Button>
+                            )}
+                            {/^\d+\.\d+\.\d+\.\d+$/.test(h.domain) && (
+                              <span className="text-[11px] text-muted-foreground">
+                                {tr("IP privat hanya HTTP; Certbot tidak menerbitkan sertifikat untuk IP ini.")}
+                              </span>
+                            )}
+                            {h.domain.endsWith(".local") && (
+                              <span className="text-[11px] text-muted-foreground">
+                                {tr("Domain .local memerlukan sertifikat privat; Let's Encrypt tidak menerbitkannya.")}
+                              </span>
+                            )}
+                            {h.managed && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  setForm(h)
+                                  setTab("proxy")
+                                }}
+                              >
+                                {tr("Edit")}
+                              </Button>
+                            )}
+                            {h.tls_mode === "certbot" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-crit hover:bg-crit/10"
+                                onClick={() => matikanTLS(h)}
+                              >
+                                {tr("Matikan TLS")}
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
 
             <div className="space-y-3 rounded-lg border border-border bg-surface-2/40 p-4">

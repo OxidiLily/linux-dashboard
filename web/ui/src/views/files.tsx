@@ -1423,21 +1423,21 @@ export function FileManagerView() {
                 </span>
               )}
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-lg border border-border">
               <table className="tabel-kartu w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-border text-muted-foreground">
-                    <th className="pb-2 font-medium">{tr("Nama")}</th>
-                    <th className="pb-2 font-medium">{tr("Lokasi")}</th>
-                    <th className="pb-2 font-medium">{tr("Ukuran")}</th>
-                    <th className="pb-2 font-medium">{tr("Modifikasi")}</th>
+                  <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                    <th className="p-2.5 font-medium">{tr("Nama")}</th>
+                    <th className="p-2.5 font-medium">{tr("Lokasi")}</th>
+                    <th className="p-2.5 font-medium">{tr("Ukuran")}</th>
+                    <th className="p-2.5 font-medium">{tr("Modifikasi")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {hasilCari.map((h) => (
                     <tr
                       key={h.path}
-                      className="cursor-pointer hover:bg-secondary/40"
+                      className="cursor-pointer hover:bg-secondary/40 transition-colors"
                       onClick={() => {
                         if (h.is_dir) {
                           void loadDir(h.path)
@@ -1460,7 +1460,7 @@ export function FileManagerView() {
                       }}
                       title={h.path}
                     >
-                      <td data-label="" className="py-2">
+                      <td data-label="" className="p-2.5">
                         <div className="flex items-center gap-2 font-medium">
                           {h.is_dir ? (
                             <Folder className="size-4 text-amber-500 fill-amber-500/20" />
@@ -1474,10 +1474,10 @@ export function FileManagerView() {
                           dalam hasil rekursif adalah "berkas ini ada di mana
                           relatif terhadap folder yang saya cari" — path penuh
                           yang panjang justru menyembunyikan bagian itu. */}
-                      <td data-label={tr("Lokasi")} className="num break-all py-2 text-muted-foreground">
+                      <td data-label={tr("Lokasi")} className="num break-all p-2.5 text-muted-foreground">
                         {h.rel.includes("/") ? h.rel.slice(0, h.rel.lastIndexOf("/")) : tr("di sini")}
                       </td>
-                      <td data-label={tr("Ukuran")} className="num py-2 text-muted-foreground">
+                      <td data-label={tr("Ukuran")} className="num p-2.5 text-muted-foreground">
                         {/* Folder tidak punya "ukuran isi" di sini: menghitungnya
                             berarti menelusuri pohonnya lagi. Tanda pisah sama
                             dengan yang dipakai daftar folder untuk keadaan
@@ -1485,14 +1485,14 @@ export function FileManagerView() {
                             menyamar sebagai nilai ukuran. */}
                         {h.is_dir ? "—" : formatBytes(h.size)}
                       </td>
-                      <td data-label={tr("Modifikasi")} className="py-2 text-muted-foreground">
+                      <td data-label={tr("Modifikasi")} className="p-2.5 text-muted-foreground">
                         {formatWaktu(h.mod_time * 1000)}
                       </td>
                     </tr>
                   ))}
                   {!cariProses && hasilCari.length === 0 && (
                     <tr>
-                      <td data-label="" colSpan={4} className="py-6 text-center text-muted-foreground">
+                      <td data-label="" colSpan={4} className="p-6 text-center text-muted-foreground">
                         {/* Di mode ini kueri selalu terisi — mode hasil hanya
                             menyala untuk kueri yang benar-benar dikirim — jadi
                             satu kalimat sudah cukup. */}
@@ -1505,11 +1505,11 @@ export function FileManagerView() {
             </div>
           </div>
         ) : viewMode === "list" ? (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="tabel-kartu w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="w-8 pb-2">
+                <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                  <th className="w-8 p-2.5">
                     <input
                       type="checkbox"
                       aria-label={tr("Pilih semua")}
@@ -1518,24 +1518,24 @@ export function FileManagerView() {
                       onChange={toggleSemua}
                     />
                   </th>
-                  <th className="pb-2 font-medium">{tr("Nama")}</th>
-                  <th className="pb-2 font-medium">{tr("Ukuran")}</th>
-                  <th className="pb-2 font-medium">{tr("Izin")}</th>
-                  <th className="pb-2 font-medium">{tr("Owner/Group")}</th>
-                  <th className="pb-2 font-medium">{tr("Modifikasi")}</th>
+                  <th className="p-2.5 font-medium">{tr("Nama")}</th>
+                  <th className="p-2.5 font-medium">{tr("Ukuran")}</th>
+                  <th className="p-2.5 font-medium">{tr("Izin")}</th>
+                  <th className="p-2.5 font-medium">{tr("Owner/Group")}</th>
+                  <th className="p-2.5 font-medium">{tr("Modifikasi")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {terlihat.map((e) => (
                   <tr
                     key={e.name}
-                    className="hover:bg-secondary/40"
+                    className="hover:bg-secondary/40 transition-colors"
                     onContextMenu={(ev) => {
                       ev.preventDefault()
                       setContextMenu({ x: ev.clientX, y: ev.clientY, entry: e })
                     }}
                   >
-                    <td data-label="" className="py-2">
+                    <td data-label="" className="p-2.5">
                       <input
                         type="checkbox"
                         aria-label={e.name}
@@ -1543,7 +1543,7 @@ export function FileManagerView() {
                         onChange={() => togglePilih(e.path)}
                       />
                     </td>
-                    <td data-label="" className="py-2">
+                    <td data-label="" className="p-2.5">
                       <div
                         className="flex w-full cursor-pointer items-center gap-2 font-medium"
                         onClick={() => openEntry(e)}
@@ -1573,19 +1573,19 @@ export function FileManagerView() {
                         </button>
                       </div>
                     </td>
-                    <td data-label={tr("Ukuran")} className="num py-2 text-muted-foreground">{kolomUkuran(e)}</td>
-                    <td data-label={tr("Izin")} className="num py-2 text-muted-foreground">{e.mode}</td>
-                    <td data-label={tr("Owner/Group")} className="num py-2 text-muted-foreground">
+                    <td data-label={tr("Ukuran")} className="num p-2.5 text-muted-foreground">{kolomUkuran(e)}</td>
+                    <td data-label={tr("Izin")} className="num p-2.5 text-muted-foreground">{e.mode}</td>
+                    <td data-label={tr("Owner/Group")} className="num p-2.5 text-muted-foreground">
                       {e.owner}:{e.group}
                     </td>
-                    <td data-label={tr("Modifikasi")} className="py-2 text-muted-foreground">
+                    <td data-label={tr("Modifikasi")} className="p-2.5 text-muted-foreground">
                       {formatWaktu(e.mod_time * 1000)}
                     </td>
                   </tr>
                 ))}
                 {terlihat.length === 0 && (
                   <tr>
-                    <td data-label="" colSpan={6} className="py-6 text-center text-muted-foreground">
+                    <td data-label="" colSpan={6} className="p-6 text-center text-muted-foreground">
                       {/* Dua keadaan kosong yang berbeda tidak boleh berbunyi
                           sama: "folder ini memang kosong" dan "tidak ada yang
                           cocok dengan pencarian" butuh tindakan yang

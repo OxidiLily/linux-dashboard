@@ -113,25 +113,25 @@ export function ActivityLogsView() {
         </div>
       }
     >
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="tabel-kartu w-full text-left text-xs">
           <thead>
-            <tr className="border-b border-border text-muted-foreground">
-              <th className="pb-2 font-medium">{tr("Waktu")}</th>
-              <th className="pb-2 font-medium">{tr("User")}</th>
-              <th className="pb-2 font-medium">{tr("Event")}</th>
-              <th className="pb-2 font-medium">{tr("IP Address")}</th>
-              <th className="pb-2 font-medium">{tr("Detail")}</th>
+            <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+              <th className="p-2.5 font-medium">{tr("Waktu")}</th>
+              <th className="p-2.5 font-medium">{tr("User")}</th>
+              <th className="p-2.5 font-medium">{tr("Event")}</th>
+              <th className="p-2.5 font-medium">{tr("IP Address")}</th>
+              <th className="p-2.5 font-medium">{tr("Detail")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {logs.map((l) => (
-              <tr key={l.id} className="hover:bg-secondary/40">
-                <td data-label={tr("Waktu")} className="num py-2 text-muted-foreground whitespace-nowrap">
+              <tr key={l.id} className="hover:bg-secondary/40 transition-colors">
+                <td data-label={tr("Waktu")} className="num p-2.5 text-muted-foreground whitespace-nowrap">
                   {formatWaktu(l.created_at)}
                 </td>
-                <td data-label={tr("User")} className="py-2 font-medium">{l.username}</td>
-                <td data-label={tr("Event")} className="py-2">
+                <td data-label={tr("User")} className="p-2.5 font-medium">{l.username}</td>
+                <td data-label={tr("Event")} className="p-2.5">
                   {/* self-start: Badge adalah inline-flex, tapi di dalam
                       flex-col parent ia akan stretch ke lebar cell. Tanpa
                       ini "Login Berhasil" jadi sepanjang kolom Event. */}
@@ -144,15 +144,15 @@ export function ActivityLogsView() {
                     )}
                   </div>
                 </td>
-                <td data-label={tr("IP Address")} className="num py-2 text-muted-foreground">{l.ip_address || "—"}</td>
-                <td data-label={tr("Detail")} className="py-2 text-muted-foreground max-w-md break-words">
+                <td data-label={tr("IP Address")} className="num p-2.5 text-muted-foreground">{l.ip_address || "—"}</td>
+                <td data-label={tr("Detail")} className="p-2.5 text-muted-foreground max-w-md break-words">
                   {formatDetail(l.detail)}
                 </td>
               </tr>
             ))}
             {logs.length === 0 && !loading && (
               <tr>
-                <td data-label="" colSpan={5} className="py-6 text-center text-muted-foreground">
+                <td data-label="" colSpan={5} className="p-6 text-center text-muted-foreground">
                   {tr("Belum ada log aktivitas.")}
                 </td>
               </tr>
