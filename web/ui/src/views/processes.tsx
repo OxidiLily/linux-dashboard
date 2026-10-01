@@ -103,39 +103,39 @@ export function ProcessesView() {
           {err}
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="tabel-kartu w-full text-left text-xs">
           <thead>
-            <tr className="border-b border-border text-muted-foreground">
-              <th className="pb-2 font-medium">PID</th>
-              <th className="pb-2 font-medium">User</th>
-              <th className="pb-2 font-medium text-right">CPU%</th>
-              <th className="pb-2 font-medium text-right">MEM%</th>
-              <th className="pb-2 font-medium text-right">RSS</th>
-              <th className="pb-2 pl-4 font-medium">Command</th>
-              <th className="pb-2 text-right font-medium">{tr("Aksi")}</th>
+            <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+              <th className="p-2.5 font-medium">PID</th>
+              <th className="p-2.5 font-medium">User</th>
+              <th className="p-2.5 font-medium text-right">CPU%</th>
+              <th className="p-2.5 font-medium text-right">MEM%</th>
+              <th className="p-2.5 font-medium text-right">RSS</th>
+              <th className="p-2.5 pl-4 font-medium">Command</th>
+              <th className="p-2.5 text-right font-medium">{tr("Aksi")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {filtered.slice(0, 100).map((p) => (
-              <tr key={p.pid} className="hover:bg-secondary/40">
-                <td data-label="PID" className="num py-2">{p.pid}</td>
-                <td data-label="User" className="py-2">
+              <tr key={p.pid} className="hover:bg-secondary/40 transition-colors">
+                <td data-label="PID" className="num p-2.5">{p.pid}</td>
+                <td data-label="User" className="p-2.5">
                   <span className={p.own ? "text-signal font-medium" : "text-muted-foreground"}>
                     {p.user}
                   </span>
                 </td>
-                <td data-label="CPU%" className="num py-2 text-right font-semibold">
+                <td data-label="CPU%" className="num p-2.5 text-right font-semibold">
                   <span className={p.cpu_pct > 50 ? "text-crit" : p.cpu_pct > 20 ? "text-amber-500" : ""}>
                     {p.cpu_pct.toFixed(1)}%
                   </span>
                 </td>
-                <td data-label="MEM%" className="num py-2 text-right">{p.mem_pct.toFixed(1)}%</td>
-                <td data-label="RSS" className="num py-2 text-right text-muted-foreground">{formatBytes(p.mem_rss)}</td>
-                <td data-label="Command" className="max-w-xs truncate py-2 pl-4 num text-muted-foreground sm:max-w-md" title={p.command}>
+                <td data-label="MEM%" className="num p-2.5 text-right">{p.mem_pct.toFixed(1)}%</td>
+                <td data-label="RSS" className="num p-2.5 text-right text-muted-foreground">{formatBytes(p.mem_rss)}</td>
+                <td data-label="Command" className="max-w-xs truncate p-2.5 pl-4 num text-muted-foreground sm:max-w-md" title={p.command}>
                   {p.command || p.name}
                 </td>
-                <td data-label="" className="py-2 text-right">
+                <td data-label="" className="p-2.5 text-right">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -148,6 +148,13 @@ export function ProcessesView() {
                 </td>
               </tr>
             ))}
+            {filtered.length === 0 && !loading && (
+              <tr>
+                <td data-label="" colSpan={7} className="p-6 text-center text-muted-foreground">
+                  {tr("Tidak ada proses yang cocok.")}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

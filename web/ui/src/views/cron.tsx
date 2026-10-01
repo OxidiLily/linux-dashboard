@@ -413,32 +413,32 @@ export function CronView() {
           </div>
         }
       >
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-lg border border-border">
           <table className="tabel-kartu w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="w-10 pb-2 font-medium">#</th>
-                <th className="pb-2 font-medium">{tr("Jadwal")}</th>
-                <th className="pb-2 font-medium">{tr("Perintah")}</th>
+              <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                <th className="w-10 p-2.5 font-medium">#</th>
+                <th className="p-2.5 font-medium">{tr("Jadwal")}</th>
+                <th className="p-2.5 font-medium">{tr("Perintah")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {terlihat.map((b) => (
-                <tr key={b.line} className="align-top hover:bg-secondary/40">
-                  <td data-label="#" className="num py-2 text-muted-foreground">
+                <tr key={b.line} className="align-top hover:bg-secondary/40 transition-colors">
+                  <td data-label="#" className="num p-2.5 text-muted-foreground">
                     {b.line}
                   </td>
                   {b.kind === "schedule" ? (
                     <>
-                      <td data-label={tr("Jadwal")} className="num whitespace-nowrap py-2 font-medium">
+                      <td data-label={tr("Jadwal")} className="num whitespace-nowrap p-2.5 font-medium">
                         {b.spec}
                       </td>
-                      <td data-label={tr("Perintah")} className="num break-all py-2 text-muted-foreground">
+                      <td data-label={tr("Perintah")} className="num break-all p-2.5 text-muted-foreground">
                         {b.command}
                       </td>
                     </>
                   ) : (
-                    <td data-label="" colSpan={2} className="py-2 text-muted-foreground">
+                    <td data-label="" colSpan={2} className="p-2.5 text-muted-foreground">
                       {b.kind === "comment" && <span># {b.text}</span>}
                       {b.kind === "variable" && (
                         <span className="num">
@@ -453,7 +453,7 @@ export function CronView() {
               ))}
               {terlihat.length === 0 && (
                 <tr>
-                  <td data-label="" colSpan={3} className="py-6 text-center text-muted-foreground">
+                  <td data-label="" colSpan={3} className="p-6 text-center text-muted-foreground">
                     {cari.trim() !== ""
                       ? tr("Tidak ada jadwal yang cocok dengan pencarian.")
                       : tr("Belum ada jadwal. Tulis satu di bawah, lalu Simpan.")}

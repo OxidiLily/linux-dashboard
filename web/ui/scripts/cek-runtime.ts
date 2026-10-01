@@ -22,6 +22,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { DialogIsian, isiValid } from "@/components/ui/prompt"
 import { UninstallModal, konfirmasiDataSah } from "@/components/ui/uninstall-modal"
+import { Select } from "@/components/ui/select"
 import { pesanError } from "@/lib/pesan-error"
 import "@/lib/terjemahan-en"
 import { tr, trf } from "@/stores/i18n"
@@ -37,6 +38,10 @@ const cek = (dapat: string, harap: string, nama: string) => {
   jumlah++
   if (dapat !== harap) gagal.push(`${nama}: dapat ${JSON.stringify(dapat)}, harap ${JSON.stringify(harap)}`)
 }
+
+// Select UI component: render trigger markup dengan benar di SSR
+const selectHtml = renderToStaticMarkup(createElement(Select, { value: "opt1", options: [{ value: "opt1", label: "Option 1" }] }))
+cek(String(selectHtml.includes("Option 1")), "true", "select/render-static")
 
 // Crontab tidak boleh mengubah whitespace di dalam argumen shell.
 const quotedCron = bacaCrontab('* * * * * printf "a  b"\n')
@@ -65,6 +70,9 @@ for (const type of recordTypes) {
 }
 const legacy = recordPayload({ id: "existing", type: "SRV", name: "example.com", ttl: 1, content: "1 2 443 target.example.com", priority: 5 }, {})
 cek(String("content" in legacy && !("data" in legacy) && !("priority" in legacy)), "true", "dns/srv-legacy")
+const tagged = recordPayload({ type: "A", name: "example.com", ttl: 1, content: "1.2.3.4", comment: "test comment", tags: ["web", "prod"] }, {})
+cek(String(tagged.comment), "test comment", "dns/comment")
+cek(JSON.stringify(tagged.tags), JSON.stringify(["web", "prod"]), "dns/tags")
 const unknown = recordPayload({ id: "existing", type: "NEWTYPE", name: "example.com", ttl: 1, data: { field: "kept" } }, {})
 cek(JSON.stringify(unknown.data), JSON.stringify({ field: "kept" }), "dns/unknown-existing")
 for (const [type, fields] of [["CAA", {}], ["MX", {}], ["SRV", { port: "not-a-number", priority: "1", weight: "1", target: "example.com" }]] as const) {
@@ -87,6 +95,18 @@ cek(trf("Hapus {0} {1}?", "folder", "foto"), "Hapus folder foto?", "id/trf")
 usePrefs.setState({ bahasa: "en" })
 cek(tr("Simpan Perubahan"), "Save Changes", "en/tr")
 cek(tr("Belum ada bookmark folder."), "No folder bookmarks yet.", "en/tr-baru")
+cek(tr("Zone Cloudflare"), "Cloudflare Zone", "en/cf-zone")
+cek(tr("Name"), "Name", "en/cf-name")
+cek(tr("Type"), "Type", "en/cf-type")
+cek(tr("Content"), "Content", "en/cf-content")
+cek(tr("Proxy Status"), "Proxy Status", "en/cf-proxy-status")
+cek(tr("TTL"), "TTL", "en/cf-ttl")
+cek(tr("Tags"), "Tags", "en/cf-tags")
+cek(tr("Comments"), "Comments", "en/cf-comments")
+cek(tr("Details"), "Details", "en/cf-details")
+cek(tr("Target Upstream"), "Upstream Target", "en/proxy-upstream")
+cek(tr("Status TLS"), "TLS Status", "en/proxy-status-tls")
+cek(tr("Sertifikat / Masa Berlaku"), "Certificate / Expiry", "en/proxy-cert-expiry")
 cek(trf("Hapus {0} {1}?", tr("folder"), "foto"), "Delete folder foto?", "en/trf")
 cek(trf("{0} total proses", 12), "12 processes total", "en/trf-angka")
 cek(tr("Warning (Amber %)"), "Warning (Amber %)", "en/tr-sama")

@@ -231,67 +231,69 @@ export function FirewallView() {
                 {tr("Rule di bawah sudah tersimpan tapi belum berlaku — ufw masih nonaktif.")}
               </p>
             )}
-            <table className="tabel-kartu w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="pb-2 font-medium">#</th>
-                  <th className="pb-2 font-medium">{tr("Aksi")}</th>
-                  <th className="pb-2 font-medium">{tr("Port / Protokol")}</th>
-                  <th className="pb-2 font-medium">{tr("Dari")}</th>
-                  <th className="pb-2 text-right font-medium">{tr("Aksi")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {rules.map((r, i) => (
-                  <tr key={r.num || i} className="hover:bg-secondary/40">
-                    <td data-label="#" className="num py-2 text-muted-foreground">{r.num || i + 1}</td>
-                    <td data-label={tr("Aksi")} className="py-2">
-                      <Badge tone={r.action?.toLowerCase().includes("allow") ? "ok" : "crit"}>
-                        {(r.action || "").toUpperCase()}
-                      </Badge>
-                    </td>
-                    <td data-label={tr("Port / Protokol")} className="num py-2 font-semibold">
-                      {r.port}{r.proto && r.proto !== "any" ? `/${r.proto}` : ""}
-                      {r.comment && (
-                        <span className="ml-2 text-xs font-normal text-muted-foreground"># {r.comment}</span>
-                      )}
-                    </td>
-                    <td data-label={tr("Dari")} className="num py-2 text-muted-foreground">{r.from || tr("Anywhere")}</td>
-                    <td data-label="" className="py-2 text-right">
-                      {user?.sudo && (r.num || r.raw) && (
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
-                            aria-label={trf("Edit rule {0}", r.port)}
-                            onClick={() => openEdit(r)}
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-1.5 text-muted-foreground hover:text-crit"
-                            aria-label={trf("Hapus rule {0}", r.port)}
-                            onClick={() => handleDelete(r)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      )}
-                    </td>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="tabel-kartu w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/30 text-muted-foreground">
+                    <th className="p-2.5 font-medium">#</th>
+                    <th className="p-2.5 font-medium">{tr("Aksi")}</th>
+                    <th className="p-2.5 font-medium">{tr("Port / Protokol")}</th>
+                    <th className="p-2.5 font-medium">{tr("Dari")}</th>
+                    <th className="p-2.5 text-right font-medium">{tr("Aksi")}</th>
                   </tr>
-                ))}
-                {rules.length === 0 && !loading && (
-                  <tr>
-                    <td data-label="" colSpan={5} className="py-6 text-center text-muted-foreground">
-                      {enabled ? tr("Tidak ada rule aktif.") : tr("Belum ada rule tersimpan. ufw juga nonaktif — nyalakan untuk memfilter traffic.")}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {rules.map((r, i) => (
+                    <tr key={r.num || i} className="hover:bg-secondary/40 transition-colors">
+                      <td data-label="#" className="num p-2.5 text-muted-foreground">{r.num || i + 1}</td>
+                      <td data-label={tr("Aksi")} className="p-2.5">
+                        <Badge tone={r.action?.toLowerCase().includes("allow") ? "ok" : "crit"}>
+                          {(r.action || "").toUpperCase()}
+                        </Badge>
+                      </td>
+                      <td data-label={tr("Port / Protokol")} className="num p-2.5 font-semibold">
+                        {r.port}{r.proto && r.proto !== "any" ? `/${r.proto}` : ""}
+                        {r.comment && (
+                          <span className="ml-2 text-xs font-normal text-muted-foreground"># {r.comment}</span>
+                        )}
+                      </td>
+                      <td data-label={tr("Dari")} className="num p-2.5 text-muted-foreground">{r.from || tr("Anywhere")}</td>
+                      <td data-label="" className="p-2.5 text-right">
+                        {user?.sudo && (r.num || r.raw) && (
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
+                              aria-label={trf("Edit rule {0}", r.port)}
+                              onClick={() => openEdit(r)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-muted-foreground hover:text-crit"
+                              aria-label={trf("Hapus rule {0}", r.port)}
+                              onClick={() => handleDelete(r)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {rules.length === 0 && !loading && (
+                    <tr>
+                      <td data-label="" colSpan={5} className="p-6 text-center text-muted-foreground">
+                        {enabled ? tr("Tidak ada rule aktif.") : tr("Belum ada rule tersimpan. ufw juga nonaktif — nyalakan untuk memfilter traffic.")}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </Panel>
