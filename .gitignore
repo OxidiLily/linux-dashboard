@@ -100,4 +100,13 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/helper/samba_lifecycle_test.go
 !internal/helper/files_chown_symlink_test.go
 !internal/api/files_zip_error_test.go
+# Stream log container (`docker logs -f` lewat WebSocket): validasi argumen
+# helper, pemutusan proses docker saat klien pergi, serta penjagaan sesi/sudo
+# di endpoint WS-nya.
+!internal/helper/docker_logs_test.go
+!internal/api/ws_docker_logs_test.go
+# Terminal container (docker exec lewat PTY): argumen/divalidasi helper,
+# penutupan sesi saat proses di container keluar, dan penjagaan sesi/sudo.
+!internal/helper/docker_term_test.go
+!internal/api/ws_docker_term_test.go
 web/dist.bak/

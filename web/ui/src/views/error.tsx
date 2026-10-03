@@ -1,6 +1,6 @@
 import { isRouteErrorResponse, Link, useRouteError } from "react-router-dom"
 import { useTr } from "@/stores/i18n"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, Loader2, WifiOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -81,6 +81,49 @@ export function RouteErrorView() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-bg p-6">
       <Badan status={status} pesanError={pesanError} umum={!dariServer} />
+    </div>
+  )
+}
+
+/**
+ * Halaman disconnect: overlay penuh di atas shell selama stream realtime
+ * (/ws/metrics) putus. Dua keadaan, satu tampilan:
+ *   - masih menyambung → spinner, tanpa aksi (backoff berjalan otomatis);
+ *   - menyerah (gagalSambung) → ikon putus + tombol muat ulang.
+ * Konten shell di belakangnya sudah diblur + aria-hidden oleh app-shell.
+ */
+export function OverlayTerputus({ gagalSambung }: { gagalSambung: boolean }) {
+  const tr = useTr()
+  const judul = gagalSambung ? tr("Koneksi terputus") : tr("Menyambungkan…")
+  return (
+    <div
+      role="alertdialog"
+      aria-live="polite"
+      aria-label={judul}
+      className="absolute inset-x-0 bottom-0 top-11 z-20 flex items-center justify-center bg-bg/60 p-6"
+    >
+      <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 text-center shadow-xl">
+        <span className="mx-auto flex size-12 items-center justify-center rounded-lg bg-surface-2">
+          {gagalSambung ? (
+            <WifiOff className="size-6 text-crit" />
+          ) : (
+            <Loader2 className="size-6 animate-spin text-muted" />
+          )}
+        </span>
+        <h1 className="mt-4 text-base font-semibold">{judul}</h1>
+        <p className="mt-1.5 text-sm text-muted">
+          {gagalSambung
+            ? tr("Server tidak merespons — data di layar ini mungkin sudah basi. Muat ulang halaman setelah layanan pulih.")
+            : tr("Mencoba menyambungkan kembali ke server…")}
+        </p>
+        {gagalSambung && (
+          <div className="mt-4 flex justify-center">
+            <Button size="sm" onClick={() => window.location.reload()}>
+              {tr("Hubungkan kembali")}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

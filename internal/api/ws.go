@@ -8,11 +8,13 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 
+	"linux-dashboard/OxidiLily/internal/helperclient"
 	"linux-dashboard/OxidiLily/internal/helperproto"
 	"linux-dashboard/OxidiLily/internal/store"
 	"linux-dashboard/OxidiLily/internal/terminal"
@@ -70,7 +72,67 @@ func writeWSError(w http.ResponseWriter, r *http.Request, code int, msg string) 
 	if err != nil {
 		return
 	}
-	defer conn.Close(websocket.StatusCode(code), msg)
+	defer conn.Close(websocket.StatusCode(code), alasanTutup(msg))
+}
+
+// alasanTutup menyiapkan pesan close frame: RFC 6455 membatasi reason
+// 123 byte, dan library menolak frame yang melanggarnya — klien lalu hanya
+// melihat 1006 tanpa sebab, padahal pesannya berisi penolakan yang jelas
+// (id dari query ikut terbawa di beberapa pesan, jadi panjangnya bisa
+// melewati batas). Karakter kendali dibuang supaya pesan tetap satu baris
+// dan tidak bisa menyisipkan teks palsu di klien.
+func alasanTutup(s string) string {
+	bersih := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	const batas = 120 // byte, aman di bawah 123 dan masih valid UTF-8
+	if len(bersih) <= batas {
+		return bersih
+	}
+	var potong []rune
+	panjang := 0
+	for _, r := range bersih {
+		if panjang+len(string(r)) > batas {
+			break
+		}
+		potong = append(potong, r)
+		panjang += len(string(r))
+	}
+	return string(potong)
+}
+
+// ---- kuota stream log container ----
+//
+// Berbeda dari registry terminal (yang menghitung PTY), stream log tidak
+// memakai slot itu — tapi tetap harus dibatasi: tiap stream memegang satu
+// proses `docker logs -f` milik root selama modal terbuka, dan tanpa batas
+// satu sesi sudo bisa membuka ribuan hanya dengan satu skrip.
+const kuotaLogMaks = 4
+
+var (
+	muKuotaLog    sync.Mutex
+	kuotaLogAktif int
+)
+
+func ambilSlotLog() bool {
+	muKuotaLog.Lock()
+	defer muKuotaLog.Unlock()
+	if kuotaLogAktif >= kuotaLogMaks {
+		return false
+	}
+	kuotaLogAktif++
+	return true
+}
+
+func lepasSlotLog() {
+	muKuotaLog.Lock()
+	if kuotaLogAktif > 0 {
+		kuotaLogAktif--
+	}
+	muKuotaLog.Unlock()
 }
 
 func (s *Server) handleWSMetrics(w http.ResponseWriter, r *http.Request) {
@@ -161,13 +223,27 @@ type terminalClientMsg struct {
 	Rows uint16 `json:"rows,omitempty"`
 }
 
-func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.sessionFromRequest(r)
-	if !ok {
-		// 4401 = sesi invalid (bukan HTTP — websocket.Status code custom).
-		writeWSError(w, r, 4401, "Sesi tidak valid")
-		return
-	}
+// opsiSesiPTY: bagaimana satu sesi PTY di belakang WebSocket dibuka. Dua
+// pemakai — terminal host dan terminal container — berbeda di cara stream
+// helper dibuka dan di mana sesinya dicatat, bukan di cara sesi PTY-nya
+// dijalankan; itulah yang disatukan di wsSesiPTY.
+type opsiSesiPTY struct {
+	// dial membuka stream helper. Dipanggil SETELAH kuota didapat dan
+	// SEBELUM handshake WebSocket, supaya kegagalan helper terbaca klien
+	// sebagai close code, bukan upgrade sukses yang langsung mati.
+	dial func(cols, rows uint16) (*helperclient.Stream, error)
+	// aktivitas/pesan/detail untuk activity log, dicatat sesudah handshake.
+	aktivitas string
+	pesan     string
+	detail    map[string]any
+	// adaKanalStop: sesi yang bisa dihapus dari panel (tombol "Hapus sesi"
+	// di halaman Terminal) ditutup dengan kode 4409 saat kanal stop ditutup.
+	adaKanalStop bool
+}
+
+// wsSesiPTY menjalankan satu sesi PTY di balik WebSocket: kuota, handshake,
+// pemantauan sesi login, dan jembatan dua arah. Blokir sampai sesi selesai.
+func (s *Server) wsSesiPTY(w http.ResponseWriter, r *http.Request, sess store.Session, o opsiSesiPTY) {
 	// Kuota dicek SEBELUM PTY di-spawn, dan ditolak dengan pesan jelas —
 	// bukan gagal diam-diam atau membiarkan mesin kelebihan beban.
 	slot, stop, err := s.terminals.Acquire()
@@ -184,26 +260,8 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 
 	cols := queryDim(r, "cols", 80, 20, 1000)
 	rows := queryDim(r, "rows", 24, 5, 500)
-	cmdParam := r.URL.Query().Get("cmd")
 
-	// Allowlist command yang boleh dieksekusi langsung untuk keamanan
-	allowedCmds := map[string]string{
-		"hermes":      "hermes",
-		"claude-code": "claude",
-		"claude":      "claude",
-		"codex":       "codex",
-		"opencode":    "opencode",
-		"openclaw":    "openclaw",
-	}
-	var execCmd string
-	if cmdParam != "" {
-		if c, ok := allowedCmds[cmdParam]; ok {
-			execCmd = c
-		}
-	}
-
-	stream, err := s.helper.Stream(helperproto.CmdTerminalStart, sess.HelperToken,
-		helperproto.TerminalArgs{Cols: cols, Rows: rows, Command: execCmd})
+	stream, err := o.dial(cols, rows)
 	if err != nil {
 		// Lepaskan slot sebelum tulis close code agar tidak bocor.
 		release()
@@ -217,7 +275,7 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
-	s.store.LogActivity(sess.Username, "terminal_open", "buka sesi terminal", nil, clientIP(r))
+	s.store.LogActivity(sess.Username, o.aktivitas, o.pesan, o.detail, clientIP(r))
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -230,24 +288,39 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 	})
 	defer stopSesi()
 
-	// Sesi dihapus dari panel ("Hapus sesi") → kanal stop ditutup. Koneksi
-	// ditutup dengan kode sendiri supaya browser bisa membedakannya dari
-	// putus koneksi biasa. Release sendiri juga menutup kanal ini, jadi
-	// goroutine-nya selalu selesai saat handler selesai.
+	// Koneksi helper harus ikut ditutup begitu konteks batal — kalau tidak,
+	// pembacaan di alirkanDuplex tetap terblokir dan handler tidak selesai.
 	go func() {
-		<-stop
-		_ = conn.Close(4409, "Sesi terminal dihapus")
-		cancel()
+		<-ctx.Done()
+		_ = stream.Close()
 	}()
 
+	// Sesi dihapus dari panel ("Hapus sesi") → kanal stop ditutup. Kode
+	// sendiri supaya browser bisa membedakannya dari putus koneksi biasa.
+	// Release sendiri juga menutup kanal ini, jadi goroutine-nya selalu
+	// selesai saat handler selesai.
+	if o.adaKanalStop {
+		go func() {
+			<-stop
+			_ = conn.Close(4409, "Sesi terminal dihapus")
+			cancel()
+		}()
+	}
+
+	alirkanDuplex(ctx, conn, stream)
+}
+
+// alirkanDuplex menjembatani stream helper (PTY) dengan WebSocket: keluaran
+// helper menjadi pesan biner, frame klien (TermFrameData/TermFrameResize)
+// diteruskan ke helper. Blokir sampai salah satu sisi mati.
+func alirkanDuplex(ctx context.Context, conn *websocket.Conn, stream io.ReadWriteCloser) {
 	// PTY → browser.
 	go func() {
-		defer cancel()
 		buf := make([]byte, 8192)
 		for {
 			n, err := stream.Read(buf)
 			if n > 0 {
-				if err := conn.Write(ctx, websocket.MessageBinary, buf[:n]); err != nil {
+				if wErr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); wErr != nil {
 					return
 				}
 			}
@@ -287,6 +360,76 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.sessionFromRequest(r)
+	if !ok {
+		// 4401 = sesi invalid (bukan HTTP — websocket.Status code custom).
+		writeWSError(w, r, 4401, "Sesi tidak valid")
+		return
+	}
+
+	cmdParam := r.URL.Query().Get("cmd")
+
+	// Allowlist command yang boleh dieksekusi langsung untuk keamanan
+	allowedCmds := map[string]string{
+		"hermes":      "hermes",
+		"claude-code": "claude",
+		"claude":      "claude",
+		"codex":       "codex",
+		"opencode":    "opencode",
+		"openclaw":    "openclaw",
+	}
+	var execCmd string
+	if cmdParam != "" {
+		if c, ok := allowedCmds[cmdParam]; ok {
+			execCmd = c
+		}
+	}
+
+	s.wsSesiPTY(w, r, sess, opsiSesiPTY{
+		dial: func(cols, rows uint16) (*helperclient.Stream, error) {
+			return s.helper.Stream(helperproto.CmdTerminalStart, sess.HelperToken,
+				helperproto.TerminalArgs{Cols: cols, Rows: rows, Command: execCmd})
+		},
+		aktivitas:    "terminal_open",
+		pesan:        "buka sesi terminal",
+		adaKanalStop: true,
+	})
+}
+
+// handleWSDockerTerminal membuka sesi shell DI DALAM container
+// (`docker exec -i -t <id> <shell>`) lewat WebSocket — backend untuk tombol
+// Terminal di halaman Docker. Sudo dicek di sini karena browser tidak bisa
+// memasang header Authorization pada WebSocket; cookie sessionlah yang
+// terkirim, dan helper menegakkan sudo-nya sekali lagi per permintaan.
+func (s *Server) handleWSDockerTerminal(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.sessionFromRequest(r)
+	if !ok {
+		writeWSError(w, r, 4401, "Sesi tidak valid")
+		return
+	}
+	s.segarkanSudo(&sess)
+	if !sess.Sudo {
+		writeWSError(w, r, 4403, "Aksi ini butuh akses sudo")
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeWSError(w, r, 4400, "id container kosong")
+		return
+	}
+
+	s.wsSesiPTY(w, r, sess, opsiSesiPTY{
+		dial: func(cols, rows uint16) (*helperclient.Stream, error) {
+			return s.helper.Stream(helperproto.CmdDockerTerm, sess.HelperToken,
+				helperproto.DockerTermArgs{ID: id, Cols: cols, Rows: rows})
+		},
+		aktivitas: "docker_term_open",
+		pesan:     "buka terminal container",
+		detail:    map[string]any{"container": id},
+	})
+}
+
 func writeTermFrame(w io.Writer, kind byte, payload []byte) error {
 	header := make([]byte, 5)
 	header[0] = kind
@@ -296,4 +439,110 @@ func writeTermFrame(w io.Writer, kind byte, payload []byte) error {
 	}
 	_, err := w.Write(payload)
 	return err
+}
+
+// handleWSDockerLogs menstream log container ke browser selama modal log
+// terbuka. Berbeda dari GET /api/docker/containers/{id}/logs yang hanya
+// mengambil satu potongan pada saat dipanggil, jalur ini mempertahankan
+// `docker logs -f` di helper sehingga baris baru sampai ke layar begitu
+// container menulisnya.
+//
+// Sesi dicek di sini, bukan lewat middleware grup /api: browser tidak bisa
+// memasang header Authorization pada WebSocket, jadi cookie session yang
+// dipakai — dan status sudo tetap diperiksa sebelum stream dibuka.
+func (s *Server) handleWSDockerLogs(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.sessionFromRequest(r)
+	if !ok {
+		writeWSError(w, r, 4401, "Sesi tidak valid")
+		return
+	}
+	s.segarkanSudo(&sess)
+	if !sess.Sudo {
+		writeWSError(w, r, 4403, "Aksi ini butuh akses sudo")
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeWSError(w, r, 4400, "id container kosong")
+		return
+	}
+	tail := queryInt(r, "tail", 200)
+	if tail < 1 {
+		tail = 1
+	}
+	if tail > maxTailLog {
+		tail = maxTailLog
+	}
+
+	// Kuota SEBELUM dial: tanpa batas, satu sesi sudo bisa membuka stream
+	// tanpa henti — tiap stream memegang satu proses `docker logs -f` milik
+	// root selama modal terbuka. Satu halaman Docker hanya punya satu modal
+	// log, jadi 4 berarti empat tab/sesi sekaligus.
+	if !ambilSlotLog() {
+		writeWSError(w, r, 4408, "Terlalu banyak stream log container terbuka — tutup salah satu dulu")
+		return
+	}
+	defer lepasSlotLog()
+
+	stream, err := s.helper.Stream(helperproto.CmdDockerLogs, sess.HelperToken,
+		helperproto.DockerLogsArgs{ID: id, Tail: tail})
+	if err != nil {
+		writeWSError(w, r, 4500, err.Error())
+		return
+	}
+	defer stream.Close()
+
+	conn, err := websocket.Accept(w, r, acceptOptions)
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+	s.store.LogActivity(sess.Username, "docker_logs_open", "buka log container (streaming)",
+		map[string]any{"container": id}, clientIP(r))
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	stopSesi := s.pantauSesi(ctx, sess, func() {
+		_ = conn.Close(4401, "Sesi berakhir")
+		cancel()
+	})
+	defer stopSesi()
+
+	// Koneksi helper harus ikut ditutup begitu konteks batal — kalau tidak,
+	// pembacaan di bawah tetap terblokir menunggu baris log berikutnya dan
+	// handler tidak pernah selesai.
+	go func() {
+		<-ctx.Done()
+		_ = stream.Close()
+	}()
+
+	// Browser tidak pernah mengirim apa pun di jalur ini; koneksi dibaca
+	// hanya untuk melihat kapan browser menutupnya.
+	go func() {
+		defer cancel()
+		for {
+			if _, _, err := conn.Read(ctx); err != nil {
+				return
+			}
+		}
+	}()
+
+	// helper → browser. Potongan byte diteruskan mentah sebagai PESAN
+	// BINER: log container adalah byte sembarangan, dan memotongnya di
+	// batas 8192 bisa membelah karakter UTF-8 multi-byte — frame teks yang
+	// tidak valid membuat browser menutup koneksi (1007) dan streaming
+	// mati diam-diam. Penerima menyambung byte mentah (lihat docker.tsx).
+	buf := make([]byte, 8192)
+	for {
+		n, err := stream.Read(buf)
+		if n > 0 {
+			if wErr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); wErr != nil {
+				return
+			}
+		}
+		if err != nil {
+			_ = conn.Close(websocket.StatusNormalClosure, "log selesai")
+			return
+		}
+	}
 }

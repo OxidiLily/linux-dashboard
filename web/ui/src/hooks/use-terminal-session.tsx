@@ -49,6 +49,17 @@ function readToken(name: string): string {
 interface OpsiSesi {
   /** Perintah yang dieksekusi di PTY. Kosong = shell login biasa. */
   cmd?: string
+  /**
+   * Jalur WebSocket kustom (mis. `/ws/docker/terminal?id=…`) menggantikan
+   * `/ws/terminal`. Pemanggil yang memakai ini juga WAJIB mengirim
+   * `kunciSesi` berbeda tiap kali jalurnya berubah — sesi yang sudah hidup
+   * tidak dibuat ulang hanya karena jalurnya berganti.
+   */
+  jalur?: string
+  /** Kunci sesi kustom; default `cmd || "shell"`. */
+  kunciSesi?: string
+  /** Kelompok sesi kustom (satu-per-kelompok); default turunan dari cmd. */
+  kelompokSesi?: string
   /** Sesi hanya dibuka kalau true — dipakai halaman AI Agent saat agent belum terpasang. */
   aktif?: boolean
   /** Teks yang ditulis ke terminal saat sesi ditutup normal. */
@@ -76,6 +87,8 @@ type SesiHidup = {
   /** Dipasang komponen yang sedang menampilkan sesi ini. */
   onErr?: (e: TermErr | null) => void
   onSesi?: () => void
+  /** Jalur WebSocket yang dipakai saat sesi ini dibuat — lihat OpsiSesi.jalur. */
+  jalur?: string
 }
 
 const sesiHidup = new Map<string, SesiHidup>()
@@ -135,7 +148,15 @@ function batasSatuPerKelompok(kelompok: string, kunciAktif: string) {
   }
 }
 
-export function useTerminalSession({ cmd, aktif = true, labelTutup, onSesi }: OpsiSesi) {
+export function useTerminalSession({
+  cmd,
+  jalur,
+  kunciSesi,
+  kelompokSesi,
+  aktif = true,
+  labelTutup,
+  onSesi,
+}: OpsiSesi) {
   const tr = useTr()
   const containerRef = useRef<HTMLDivElement>(null)
   const [err, setErr] = useState<TermErr | null>(null)
@@ -153,7 +174,8 @@ export function useTerminalSession({ cmd, aktif = true, labelTutup, onSesi }: Op
   const trRef = useRef(tr)
   trRef.current = tr
 
-  const kunci = cmd || "shell"
+  const kunci = kunciSesi ?? cmd ?? "shell"
+  const kelompok = kelompokSesi ?? (cmd ? "agent" : "shell")
 
   useEffect(() => {
     const slot = containerRef.current
@@ -168,11 +190,17 @@ export function useTerminalSession({ cmd, aktif = true, labelTutup, onSesi }: Op
     }
     if (!slot) return
 
-    const kelompok = cmd ? "agent" : "shell"
     batasSatuPerKelompok(kelompok, kunci)
 
     let s = sesiHidup.get(kunci)
-    if (!s) s = buatSesi(kunci, kelompok, cmd, labelTutup, trRef)
+    // Jalur berubah dengan kunci yang sama → sesi lama terbuka ke tujuan
+    // lama; dibuang supaya tidak diam-diam menampilkan sesi yang salah
+    // (lihat OpsiSesi.jalur: kunci HARUS ikut berubah, ini jaring pengaman).
+    if (s && (s.jalur ?? "") !== (jalur ?? "")) {
+      buangSesi(kunci)
+      s = undefined
+    }
+    if (!s) s = buatSesi(kunci, kelompok, cmd, jalur, labelTutup, trRef)
 
     // Ambil alih tampilan: elemen host dipindah dari penampung parkir (atau
     // dari slot halaman sebelumnya) ke slot halaman ini.
@@ -217,11 +245,16 @@ export function useTerminalSession({ cmd, aktif = true, labelTutup, onSesi }: Op
     // labelTutup sengaja di luar daftar: ia hanya berubah saat bahasa panel
     // diganti, dan itu tidak layak memutus sesi yang berjalan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryKey, cmd, aktif, kunci])
+  }, [retryKey, cmd, jalur, aktif, kunci, kelompok])
 
   return {
     containerRef,
     err,
+    // Menutup sesi SEKARANG (bukan memarkirnya): dipakai pemanggil yang
+    // membuka sesi lewat modal — menutup modal harus benar-benar mematikan
+    // PTY dan mengembalikan slot kuota, bukan meninggalkan sesi yang tidak
+    // punya halaman penampil sampai server menutupnya sendiri.
+    tutup: () => buangSesi(kunci),
     bukaUlang: () => {
       buangSesi(kunci)
       setErr(null)
@@ -242,6 +275,7 @@ function buatSesi(
   kunci: string,
   kelompok: string,
   cmd: string | undefined,
+  jalur: string | undefined,
   labelTutup: string,
   trRef: { current: (s: string) => string },
 ): SesiHidup {
@@ -270,15 +304,20 @@ function buatSesi(
   const ukuran = { cols: term.cols, rows: term.rows }
 
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
+  const dasar = jalur ?? "/ws/terminal"
+  const qs = new URLSearchParams({ cols: String(ukuran.cols), rows: String(ukuran.rows) })
+  // `cmd` hanya untuk allowlist di /ws/terminal; jalur kustom sudah membawa
+  // parameter sendiri di dalamnya (mis. &cmd=… untuk eksekusi di container).
+  if (cmd && !jalur) qs.set("cmd", cmd)
   const ws = new WebSocket(
-    `${proto}//${window.location.host}/ws/terminal?cols=${ukuran.cols}&rows=${ukuran.rows}` +
-      (cmd ? `&cmd=${cmd}` : ""),
+    `${proto}//${window.location.host}${dasar}${dasar.includes("?") ? "&" : "?"}${qs}`,
   )
   ws.binaryType = "arraybuffer"
 
   const s: SesiHidup = {
     kunci,
     kelompok,
+    jalur,
     node,
     term,
     fit,
@@ -350,7 +389,12 @@ function buatSesi(
         })
         break
       case 4500:
-        setErr({ kind: "connect", message: tr("Helper daemon tidak bisa memulai PTY. Periksa log helper.") })
+        // `reason` membawa pesan helper yang spesifik (container tidak
+        // berjalan, docker belum terpasang, …); tanpa itu, kalimat umum.
+        setErr({
+          kind: "connect",
+          message: ev.reason || tr("Helper daemon tidak bisa memulai PTY. Periksa log helper."),
+        })
         break
       case 4503:
         setErr({ kind: "full", message: tr("Kuota sesi terminal penuh (503). Tutup salah satu sesi aktif.") })

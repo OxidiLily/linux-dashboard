@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { CheckCircle2, Pencil, Plus, RefreshCw, Route, ShieldCheck, Trash2, ExternalLink } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Pencil, Plus, RefreshCw, Route, ShieldCheck, Trash2, ExternalLink } from "lucide-react"
 import { apiGet, apiSend } from "@/lib/api"
 import { pesanError } from "@/lib/pesan-error"
 import { Button } from "@/components/ui/button"
@@ -206,7 +206,18 @@ export function ProxyManagerView() {
       hint={tr("Kelola nama domain dan teruskan trafiknya ke alamat IP serta port aplikasi.")}
       actions={<div className="flex gap-2"><Button variant="outline" size="sm" onClick={testConfig}><CheckCircle2 className="mr-1 size-3.5" />{tr("Uji config")}</Button><Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCw className="mr-1 size-3.5" />{tr("Muat ulang")}</Button></div>}
     >
-      <p className="mb-3 text-xs text-crit">{tr("HTTP langsung di port 1122 tidak mengenkripsi password, OTP, maupun sesi. Gunakan HTTPS sebelum membuka akses publik.")}</p>
+      {/* Dibungkus Badge crit (satu bahasa visual dengan kartu Components)
+          supaya peringatan terbaca sebagai panel peringatan, bukan teks merah
+          yang bercampur dengan paragraf lain. */}
+      <p className="mb-3">
+        <Badge
+          tone="crit"
+          className="w-full items-start gap-1.5 whitespace-normal px-3 py-2 text-xs leading-relaxed"
+        >
+          <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+          <span>{tr("HTTP langsung di port 1122 tidak mengenkripsi password, OTP, maupun sesi. Gunakan HTTPS sebelum membuka akses publik.")}</span>
+        </Badge>
+      </p>
       <div className="mb-4 flex flex-wrap gap-2">
         <Badge tone={status?.running ? "signal" : "crit"}>{status?.running ? tr("Nginx aktif") : tr("Nginx nonaktif")}</Badge>
         <Badge tone={status?.config_ok ? "signal" : "warn"}>{status?.config_ok ? tr("Config valid") : tr("Config bermasalah")}</Badge>

@@ -157,6 +157,8 @@ var sudoRequired = map[string]bool{
 	helperproto.CmdProxyCloudflareRecordSave:   true,
 	helperproto.CmdProxyCloudflareRecordDelete: true,
 	helperproto.CmdDockerExec:                  true,
+	helperproto.CmdDockerLogs:                  true,
+	helperproto.CmdDockerTerm:                  true,
 	helperproto.CmdFileChown:                   true,
 	helperproto.CmdVPNStatus:                   true,
 	helperproto.CmdVPNConfigure:                true,

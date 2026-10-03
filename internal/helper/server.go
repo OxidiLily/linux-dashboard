@@ -135,6 +135,12 @@ func NewServer(socketPath, secretPath, legacySecretPath, socketGroup string) (*S
 		if err := amankanShareGuestLama(); err != nil {
 			log.Printf("peringatan: migrasi share Guest OK gagal: %v", err)
 		}
+		// Jail fail2ban Samba selama ini hanya dibuat saat komponen dipasang
+		// lewat halaman Components. Mesin tempat fail2ban/smbd terpasang di
+		// luar panel tidak pernah mendapatkannya, sehingga brute force ke 445
+		// berjalan tanpa satu pun ban. Bootstrap sekali, penandanya di
+		// pastikanJailSambaSekali.
+		pastikanJailSambaSekali()
 	}
 	go daftarkanPortSemuaKomponen()
 	// Port container menyusul di latar: daftarnya hanya bisa diketahui dengan
@@ -232,9 +238,12 @@ func (s *Server) seen(nonce string) bool {
 
 func (s *Server) Serve() error {
 	log.Printf("helper daemon mendengarkan di %s", s.socketPath)
-	// Panaskan status komponen di latar: probe versi paling mahal dibayar
+	// Panankan status komponen di latar: probe versi paling mahal dibayar
 	// sekarang, bukan saat user membuka halaman Components pertama kali.
 	go AllComponentStatus()
+	// Cek update berkala di backend: badge notifikasi dan halaman Pembaruan
+	// mendapat data segar tiap 2 menit tanpa menunggu tab panel memuat ulang.
+	go scanUpdateOtomatis()
 	for {
 		conn, err := s.ln.Accept()
 		if err != nil {
@@ -358,8 +367,18 @@ func (s *Server) handle(conn net.Conn) {
 		s.handleTerminal(conn, br, u, req)
 		closed = true // koneksi diambil alih oleh sesi PTY
 		return
+	case helperproto.CmdDockerTerm:
+		// Sama-sama mengambil alih koneksi untuk sesi PTY, tapi isinya
+		// `docker exec` ke container — sudo sudah diperiksa di atas.
+		s.handleDockerTerm(conn, br, req)
+		closed = true
+		return
 	case helperproto.CmdFileRead:
 		s.handleFileRead(conn, u, req)
+		return
+	case helperproto.CmdDockerLogs:
+		// Stream: koneksi diambil alih `docker logs -f` sampai klien pergi.
+		s.handleDockerLogs(conn, req)
 		return
 	case helperproto.CmdFileWrite:
 		s.handleFileWrite(conn, br, u, req)

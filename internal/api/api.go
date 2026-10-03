@@ -306,6 +306,8 @@ func (s *Server) Routes() http.Handler {
 	// tetap terkirim otomatis.
 	r.Get("/ws/metrics", s.handleWSMetrics)
 	r.Get("/ws/terminal", s.handleWSTerminal)
+	r.Get("/ws/docker/logs", s.handleWSDockerLogs)
+	r.Get("/ws/docker/terminal", s.handleWSDockerTerminal)
 
 	// SPA fallback: apa pun di luar /api dan /ws dilayani dari asset embed.
 	// Path /api dan /ws yang tidak dikenal TIDAK boleh ikut jatuh ke sini —
@@ -376,7 +378,7 @@ func writeHelperErr(w http.ResponseWriter, err error) {
 	case helperproto.ErrCronConflict:
 		status = http.StatusConflict
 	case helperproto.ErrInvalid, helperproto.ErrPathTidakValid, helperproto.ErrNilaiTidakValid,
-		helperproto.ErrPasswordPendek, helperproto.ErrGuestOKKonflik, helperproto.ErrBelumTerpasang,
+		helperproto.ErrPasswordPendek, helperproto.ErrBelumTerpasang,
 		helperproto.ErrKredensialTidakOK, helperproto.ErrFuseTidakAda:
 		status = http.StatusBadRequest
 	}

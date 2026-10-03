@@ -490,6 +490,46 @@ func pastikanJailBawaan() {
 	}
 }
 
+// pastikanJailSambaSekali mem-bootstrap jail Samba di mesin tempat panel tidak
+// pernah memasang komponennya lewat halaman Components.
+//
+// Pemicu jail selama ini hanya instalasi komponen (components.go). Kalau
+// fail2ban dan smbd dipasang lewat apt/manual, filter maupun jail tidak pernah
+// dibuat: 445 menerima ribuan percobaan login tanpa satu pun ban. Kondisi
+// itulah yang dikomentari di pastikanJailBawaan sebagai "terlihat aman
+// padahal tidak memblokir apa pun".
+//
+// Yang dipakai sebagai penanda adalah berkas tanda, BUKAN keberadaan jail di
+// jail.local: menghapus jail dari halaman Fail2ban harus tetap dihormati
+// (jangan dibuat ulang tiap start), sementara kegagalan saat bootstrap harus
+// dicoba lagi di start berikutnya.
+func pastikanJailSambaSekali() {
+	if !installed("fail2ban-client") {
+		return
+	}
+	// lookBinary, bukan installed: smbd dipasang ke /usr/sbin (lihat
+	// pastikanJailBawaan soal PATH daemon).
+	if _, ada := lookBinary("smbd"); !ada {
+		return
+	}
+	if _, err := os.Stat(f2bTandaBootstrap); err == nil {
+		return
+	}
+	if err := pastikanJailSamba(); err != nil {
+		log.Printf("fail2ban: gagal menyiapkan jail samba: %v", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(f2bTandaBootstrap), 0o755); err != nil {
+		log.Printf("fail2ban: gagal membuat direktori tanda bootstrap: %v", err)
+		return
+	}
+	teks := "Jail Samba dibuat sekali oleh panel. Berkas ini menandai bootstrap\n" +
+		"selesai supaya jail yang dihapus user tidak dibuat ulang tiap start.\n"
+	if err := os.WriteFile(f2bTandaBootstrap, []byte(teks), 0o644); err != nil {
+		log.Printf("fail2ban: gagal menulis tanda bootstrap jail samba: %v", err)
+	}
+}
+
 func pastikanJailSSH() {
 	for _, j := range bacaJailLocal() {
 		if j.Name == "sshd" {
@@ -508,6 +548,12 @@ func pastikanJailSSH() {
 }
 
 const f2bFilterSamba = "/etc/fail2ban/filter.d/lindash-samba.conf"
+
+// Tanda bootstrap jail Samba. Root-owned di direktori helper (bukan di
+// StateDirectory yang di-chown ke user web tiap start) — sama alasannya
+// dengan manifest Samba: proses web yang terkompromi tidak boleh bisa
+// me-reset keputusan jail.
+const f2bTandaBootstrap = "/var/lib/linux-dashboard-helper/fail2ban-samba-bootstrap"
 
 // jailDDir adalah var, jadi ini ikut var — bukan const.
 var f2bJailSamba = jailDDir + "/lindash-samba.conf"

@@ -230,6 +230,22 @@ func layaniTiruan(conn net.Conn, tiruan *helperTiruan) {
 		akh, _ := json.Marshal(helperproto.Response{OK: true})
 		_, _ = conn.Write(append(akh, '\n'))
 	}
+
+	// Jalur stream (docker.logs): response awal diikuti byte log, lalu
+	// koneksi dibiarkan terbuka sampai klien menutup — sama seperti helper
+	// sungguhan yang membiarkan `docker logs -f` terus mengalir.
+	if cmd == helperproto.CmdDockerLogs {
+		_, _ = conn.Write([]byte("log-tiruan\n"))
+		_, _ = io.Copy(io.Discard, br)
+	}
+
+	// Jalur duplex (docker.term): response awal diikuti byte keluaran "PTY",
+	// lalu koneksi dibaca sampai klien pergi — sama seperti helper sungguhan
+	// yang meneruskan frame input dari browser.
+	if cmd == helperproto.CmdDockerTerm {
+		_, _ = conn.Write([]byte("term-tiruan\n"))
+		_, _ = io.Copy(io.Discard, br)
+	}
 }
 
 func cutSpasi(b []byte) (string, []byte, bool) {

@@ -1,7 +1,13 @@
 package helper
 
 import (
+	"context"
+	"io"
+	"net"
+	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
@@ -65,6 +71,113 @@ var allowedComposeSub = map[string]bool{
 	// `ls` dipakai untuk menemukan stack yang sudah jalan tapi belum terdaftar.
 	// Tanpa ini helper menolaknya dan daftar stack luar diam-diam kosong.
 	"ls": true,
+}
+
+// Kuota `docker logs -f` di helper: garis pertahanan di tempat proses itu
+// benar-benar berjalan (root), untuk kalau lapisan web kehilangan hitungannya
+// sendiri. Angka sengaja lebih longgar dari batas web (kuotaLogMaks = 4).
+// var, bukan konstanta: test memakai angka kecil supaya tidak perlu
+// menahan delapan stream sekaligus.
+var logHelperMaks = 8
+
+var (
+	muLogHelper    sync.Mutex
+	logHelperAktif int
+)
+
+func ambilSlotLogHelper() bool {
+	muLogHelper.Lock()
+	defer muLogHelper.Unlock()
+	if logHelperAktif >= logHelperMaks {
+		return false
+	}
+	logHelperAktif++
+	return true
+}
+
+func lepasSlotLogHelper() {
+	muLogHelper.Lock()
+	if logHelperAktif > 0 {
+		logHelperAktif--
+	}
+	muLogHelper.Unlock()
+}
+
+// maxTailLog membatasi baris log yang boleh diminta sekali stream. Sama
+// dengan batas di layer API, supaya klien yang bandel tidak menarik seluruh
+// riwayat log container besar ke RAM helper.
+const maxTailLog = 2000
+
+// handleDockerLogs menstream `docker logs -f --tail N <id>` ke klien:
+// response OK dulu (tanda stream siap), lalu byte mentah mengalir sampai
+// proses docker berhenti atau klien menutup koneksi.
+//
+// Berbeda dari dockerExec yang menunggu proses selesai, log harus mengalir
+// selama container hidup — karenanya koneksi diambil alih anak proses docker,
+// dan penutupan klien dibaca dari arah baca koneksi untuk mematikannya lagi.
+func (s *Server) handleDockerLogs(conn net.Conn, req helperproto.Request) {
+	defer conn.Close()
+	args, err := decodeArgs[helperproto.DockerLogsArgs](req)
+	if err != nil {
+		fail(conn, err)
+		return
+	}
+	id := strings.TrimSpace(args.ID)
+	// ID diawali "-" akan dibaca docker sebagai flag, bukan nama container —
+	// pemeriksaan yang sama dengan checkDayaArgs untuk sumber daya lain.
+	if id == "" || strings.HasPrefix(id, "-") {
+		fail(conn, errInvalid("id container tidak valid"))
+		return
+	}
+	tail := args.Tail
+	if tail < 1 {
+		tail = 1
+	}
+	if tail > maxTailLog {
+		tail = maxTailLog
+	}
+	if _, ada := lookBinary("docker"); !ada {
+		fail(conn, errKode(helperproto.ErrBelumTerpasang,
+			"Docker belum terpasang — pasang dulu lewat Settings → Components"))
+		return
+	}
+	// Container yang tidak dikenal ditolak SEBELUM response OK: sesudah OK,
+	// kegagalan hanya bisa ditandai dengan koneksi yang ditutup, sehingga
+	// pesan docker ("No such container") hilang tanpa jejak di layar.
+	if res, iErr := runIn("", nil, "docker", "inspect", "-f", "{{.State.Status}}", id); iErr != nil {
+		fail(conn, errInvalid("container %q tidak dikenal: %s", id,
+			strings.TrimSpace(firstNonEmpty(res.Stderr, iErr.Error()))))
+		return
+	}
+	// Slot diambil SEBELUM proses docker dijalankan dan dilepas saat handler
+	// selesai — stream `docker logs -f` hidup sampai klien menutup.
+	if !ambilSlotLogHelper() {
+		fail(conn, errKode(helperproto.ErrAksiBerjalan,
+			"Terlalu banyak stream log container — tutup salah satu dulu"))
+		return
+	}
+	defer lepasSlotLogHelper()
+
+	writeResp(conn, helperproto.Response{OK: true})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", strconv.Itoa(tail), id)
+	cmd.Env = []string{"PATH=" + pathExec, "LC_ALL=C"}
+	// Log aplikasi ditulis docker ke stdout DAN stderr — keduanya bagian dari
+	// log container, jadi keduanya diteruskan apa adanya.
+	cmd.Stdout = conn
+	cmd.Stderr = conn
+	// Stream ini satu arah; satu-satunya cara melihat klien pergi adalah
+	// membaca dari koneksi. EOF → batalkan konteks → docker logs ikut mati,
+	// supaya tidak ada proses docker tertinggal tiap kali modal ditutup.
+	go func() {
+		_, _ = io.Copy(io.Discard, conn)
+		cancel()
+	}()
+	// Kegagalan setelah OK (container dihapus di tengah jalan, dsb.) hanya
+	// menutup koneksi; klien menampilkan isi terakhir yang sudah terkirim.
+	_ = cmd.Run()
 }
 
 func dockerExec(args helperproto.DockerExecArgs) (helperproto.ExecResult, error) {

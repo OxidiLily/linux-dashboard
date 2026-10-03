@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+func TestPesanUpdateHermes(t *testing.T) {
+	for _, tc := range []struct{ out, want string }{
+		{"Hermes Agent v0.21.5\nInstall method: git\nUpdate available: 728 commits behind — run 'hermes update'\n",
+			"728 commits behind — run 'hermes update'"},
+		{"Hermes Agent v0.21.5\nInstall method: git\n", ""},
+		{"Update available:5 commits behind", "5 commits behind"},
+	} {
+		if got := pesanUpdateHermes(tc.out); got != tc.want {
+			t.Errorf("pesanUpdateHermes(%q) = %q, want %q", tc.out, got, tc.want)
+		}
+	}
+}
+
 func TestAmbilVersiURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

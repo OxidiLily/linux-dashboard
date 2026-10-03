@@ -30,7 +30,9 @@ import { simpanBahasaPralogin, usePrefs } from "@/stores/prefs"
 import { cariBerkas, detailItemLog, rootAktif, unggahLaluMuatUlang } from "@/views/files"
 import { bacaCrontab, cariJadwal, ukuranByte, ukuranCrontabTersimpan } from "@/views/cron"
 import { tautanProxy } from "@/views/proxy"
+import { OverlayTerputus } from "@/views/error"
 import { recordFields, recordPayload, recordTypes, priorityTypes, proxiedTypes } from "@/views/cloudflare-record-fields"
+import { salinKeClipboard } from "@/lib/utils"
 
 const gagal: string[] = []
 let jumlah = 0
@@ -87,6 +89,27 @@ cek(tautanProxy({ domain: "app.example.com", enabled: true, scheme: "http", tls_
 cek(tautanProxy({ domain: "", enabled: true, scheme: "http" }), "", "proxy/tanpa-domain")
 cek(tautanProxy({ domain: "app.example.com", enabled: false, scheme: "http" }), "", "proxy/nonaktif")
 cek(tautanProxy({ domain: "app.example.com:8085", enabled: true, scheme: "http" }), "", "proxy/host-invalid")
+
+// Halaman error: overlay disconnect dirender sungguhan dalam dua keadaan.
+// Yang diperiksa perilakunya — judul, tombol muat ulang, spinner — karena
+// overlay ini adalah satu-satunya tanda bagi user bahwa panel kehilangan
+// server; tanpa tombolnya user hanya melihat layar blur tanpa jalan keluar.
+const overlaySambung = renderToStaticMarkup(createElement(OverlayTerputus, { gagalSambung: false }))
+cek(String(overlaySambung.includes("Menyambungkan…")), "true", "error/disconnect-menyambung")
+cek(String(overlaySambung.includes("animate-spin")), "true", "error/disconnect-spinner")
+cek(String(overlaySambung.includes("Hubungkan kembali")), "false", "error/disconnect-masih-menyambung-tanpa-tombol")
+const overlayGagal = renderToStaticMarkup(createElement(OverlayTerputus, { gagalSambung: true }))
+cek(String(overlayGagal.includes("Koneksi terputus")), "true", "error/disconnect-putus")
+cek(String(overlayGagal.includes("Hubungkan kembali")), "true", "error/disconnect-tombol-muat-ulang")
+cek(String(overlayGagal.includes("animate-spin")), "false", "error/disconnect-gagal-tanpa-spinner")
+// Padanan bahasa Inggris dicek lewat jalur terjemahan, BUKAN lewat render
+// komponen: zustand v5 memakai getServerSnapshot = getInitialState(), jadi
+// apa pun yang di-render renderToStaticMarkup selalu membaca state AWAL
+// store — render komponen tidak bisa membuktikan terjemahan bahasa apa pun.
+usePrefs.setState({ bahasa: "en" })
+cek(tr("Koneksi terputus"), "Connection lost", "error/disconnect-en")
+cek(tr("Hubungkan kembali"), "Reconnect", "error/disconnect-en-tombol")
+usePrefs.setState({ bahasa: "id" })
 
 // Bahasa Indonesia: kalimat dikembalikan apa adanya.
 cek(tr("Simpan Perubahan"), "Simpan Perubahan", "id/tr")
@@ -423,7 +446,25 @@ notify.ok("Hapus berhasil", "rincian-sukses")
 cek(tercatat.at(-1)?.tone ?? "__kosong__", "ok", "log/detail-sukses-tone")
 cek(tercatat.at(-1)?.detail ?? "__kosong__", "rincian-sukses", "log/detail-sukses-direkam")
 
-const pemeriksaLapisan: [string, [string, string, string][]][] = [
+// Tombol "Salin" di modal kredensial Samba harus lewat salinKeClipboard.
+// navigator.clipboard hanya ada di secure context, sedangkan panel dibuka lewat
+// http ke IP LAN — memanggilnya langsung membuat tombol mati diam-diam tanpa
+// pesan apa pun. Bug itu pernah terjadi di sini.
+const sumberSamba = bacaSumber("src/views/samba.tsx")
+cek(String(/navigator\.clipboard\.writeText/.test(sumberSamba)), "false", "samba/salin-tanpa-fallback")
+cek(String((sumberSamba.match(/void salin\(/g) ?? []).length), "2", "samba/salin-tombol")
+// Panel tidak boleh mengirim flag guest sama sekali — helper root yang
+// menolaknya, tetapi klien yang bersih membuat niatnya tak terbantahkan.
+cek(String(/body\.public|form\.public|s\.public/.test(sumberSamba)), "false", "samba/tanpa-public")
+// Share %U tidak dapat akun managed, jadi tombol simpan harus menolaknya
+// lebih dulu dengan pesan yang menyebut user.
+cek(
+  String(sumberSamba.includes("Share %U butuh minimal satu user Samba")),
+  "true",
+  "samba/auth-wajib-%U",
+)
+
+const pemeriksaLapisan: [string, string[][]][] = [
   ["src/components/ui/confirm.tsx", []],
   ["src/components/ui/prompt.tsx", []],
   ["src/components/ui/update-modal.tsx", []],
@@ -440,6 +481,7 @@ const pemeriksaLapisan: [string, [string, string, string][]][] = [
   ]],
   ["src/views/docker.tsx", [
     ["showAddStack", "setShowAddStack", "false"], ["logModal", "setLogModal", "null"],
+    ["termModal", "setTermModal", "null", "tutupTerminal()"],
     ["composeModal", "setComposeModal", "null"], ["envModal", "setEnvModal", "null"],
   ]],
   ["src/views/firewall.tsx", [["showAdd", "tutupForm", ""]]],
@@ -464,9 +506,16 @@ for (const [jalur, penutupWajib] of pemeriksaLapisan) {
   // barisnya ada di berkas sehingga pemeriksaan yang hanya mencari kata
   // "daftarkanEscape" tetap hijau. Karena itu arah guard-nya diperiksa
   // eksplisit di sini, lengkap dengan kecocokan dependensinya.
-  for (const [kondisi, setter, arg] of penutupWajib) {
+  for (const [kondisi, setter, arg, alt] of penutupWajib) {
+    // Penutup alternatif untuk modal yang harus merapikan sesi dulu sebelum
+    // state-nya di-set null (mis. `tutupTerminal()` menutup sesi PTY + slot
+    // kuota). Bentuknya teks panggilan biasa; tanda kurung di-escape.
+    const esc = (s: string) => s.replace(/[()]/g, "\\$&")
+    const penutup = alt
+      ? `(?:${setter}\\(${esc(arg)}\\)|${esc(alt)})`
+      : `${setter}\\(${esc(arg)}\\)`
     const blok = new RegExp(
-      `if \\(!${kondisi}\\) return\\s*\\n\\s*return daftarkanEscape\\(\\(\\) => ${setter}\\(${arg.replace(/[()]/g, "\\$&")}\\)\\)\\s*\\n\\s*\\}, \\[${kondisi}\\]\\)`,
+      `if \\(!${kondisi}\\) return\\s*\\n\\s*return daftarkanEscape\\(\\(\\) => ${penutup}\\)\\s*\\n\\s*\\}, \\[${kondisi}\\]\\)`,
     )
     cek(String(blok.test(isi)), "true", `escape/${jalur}/blok-${kondisi}`)
   }
@@ -495,7 +544,7 @@ for (const jalur of semuaSumber) {
   const potongan = jalur.endsWith("app-shell.tsx") ? 0 : isi.split("bg-black/60").length - 1
   jumlahLapisan += potongan
 }
-cek(String(jumlahLapisan), "26", "escape/jumlah-lapisan")
+cek(String(jumlahLapisan), "27", "escape/jumlah-lapisan")
 
 // notify.tugas mencatat detail di dalam callback success/error, yang baru
 // berjalan setelah promise pekerjaannya settle. Jadi jalur gagal (detailGagal)
@@ -517,10 +566,36 @@ notify
   })
   .catch(() => undefined)
 
+// Tombol "Salin" justru paling sering dipakai lewat http ke IP LAN, di mana
+// navigator.clipboard tidak ada sama sekali. Yang diuji di sini adalah jalur
+// CADANGAN itulah yang benar-benar jalan dan melaporkan hasilnya — kalau tidak,
+// tombolnya mati diam-diam dan user menyalin teks lama tanpa sadar.
+let teksSalinan = ""
+let seleksiDipanggil = false
+;(globalThis as unknown as { document: Document }).document = {
+  createElement: () => ({
+    style: {},
+    setAttribute: () => {},
+    select: () => void (seleksiDipanggil = true),
+    setSelectionRange: () => {},
+    remove: () => {},
+    set value(v: string) {
+      teksSalinan = v
+    },
+  }),
+  body: { appendChild: () => {} },
+  execCommand: (perintah: string) => perintah === "copy",
+} as unknown as Document
+const ujiClipboard = (async () => {
+  cek(String(await salinKeClipboard("rahasia")), "true", "clipboard/fallback-lapor-sukses")
+  cek(teksSalinan, "rahasia", "clipboard/fallback-isi-teks")
+  cek(String(seleksiDipanggil), "true", "clipboard/fallback-pilih-teks")
+})()
+
 // Dua microtask: satu untuk settle-nya promise pekerjaan, satu untuk callback
 // sonner.promise yang memanggil rekam(). Uji upload ditunggu juga agar seluruh
 // assertion asynchronous selesai sebelum hasil akhir dicetak.
-void Promise.all([ujiUpload, Promise.resolve().then(() => Promise.resolve())])
+void Promise.all([ujiUpload, ujiClipboard, Promise.resolve().then(() => Promise.resolve())])
   .then(() => {
     const tugasGagal = tercatat.find((t) => t.detail === "detail:boom")
     const tugasSukses = tercatat.find((t) => t.detail === "tugas-ok:selesai")

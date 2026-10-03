@@ -27,7 +27,9 @@ import {
   Network,
   Eraser,
   Search,
+  Terminal,
 } from "lucide-react"
+import { TerminalError, useTerminalSession } from "@/hooks/use-terminal-session"
 
 type DockerContainer = {
   id: string
@@ -184,6 +186,9 @@ export function DockerView() {
     null,
   )
   const [logModal, setLogModal] = useState<{ id: string; name: string; content: string } | null>(null)
+  // Terminal container (satu-satunya jalan masuk ke shell container). Sesi
+  // PTY dibuka begitu modal terbuka dan ditutup lewat tutupTerminal().
+  const [termModal, setTermModal] = useState<{ id: string; name: string } | null>(null)
   const [menyimpan, setMenyimpan] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
   // Auto-scroll hanya dilakukan kalau user memang sedang di dasar log. Kalau
@@ -363,25 +368,29 @@ export function DockerView() {
     }
   }
 
-  const bukaLog = async (c: DockerContainer) => {
-    try {
-      const res = await apiGet<{ content: string }>(
-        `/api/docker/containers/${encodeURIComponent(c.id)}/logs?tail=200`,
-      )
-      logIkutBawah.current = true
-      setLogModal({ id: c.id, name: c.name, content: res.content || tr("(log kosong)") })
-    } catch (e: any) {
-      notify.err(trf("Gagal membaca log: {0}", pesanError(e)))
-    }
+  const bukaLog = (c: DockerContainer) => {
+    logIkutBawah.current = true
+    // Isi diisi oleh stream pada useEffect di bawah; kalau stream gagal,
+    // jatuh ke tarikan statis supaya modal tetap menampilkan sesuatu.
+    setLogModal({ id: c.id, name: c.name, content: "" })
   }
 
-  // Isi log di-tarik ulang selama modal terbuka. Sebelumnya diambil sekali
-  // saat modal dibuka, jadi baris baru hanya muncul kalau modal ditutup lalu
-  // dibuka lagi — terbaca seperti log yang membeku.
+  // Satu jalan masuk ke shell container: modal langsung membuka sesi PTY.
+  const bukaTerminal = (c: DockerContainer) => setTermModal({ id: c.id, name: c.name })
+
+  // Log mengalir lewat WebSocket (`docker logs -f` di helper) selama modal
+  // terbuka: baris baru muncul begitu container menulisnya, tanpa menunggu
+  // tarikan berkala. Kalau WebSocket gagal (helper versi lama, upgrade yang
+  // diblokir), efek ini jatuh kembali ke polling seperti sebelumnya supaya
+  // log tetap hidup, bukan membeku diam-diam.
   useEffect(() => {
     const id = logModal?.id
     if (!id) return
+    let tutup = false
+    let dapatData = false
+    let poll: ReturnType<typeof setInterval> | null = null
     const ctrl = new AbortController()
+
     const tarik = async () => {
       try {
         const res = await apiGet<{ content: string }>(
@@ -395,10 +404,48 @@ export function DockerView() {
         // menutupi log yang sedang dibaca.
       }
     }
-    const t = setInterval(tarik, 3000)
+    const jatuhKePolling = () => {
+      if (tutup || poll) return
+      if (!dapatData) void tarik()
+      poll = setInterval(tarik, 3000)
+    }
+
+    let ws: WebSocket | null = null
+    try {
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
+      ws = new WebSocket(
+        `${proto}//${window.location.host}/ws/docker/logs?id=${encodeURIComponent(id)}&tail=200`,
+      )
+      ws.binaryType = "arraybuffer"
+      // Decoder per sesi dengan stream:true — pesan biner dipotong server di
+      // batas 8192 byte dan bisa membelah karakter UTF-8; tanpa mode stream
+      // setiap potongan yang terbelah jadi karakter rusak (U+FFFD).
+      const decoder = new TextDecoder()
+      ws.onmessage = (ev) => {
+        dapatData = true
+        const potongan =
+          typeof ev.data === "string" ? ev.data : decoder.decode(ev.data as ArrayBuffer, { stream: true })
+        setLogModal((m) => {
+          if (!m || m.id !== id) return m
+          // Batas isi: container cerewet membuat string tanpa ukuran dan tiap
+          // pesan me-render ulang seluruh <pre>. Ekor disimpan, kepala dibuang.
+          let content = m.content + potongan
+          if (content.length > 400_000) content = content.slice(content.length - 300_000)
+          return { ...m, content }
+        })
+      }
+      // Tutup dari server (log selesai) maupun kegagalan handshake tetap
+      // diikuti polling: container bisa hidup lagi selama modal terbuka.
+      ws.onclose = jatuhKePolling
+    } catch {
+      jatuhKePolling()
+    }
+
     return () => {
+      tutup = true
       ctrl.abort()
-      clearInterval(t)
+      if (poll) clearInterval(poll)
+      ws?.close()
     }
   }, [logModal?.id])
 
@@ -407,6 +454,30 @@ export function DockerView() {
     const el = logRef.current
     if (el && logIkutBawah.current) el.scrollTop = el.scrollHeight
   }, [logModal?.content])
+
+  // Sesi terminal container: satu kunci per container, kelompok sendiri
+  // supaya tidak menutup shell host di halaman Terminal, dan ditutup lewat
+  // `tutup()` begitu modal ditutup — kuota server dihitung dari jumlah core,
+  // jadi sesi yang ditinggal tanpa penampil langsung memakan slot selamanya.
+  const sesiTerm = useTerminalSession({
+    jalur: termModal ? `/ws/docker/terminal?id=${encodeURIComponent(termModal.id)}` : undefined,
+    kunciSesi: termModal ? `docker:${termModal.id}` : "docker:kosong",
+    kelompokSesi: "docker",
+    aktif: !!termModal,
+    labelTutup: tr("Sesi terminal container ditutup"),
+  })
+  const tutupTerminal = () => {
+    sesiTerm.tutup()
+    setTermModal(null)
+  }
+
+  // Halaman ditinggalkan dengan modal masih terbuka (navigasi via URL/back —
+  // overlay tidak bisa mencegahnya): cleanup bawaan hook hanya MEMARKIR sesi,
+  // dan parkiran memegang slot kuota terminal selamanya. Sesi container wajib
+  // dimatikan saat komponen dilepas.
+  const sesiTermRef = useRef(sesiTerm)
+  sesiTermRef.current = sesiTerm
+  useEffect(() => () => sesiTermRef.current.tutup(), [])
 
   // Hanya jenis yang sedang dilihat yang ditarik. Menarik ketiganya di setiap
   // pembukaan halaman berarti tiga panggilan docker tambahan untuk dua tabel
@@ -677,6 +748,13 @@ export function DockerView() {
   // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
   // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
   useEffect(() => {
+    if (!termModal) return
+    return daftarkanEscape(() => tutupTerminal())
+  }, [termModal])
+
+  // Escape menutup modal ini — lewat tumpukan lapisan bersama supaya hanya
+  // lapisan teratas yang tertutup (lihat lib/lapisan-escape.ts).
+  useEffect(() => {
     if (!composeModal) return
     return daftarkanEscape(() => setComposeModal(null))
   }, [composeModal])
@@ -905,6 +983,16 @@ export function DockerView() {
                         <Play className="size-3.5 text-ok" />
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-1.5 text-muted-foreground hover:text-foreground"
+                      aria-label={`Terminal ${c.name}`}
+                      title={tr("Terminal")}
+                      onClick={() => bukaTerminal(c)}
+                    >
+                      <Terminal className="size-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1248,7 +1336,7 @@ export function DockerView() {
               <p className="text-sm font-semibold">Log {logModal.name}</p>
               <p className="num truncate text-[10px] text-muted-foreground">
                 {trf("200 baris terakhir · {0}", logModal.id.substring(0, 12))}
-                <span className="ml-1 text-ok">{tr("· live tiap 3 detik")}</span>
+                <span className="ml-1 text-ok">{tr("· live")}</span>
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={() => setLogModal(null)}>
@@ -1265,6 +1353,38 @@ export function DockerView() {
           >
             {logModal.content}
           </pre>
+        </div>
+      </div>
+    )}
+
+    {/* Modal Terminal container — sesi PTY `docker exec -i -t <id> sh`,
+        satu-satunya jalan masuk ke shell container dari panel. */}
+    {termModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="flex max-h-[85dvh] w-full max-w-4xl flex-col rounded-lg border border-border bg-surface p-4 shadow-xl">
+          <div className="flex items-center justify-between border-b border-border pb-2">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">
+                {tr("Terminal")} {termModal.name}
+              </p>
+              <p className="num truncate text-[10px] text-muted-foreground">
+                {termModal.id.substring(0, 12)}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={tutupTerminal}>
+              {tr("Tutup")}
+            </Button>
+          </div>
+
+          {sesiTerm.err && (
+            <div className="mt-3">
+              <TerminalError err={sesiTerm.err} onRetry={sesiTerm.bukaUlang} />
+            </div>
+          )}
+          <div
+            ref={sesiTerm.containerRef}
+            className="mt-3 h-[55dvh] min-h-[300px] overflow-hidden rounded border border-border bg-background"
+          />
         </div>
       </div>
     )}
