@@ -1713,13 +1713,10 @@ export function FileManagerView() {
             <Scissors className="size-3.5" /> Cut
           </button>
           <button
-            /* Ikon di KANAN tulisannya, beda dari entri lain yang ikonnya di
-               kiri; pl-[30px] menggantikan lebar ikon + gap supaya labelnya
-               tetap segaris dengan label entri lain di menu ini. */
-            className="flex w-full items-center gap-2 rounded py-1.5 pl-[30px] pr-2 text-left text-xs hover:bg-secondary"
+            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
             onClick={() => { const e = contextMenu.entry; setContextMenu(null); salinPath(e.path) }}
           >
-            {tr("Salin path")} <ClipboardCopy className="size-3.5" />
+            <ClipboardCopy className="size-3.5" /> {tr("Salin path")}
           </button>
           <div className="my-1 border-t border-border" />
           <button
