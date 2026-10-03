@@ -452,8 +452,6 @@ func sambaShareSistem() []helperproto.SambaShare {
 			cur.Writable = val == "no"
 		case "writable", "write ok":
 			cur.Writable = val == "yes"
-		case "guest ok":
-			cur.Public = val == "yes"
 		case "comment":
 			cur.Comment = strings.TrimSpace(strings.SplitN(line, "=", 2)[1])
 		case "valid users":
@@ -477,6 +475,26 @@ func validasiSambaShare(share helperproto.SambaShare) error {
 	// lama atau request yang dibuat langsung.
 	if share.Public {
 		return errInvalid("Guest OK dinonaktifkan demi keamanan — buat user Samba dan gunakan autentikasi")
+	}
+	// Auth wajib. Share path konkret selalu dapat akun managed sehingga
+	// ValidUsers diisi oleh sambaSave; share %U tidak pernah managed, jadi
+	// tanpa daftar user ia jatuh ke "semua user Samba" — siapa pun yang punya
+	// password Samba bisa membukanya. Tolak di sini, sebelum ada akun/ACL yang
+	// dibuat.
+	if strings.Contains(share.Path, "%U") && len(share.ValidUsers) == 0 &&
+		!(share.SmbUser != "" && share.SmbPass != "") {
+		return errInvalid("share %%U wajib menentukan minimal satu user Samba yang diizinkan")
+	}
+	// Entri kosong/spasi harus DITOLAK, bukan dibuang diam-diam: ValidUsers
+	// [" "] lolos cek "minimal satu user" di atas, tapi renderer menulis
+	// `valid users =  ` yang dibiarkan smbd sebagai parameter TIDAK ADA —
+	// share jatuh ke "semua user Samba", kebalikan dari maksud pemanggil.
+	// (UI membuang entri kosong; ini penegakan di boundary helper untuk
+	// panggilan API langsung.)
+	for _, v := range share.ValidUsers {
+		if strings.TrimSpace(v) == "" {
+			return errInvalid("daftar user tidak boleh berisi nilai kosong")
+		}
 	}
 	// Nilai yang ditulis apa adanya ke berkas include tidak boleh mengandung
 	// baris baru: satu "\n" di dalamnya menyisipkan directive Samba sendiri.
@@ -802,7 +820,7 @@ func renderSambaShares(shares []helperproto.SambaShare) []byte {
 		if s.Comment != "" {
 			fmt.Fprintf(&b, "   comment = %s\n", strings.ReplaceAll(s.Comment, "\n", " "))
 		}
-		if len(s.ValidUsers) > 0 && !s.Public {
+		if len(s.ValidUsers) > 0 {
 			fmt.Fprintf(&b, "   valid users = %s\n", strings.Join(s.ValidUsers, " "))
 		}
 	}
@@ -1028,19 +1046,38 @@ const (
 	// adanya supaya baris milik admin yang kebetulan bernilai sama tidak
 	// ikut tersentuh.
 	sambaBarisMapToGuestLama = "   map to guest = Bad User"
+
+	// Menutup null session: `net rpc share list -N` (atau klien serupa) bisa
+	// membuka IPC$ dan mendaftar nama share tanpa kredensial pada nilai
+	// bawaan 0. Man page: = 1 menonaktifkan SAMR anonim, = 2 menambah
+	// penolakan koneksi anonim ke IPC$ apa pun. Keuntungannya tetap ada
+	// selama tidak ada share `guest ok = yes` — dan panel tidak pernah
+	// membuatnya.
+	sambaBarisRestrictAnonymous = "   restrict anonymous = 2"
 )
 
-// perbaikiMapToGuestLama mengganti `map to guest = Bad User` yang pernah
-// ditulis panel di dalam bloknya sendiri. Dijalankan tiap kali blok sudah ada,
-// jadi server lama ikut menolak pemetaan username tak dikenal ke guest tanpa
-// perlu admin mengedit smb.conf dengan tangan.
-func perbaikiMapToGuestLama(isi string, asli []byte) error {
+// lengkapiBlokAuditSamba memigrasikan blok audit milik panel yang sudah ada:
+//
+//   - `map to guest = Bad User` (ditulis versi panel terdahulu) → Never;
+//   - `restrict anonymous = 2` disisipkan kalau belum ada, sehingga instalasi
+//     lama ikut menutup null session anonim ke IPC$.
+//
+// Dijalankan tiap kali blok sudah ditemukan. Baris admin DI LUAR blok tidak
+// disentuh; `restrict anonymous` yang sudah tertulis di dalam blok juga
+// dibiarkan — kalau admin sengaja mengubahnya, itu keputusannya.
+func lengkapiBlokAuditSamba(isi string, asli []byte) error {
 	baris := strings.Split(isi, "\n")
 	tandaKetemu := false
 	diubah := false
+	adaRestrict := false
+	// Sisipan diletakkan tepat setelah baris terakhir panel yang dikenal di
+	// dalam blok. Samba memakai nilai TERAKHIR dalam satu section, jadi
+	// posisi ini membuat `restrict anonymous = 2` menang atas nilai bawaan 0.
+	sisipSetelah := -1
 	for i, l := range baris {
 		if strings.Contains(l, sambaTandaGlobal) {
 			tandaKetemu = true
+			sisipSetelah = i
 			continue
 		}
 		if !tandaKetemu {
@@ -1054,8 +1091,27 @@ func perbaikiMapToGuestLama(isi string, asli []byte) error {
 		if l == sambaBarisMapToGuestLama {
 			baris[i] = sambaBarisMapToGuest
 			diubah = true
-			break
 		}
+		if strings.TrimSpace(l) == strings.TrimSpace(sambaBarisMapToGuest) {
+			sisipSetelah = i
+		}
+		if strings.HasPrefix(strings.TrimSpace(l), "restrict anonymous") {
+			adaRestrict = true
+		}
+	}
+	if !tandaKetemu || adaRestrict {
+		if !diubah {
+			return nil
+		}
+	} else if sisipSetelah >= 0 {
+		// Sisipan dibangun slice baru: baris[:n] dan baris[n:] berbagi array,
+		// jadi append langsung di situ bisa menimpa isi salah satunya.
+		baru := make([]string, 0, len(baris)+1)
+		baru = append(baru, baris[:sisipSetelah+1]...)
+		baru = append(baru, sambaBarisRestrictAnonymous)
+		baru = append(baru, baris[sisipSetelah+1:]...)
+		baris = baru
+		diubah = true
 	}
 	if !diubah {
 		return nil
@@ -1065,19 +1121,24 @@ func perbaikiMapToGuestLama(isi string, asli []byte) error {
 	}
 	if _, err := run("testparm", "-s"); err != nil {
 		_ = os.WriteFile(sambaMainConf, asli, 0o644)
-		return errInvalid("konfigurasi Samba ditolak setelah perbaikan map to guest: %v", err)
+		return errInvalid("konfigurasi Samba ditolak setelah melengkapi blok audit: %v", err)
 	}
 	_, err := run("systemctl", "restart", "smbd")
 	return err
 }
 
 // pastikanGlobalAuditSamba menyiapkan [global] supaya kegagalan login Samba
-// benar-benar tercatat dan bisa dibaca fail2ban. Dua setelan dibutuhkan:
+// benar-benar tercatat dan bisa dibaca fail2ban, sekaligus menutup jalur
+// anonim. Tiga setelan dibutuhkan:
 //
 //   - map to guest = Never. Username yang tidak dikenal harus ditolak, bukan
 //     diam-diam dipetakan ke akun guest. Share anonim tidak disediakan panel:
 //     satu klien LAN yang terinfeksi ransomware tidak boleh memperoleh akses
 //     tulis hanya karena mengetahui alamat server.
+//
+//   - restrict anonymous = 2. Tanpa ini klien bisa membuka sesi tanpa
+//     kredensial ke IPC$ dan mendaftar nama share; = 2 menolak SAMR anonim
+//     sekaligus koneksi anonim ke IPC$ apa pun (man page smb.conf).
 //
 //   - log level = 0 auth_audit:3. Level umum tetap 0 supaya log tidak
 //     membengkak; hanya kelas auth_audit yang dinaikkan, dan itulah yang
@@ -1099,11 +1160,12 @@ func pastikanGlobalAuditSamba() error {
 	// membuang bloknya, itu keputusannya, bukan sesuatu yang panel pulihkan
 	// diam-diam di belakangnya.
 	//
-	// Satu pengecualian: `map to guest = Bad User` yang ditulis versi panel
-	// terdahulu. Baris milik panel itu dimigrasikan ke kebijakan fail-closed;
-	// baris admin di luar blok tidak disentuh.
+	// Pengecualian, keduanya untuk kebijakan fail-closed: `map to guest = Bad
+	// User` yang ditulis versi panel terdahulu dimigrasikan ke `Never`, dan
+	// `restrict anonymous = 2` disisipkan kalau instalasi lama belum
+	// memilikinya. Baris admin di luar blok tidak disentuh.
 	if strings.Contains(isi, sambaTandaGlobal) {
-		return perbaikiMapToGuestLama(isi, b)
+		return lengkapiBlokAuditSamba(isi, b)
 	}
 	// Cadangan dibuat sekali saja, sebelum perubahan pertama — kalau ditimpa
 	// setiap kali, cadangannya justru ikut berisi perubahan panel dan tidak
@@ -1120,6 +1182,7 @@ func pastikanGlobalAuditSamba() error {
 		"# Dibaca jail fail2ban \"samba\". Hapus blok ini untuk mengembalikan",
 		"# perilaku bawaan; baris asli di atas tidak pernah diubah.",
 		sambaBarisMapToGuest,
+		sambaBarisRestrictAnonymous,
 		"   log level = 0 auth_audit:3",
 		"",
 	}

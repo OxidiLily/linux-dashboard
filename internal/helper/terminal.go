@@ -8,6 +8,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -140,6 +142,17 @@ func (s *Server) handleTerminal(conn net.Conn, br *bufio.Reader, u *userInfo, re
 		}
 	}
 
+	jembataniPTY(conn, br, ptmx)
+}
+
+// jembataniPTY menjembatani PTY dengan koneksi socket: keluaran PTY mengalir
+// mentah ke klien, input klien datang berframe (TermFrameData/TermFrameResize)
+// supaya resize bisa lewat kanal yang sama. Blokir sampai salah satu sisi mati.
+//
+// Dipakai terminal host DAN terminal container (docker exec). Dua salinan loop
+// ini berarti perbaikan perilaku — batas ukuran frame, kode tutup — harus
+// dibuat dua kali dan bisa berbeda pendapat.
+func jembataniPTY(conn net.Conn, br *bufio.Reader, ptmx *os.File) {
 	done := make(chan struct{})
 	// PTY → client (raw).
 	go func() {
@@ -171,9 +184,12 @@ func (s *Server) handleTerminal(conn net.Conn, br *bufio.Reader, u *userInfo, re
 				}
 			case helperproto.TermFrameResize:
 				if len(payload) == 4 {
+					// Dijepit seperti ukuran awal (queryDim): ukuran datang
+					// dari klien, dan 0 kolom / 65535 baris akan membuat PTY
+					// (di host maupun di container) berukuran konyol.
 					_ = pty.Setsize(ptmx, &pty.Winsize{
-						Cols: binary.BigEndian.Uint16(payload[0:2]),
-						Rows: binary.BigEndian.Uint16(payload[2:4]),
+						Cols: jepitU16(binary.BigEndian.Uint16(payload[0:2]), 20, 1000),
+						Rows: jepitU16(binary.BigEndian.Uint16(payload[2:4]), 5, 500),
 					})
 				}
 			}
@@ -181,6 +197,116 @@ func (s *Server) handleTerminal(conn net.Conn, br *bufio.Reader, u *userInfo, re
 	}()
 
 	<-done
+}
+
+// handleDockerTerm membuka sesi interaktif DI DALAM container: PTY di helper,
+// isinya proses `docker exec -i -t`. Berbeda dari handleTerminal, akun user
+// tidak dipakai sama sekali — docker berjalan sebagai root dan seluruh batas
+// yang berlaku adalah batas container itu sendiri. Karena itu command ini
+// wajib sudo (lihat sudoRequired).
+func (s *Server) handleDockerTerm(conn net.Conn, br *bufio.Reader, req helperproto.Request) {
+	defer conn.Close()
+
+	args, err := decodeArgs[helperproto.DockerTermArgs](req)
+	if err != nil {
+		fail(conn, err)
+		return
+	}
+	if args.Cols == 0 {
+		args.Cols = 80
+	}
+	if args.Rows == 0 {
+		args.Rows = 24
+	}
+	id := strings.TrimSpace(args.ID)
+	// ID diawali "-" dibaca docker sebagai flag, bukan nama container.
+	if id == "" || strings.HasPrefix(id, "-") {
+		fail(conn, errInvalid("id container tidak valid"))
+		return
+	}
+	if _, ada := lookBinary("docker"); !ada {
+		fail(conn, errKode(helperproto.ErrBelumTerpasang,
+			"Docker belum terpasang — pasang dulu lewat Settings → Components"))
+		return
+	}
+	// Container harus HIDUP. `docker exec` pada container berhenti memang
+	// gagal, tapi menolaknya SEBELUM PTY dibuka membuat pesannya jelas —
+	// bukan layar terminal kosong berisi error docker yang hilang cepat.
+	if res, iErr := runIn("", nil, "docker", "inspect", "-f", "{{.State.Running}}", id); iErr != nil {
+		fail(conn, errInvalid("container %q tidak bisa diperiksa: %s", id,
+			strings.TrimSpace(firstNonEmpty(res.Stderr, iErr.Error()))))
+		return
+	} else if strings.TrimSpace(res.Stdout) != "true" {
+		fail(conn, errInvalid("container %q tidak berjalan — jalankan dulu", id))
+		return
+	}
+
+	// Tab-completion, riwayat, dan prompt warna hanya dimiliki shell yang
+	// lengkap. `sh` di banyak image Debian adalah dash — interaktif tapi
+	// tanpa completion sama sekali, jadi shell container dicari dulu:
+	// bash → zsh → ash (busybox) → sh. Probe memakai satu `docker exec`
+	// saja, dan hasilnya divalidasi bentuknya karena datang dari dalam
+	// container.
+	shell := pilihShellContainer(id)
+	// ponytail: kalau ada container tanpa sh sama sekali (distroless),
+	// probe gagal dan sesi menampilkan error docker apa adanya. Jalan
+	// naiknya: baca `Config.Shell` image lewat `docker inspect` sebagai
+	// cadangan.
+	argv := []string{"exec", "-i", "-t", id, shell}
+	cmd := exec.Command("docker", argv...)
+	cmd.Env = []string{"PATH=" + pathExec, "LC_ALL=C", "TERM=xterm-256color"}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+
+	ptmx, pErr := pty.StartWithSize(cmd, &pty.Winsize{Cols: args.Cols, Rows: args.Rows})
+	if pErr != nil {
+		fail(conn, &helperErr{code: helperproto.ErrInternal, msg: "gagal membuka PTY: " + pErr.Error()})
+		return
+	}
+	defer func() {
+		_ = ptmx.Close()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_, _ = cmd.Process.Wait()
+	}()
+
+	writeResp(conn, helperproto.Response{OK: true})
+	jembataniPTY(conn, br, ptmx)
+}
+
+// bentukShell membatasi shell hasil probe container: hanya nama/path polos
+// tanpa spasi, kutipan, atau karakter kendali — hasil probe datang dari dalam
+// container dan langsung dipakai sebagai argumen exec.
+// Tanda "-" di depan ditolak: hasil probe datang dari dalam container dan
+// tidak boleh berbentuk seperti flag (konsisten dengan cek id container).
+var bentukShell = regexp.MustCompile(`^[A-Za-z0-9_./+][A-Za-z0-9_./+-]{0,63}$`)
+
+// pilihShellContainer mengembalikan shell paling lengkap yang tersedia DI
+// DALAM container, atau "sh" kalau probe gagal. Satu `docker exec` saja per
+// kali sesi dibuka.
+func pilihShellContainer(id string) string {
+	res, err := runIn("", nil, "docker", "exec", id, "sh", "-c",
+		"command -v bash || command -v zsh || command -v ash || echo sh")
+	if err != nil {
+		return "sh"
+	}
+	hasil := strings.TrimSpace(strings.SplitN(res.Stdout, "\n", 2)[0])
+	if !bentukShell.MatchString(hasil) {
+		return "sh"
+	}
+	return hasil
+}
+
+// jepitU16 menahan nilai dalam rentang wajar; pemakaian: ukuran PTY dari
+// frame resize klien (lihat jembataniPTY).
+func jepitU16(v, min, max uint16) uint16 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func envOr(key, def string) string {

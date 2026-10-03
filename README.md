@@ -915,15 +915,19 @@ Semua lewat environment variable; nilai di bawah adalah default.
   menaruh kerangkanya di `/etc/skel`, jadi akun baru — dibuat dari panel maupun
   `useradd -m` di terminal — langsung memilikinya tanpa menunggu login.
 - `~/DATA/*` adalah lokasi data utama panel ini. Path `%U` tetap tersedia sebagai
-  mode legacy/manual. Share baru dengan path konkret mendapat satu akun system
+  mode legacy/manual, tetapi wajib menentukan minimal satu user Samba — share
+  tanpa daftar user jatuh ke "semua user Samba", jadi simpanannya ditolak.
+  Share baru dengan path konkret mendapat satu akun system
   no-login khusus, password acak yang hanya ditampilkan saat create/rotate, dan
   ACL read-only/read-write tanpa mengganti owner/group direktori. Menghapus share
   dari panel menghapus akun/ACL miliknya, tetapi tidak menghapus folder fisik.
 - **Share Guest OK dinonaktifkan.** Panel menolak pembuatan share anonim di
-  helper root dan selalu menulis `guest ok = no`. Pada upgrade, share Guest OK
-  lama milik panel otomatis dimigrasikan menjadi authenticated share. Satu
-  perangkat LAN yang terkena ransomware tidak boleh mendapat akses tulis tanpa
-  kredensial hanya karena mengetahui alamat server.
+  helper root dan selalu menulis `guest ok = no`; pilihan Guest OK sudah
+  dihapus dari UI, form, dan payload API — `public: true` ditolak di boundary
+  helper. Pada upgrade, share Guest OK lama milik panel otomatis dimigrasikan
+  menjadi authenticated share. Satu perangkat LAN yang terkena ransomware tidak
+  boleh mendapat akses tulis tanpa kredensial hanya karena mengetahui alamat
+  server.
 - Export NFS baru memakai default `ro,sync,no_subtree_check`; `rw` dan opsi lain
   tetap dapat dipilih secara eksplisit. NFS tidak setara dengan autentikasi SMB,
   jadi hindari client `*` pada jaringan yang tidak sepenuhnya tepercaya.

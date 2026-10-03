@@ -42,6 +42,7 @@ const NetworkView = rute("/settings/network", "NetworkView")
 const FirewallView = rute("/settings/firewall", "FirewallView")
 const AlertThresholdsView = rute("/settings/alerts", "AlertThresholdsView")
 const ComponentsView = rute("/settings/components", "ComponentsView")
+const UpdatesView = rute("/updates", "UpdatesView")
 const ProxyManagerView = rute("/settings/proxy", "ProxyManagerView")
 const PrintServerView = rute("/settings/print", "PrintServerView")
 const AIAgentView = rute("/ai/agent", "AIAgentView")
@@ -134,6 +135,10 @@ export const router = createBrowserRouter([
       { path: "settings/fail2ban", element: <Dijaga name="fail2ban" label="fail2ban"><Fail2banView /></Dijaga> },
       { path: "settings/alerts", element: <Lazy><AlertThresholdsView /></Lazy> },
       { path: "settings/components", element: <Lazy><ComponentsView /></Lazy> },
+      // Halaman Pembaruan dibuka dari ikon notifikasi topbar; tidak ada entri
+      // sidebar, jadi route-nya tanpa penjaga komponen — daftarnya membaca
+      // cache backend, dan aksi Perbarui sendiri sudah dijaga helper.
+      { path: "updates", element: <Lazy><UpdatesView /></Lazy> },
       { path: "settings/proxy", element: <Dijaga name="nginx" label="Proxy manager"><ProxyManagerView /></Dijaga> },
       { path: "settings/print", element: <Dijaga name="print-server" label="CUPS"><PrintServerView /></Dijaga> },
       { path: "ai/agent", element: <Lazy><AIAgentView /></Lazy> },

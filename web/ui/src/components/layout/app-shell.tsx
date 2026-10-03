@@ -23,7 +23,6 @@ import {
   LogOut,
   PanelLeft,
   Server,
-  Loader2,
   RefreshCw,
   Trash2,
   Power,
@@ -47,12 +46,14 @@ import { UpdateModal } from "@/components/ui/update-modal"
 import { useUpdateStore } from "@/stores/update"
 import { UninstallModal } from "@/components/ui/uninstall-modal"
 import { notify } from "@/components/ui/toast"
+import { perbaruiKomponen } from "@/lib/perbarui"
 import { Toaster } from "@/components/ui/sonner"
 import { formatJam, setFormatPrefs } from "@/lib/format"
 import { tr, trf, useT } from "@/stores/i18n"
 import { usePrefs } from "@/stores/prefs"
 import { TimezonePicker } from "@/components/ui/timezone-picker"
 import { adaLapisanEscape } from "@/lib/lapisan-escape"
+import { OverlayTerputus } from "@/views/error"
 import { cn } from "@/lib/utils"
 import type { ComponentType } from "react"
 
@@ -95,6 +96,9 @@ const NAV: NavGroup[] = [
       { to: "/logs/alerts", label: "nav.logsAll", icon: Bell },
       { to: "/logs/file-operations", label: "nav.fileOperations", icon: FileClock },
       { to: "/logs/activity", label: "nav.activityLogs", icon: LogIn },
+      // Pembaruan tidak punya entri sidebar — pintu masuknya ikon notifikasi
+      // topbar — tapi route-nya tetap terdaftar supaya breadcrumb benar.
+      { to: "/updates", label: "nav.updates", icon: RefreshCw, tersembunyi: true, sudo: true },
     ],
   },
   {
@@ -247,11 +251,49 @@ export function AppShell() {
   const profilRef = useRef<HTMLDivElement>(null)
   const [uninstallBuka, setUninstallBuka] = useState(false)
   const [now, setNow] = useState(new Date())
+  const [compUpdates, setCompUpdates] = useState<{ name: string; version?: string; latest_version?: string }[]>([])
+  const [notifBuka, setNotifBuka] = useState(false)
+  const notifRef = useRef<HTMLDivElement>(null)
+  // Nama komponen yang sedang diperbarui dari dropdown — mematikan tombol
+  // lain selama helper mengerjakan aksinya.
+  const [memperbarui, setMemperbarui] = useState<string | null>(null)
   const updateBerjalan = useUpdateStore((s) => s.berjalan)
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
+
+  // Poll komponen yang punya update tersedia — badge bell di topbar.
+  // Backend menulis cache scan-nya tiap 2 menit; poll 1 menit menangkap
+  // hasilnya dengan cepat. Respons pertama bisa kosong saat compute jalan
+  // di background, jadi poll ulang pendek sampai datanya ada (maks 8×5 dtk).
+  useEffect(() => {
+    if (!user?.sudo) return
+    let batal = false
+    let percobaan = 0
+    const cek = async () => {
+      try {
+        const data = await apiGet<{ name: string; installed: boolean; version?: string; latest_version?: string }[]>(
+          "/api/components/updates",
+        )
+        if (batal) return
+        const daftar = (data ?? []).filter((c) => c.installed && c.latest_version)
+        setCompUpdates(daftar)
+        if (daftar.length === 0 && percobaan < 8) {
+          percobaan++
+          setTimeout(cek, 5000)
+        }
+      } catch {
+        // Gagal cek update bukan masalah kritis.
+      }
+    }
+    cek()
+    // Retry hanya untuk memuat awal (respons pertama kosong saat compute
+    // masih jalan); setelah itu cukup poll menitan tanpa retry, karena
+    // "kosong" juga bisa berarti memang tidak ada update.
+    const id = setInterval(cek, 60 * 1000)
+    return () => { batal = true; clearInterval(id) }
+  }, [user?.sudo])
 
   // Jam topbar = jam server: selisih server vs lokal dihitung sekali saat
   // /api/system/info masuk, lalu tick lokal 1 detik (TDD §4.1b).
@@ -325,6 +367,23 @@ export function AppShell() {
       document.removeEventListener("keydown", tombol)
     }
   }, [profilBuka])
+
+  // Klik di luar & Escape menutup popover notifikasi.
+  useEffect(() => {
+    if (!notifBuka) return
+    const klik = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifBuka(false)
+    }
+    const tombol = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !adaLapisanEscape()) setNotifBuka(false)
+    }
+    document.addEventListener("mousedown", klik)
+    document.addEventListener("keydown", tombol)
+    return () => {
+      document.removeEventListener("mousedown", klik)
+      document.removeEventListener("keydown", tombol)
+    }
+  }, [notifBuka])
 
   // Pindah ke /login segera setelah sesi lokal dibuang; permintaan ke server
   // diselesaikan di belakang layar. Menunggunya cuma menahan tampilan tanpa
@@ -583,6 +642,79 @@ export function AppShell() {
             <span className="truncate">{t(crumb.label)}</span>
           </nav>
           <div className="ml-auto flex items-center gap-2">
+            {/* Ikon notifikasi panel: badge angka = jumlah komponen terpasang
+                yang punya versi baru (dicek backend tiap 2 menit, hanya sudo). */}
+            <div className="relative" ref={notifRef}>
+              {notifBuka && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl"
+                >
+                  <p className="px-1.5 py-1.5 text-xs font-medium text-muted">
+                    {t("topbar.notifTitle")}
+                  </p>
+                  <div className="my-1 h-px bg-border" />
+                  {compUpdates.length === 0 ? (
+                    <p className="px-1.5 py-3 text-center text-xs text-muted">
+                      {t("topbar.notifKosong")}
+                    </p>
+                  ) : (
+                    compUpdates.map((c) => (
+                    <div
+                      key={c.name}
+                      className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5"
+                    >
+                      <Package className="size-4 shrink-0 text-muted" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm">{c.name}</span>
+                        <span className="block truncate text-xs text-muted">
+                          {c.version ?? "?"} → {c.latest_version}
+                        </span>
+                      </span>
+                      <Button
+                        size="sm"
+                        className="h-7 shrink-0 px-2 text-xs"
+                        disabled={memperbarui !== null}
+                        onClick={async () => {
+                          setMemperbarui(c.name)
+                          await perbaruiKomponen(c.name)
+                          setMemperbarui(null)
+                          setCompUpdates((v) => v.filter((x) => x.name !== c.name))
+                        }}
+                      >
+                        {memperbarui === c.name ? tr("…") : tr("Perbarui")}
+                      </Button>
+                    </div>
+                  )))}
+                  <div className="my-1 h-px bg-border" />
+                  <button
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left text-sm text-muted hover:bg-secondary hover:text-foreground"
+                    onClick={() => {
+                      setNotifBuka(false)
+                      navigate("/updates")
+                    }}
+                  >
+                    <RefreshCw className="size-4 shrink-0" />
+                    <span className="truncate">{t("topbar.notifOpenPage")}</span>
+                  </button>
+                </div>
+              )}
+              <button
+                className="relative rounded-md p-1.5 text-muted transition-colors hover:bg-accent hover:text-foreground"
+                aria-label={t("topbar.notifications")}
+                aria-expanded={notifBuka}
+                aria-haspopup="menu"
+                onClick={() => setNotifBuka((v) => !v)}
+              >
+                <Bell className="size-4" />
+                {compUpdates.length > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-crit text-[10px] font-bold text-white">
+                    {compUpdates.length > 99 ? "99+" : compUpdates.length}
+                  </span>
+                )}
+              </button>
+            </div>
             {/* Pemilih bahasa di kiri jam, sesuai permintaan tata letak. */}
             <div className="flex overflow-hidden rounded-md border border-border text-xs" role="group"
               aria-label={t("topbar.language")}>
@@ -657,27 +789,7 @@ export function AppShell() {
           </div>
         </main>
 
-        {!connected && (
-          <div
-            role="alertdialog"
-            aria-live="polite"
-            className="absolute inset-x-0 bottom-0 top-11 z-20 flex flex-col items-center justify-center gap-3 bg-bg/50 text-center"
-          >
-            {gagalSambung ? (
-              <>
-                <p className="text-sm font-medium text-crit">{t("conn.failed")}</p>
-                <Button size="sm" onClick={() => window.location.reload()}>
-                  {t("conn.retry")}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Loader2 className="size-6 animate-spin text-muted" />
-                <p className="text-sm text-muted">{t("conn.connecting")}</p>
-              </>
-            )}
-          </div>
-        )}
+        {!connected && <OverlayTerputus gagalSambung={gagalSambung} />}
       </div>
       {uninstallBuka && (
         <UninstallModal username={user?.username} onClose={() => setUninstallBuka(false)} />

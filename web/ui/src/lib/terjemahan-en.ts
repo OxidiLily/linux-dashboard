@@ -183,12 +183,9 @@ daftarkanTerjemahan({
   "Username Linux": "Linux username",
   "Password Samba": "Samba password",
   "Belum ada Samba share yang dikonfigurasi.": "No Samba share configured yet.",
-  "Windows 10/11 memblokir akses guest secara bawaan":
-    "Windows 10/11 blocks guest access by default",
-  "Share ini akan bekerja dari Linux, macOS, dan Android, tapi Windows menolak login guest lewat SMB2/SMB3 sejak versi 1709 — bukan karena servernya salah. Dua pilihan: beri user Samba dan password lalu matikan Guest OK (dianjurkan), atau longgarkan kebijakan di PC Windows-nya.":
-    "This share will work from Linux, macOS, and Android, but Windows has refused guest logons over SMB2/SMB3 since version 1709 — the server is not at fault. Two options: give it a Samba user and password and turn Guest OK off (recommended), or relax the policy on the Windows PC.",
-  "Di PC Windows, jalankan PowerShell sebagai Administrator:":
-    "On the Windows PC, run PowerShell as Administrator:",
+  "Mode %U membutuhkan minimal satu user Samba yang diizinkan.":
+    "A %U share needs at least one allowed Samba user.",
+  "Share %U butuh minimal satu user Samba yang diizinkan.": "A %U share needs at least one allowed Samba user.",
 
   // ---- storage: pool & nfs ----
   "Gabungkan beberapa folder/disk jadi satu mount point (mergerfs)":
@@ -288,6 +285,8 @@ daftarkanTerjemahan({
   "Salin path berkas": "Copy file path",
   "Path disalin": "Path copied",
   "Gagal menyalin path": "Could not copy the path",
+  "Disalin": "Copied",
+  "Gagal menyalin": "Could not copy",
   "Buka {0} di tab baru": "Open {0} in a new tab",
   "Deploy {0}": "Deploy {0}",
   "Menghentikan {0}": "Stopping {0}",
@@ -364,7 +363,7 @@ daftarkanTerjemahan({
     "Installed system-wide as root — the npm path used by an older panel release. If you use the panel as a regular user, this agent's auto-update will fail every time it runs. Press Install to reinstall it with the vendor's official installer into your own home directory.",
   "Salin path": "Copy path",
   "Salin path folder ini": "Copy the path of this folder",
-  "· live tiap 3 detik": "· live every 3 seconds",
+  "· live": "· live",
 
   // ---- pesan, konfirmasi, dan judul dari seluruh view ----
   "Gagal memuat daftar komponen: {0}": "Failed to load the component list: {0}",
@@ -425,7 +424,6 @@ daftarkanTerjemahan({
   "Gagal memasang {0}: {1}": "Failed to install {0}: {1}",
   "Gagal membaca docker-compose.yml: {0}": "Failed to read docker-compose.yml: {0}",
   "Gagal membaca file .env: {0}": "Failed to read the .env file: {0}",
-  "Gagal membaca log: {0}": "Failed to read the log: {0}",
   "Gagal membaca preview": "Failed to read the preview",
   "Gagal membuat folder: {0}": "Failed to create the folder: {0}",
   "Gagal membuat user: {0}": "Failed to create the user: {0}",
@@ -566,7 +564,6 @@ daftarkanTerjemahan({
   "Sesi tidak valid": "Invalid session",
   "Share \"{0}\" dibuat.": "Share \"{0}\" created.",
   "Share \"{0}\" diperbarui.": "Share \"{0}\" updated.",
-  "Share ini Guest OK — siapa pun di jaringan lokal bisa mengaksesnya tanpa password.": "This share is Guest OK — anyone on the local network can access it without a password.",
   "Shell dan keanggotaan grup diganti sesuai isian. Grup yang tidak dicantumkan akan dicabut.": "Shell and group membership are replaced with what you entered. Groups left out will be revoked.",
   "Sinyal SIGTERM dikirim. Data yang belum disimpan proses ini bisa hilang.": "SIGTERM sent. Unsaved data in this process may be lost.",
   "Stack diperbarui.": "Stack updated.",
@@ -901,13 +898,14 @@ daftarkanTerjemahan({
   "Tambah Samba Share": "Add Samba Share",
   "mis. Media": "e.g. Media",
   "Nama share adalah kunci di smb.conf — hapus lalu buat baru kalau ingin ganti nama.": "The share name is its key in smb.conf — delete and recreate it to rename.",
-  "Guest OK aktif — share ini terbuka tanpa login, jadi daftar user diabaikan smbd. Matikan Guest OK dulu kalau ingin membatasi ke user tertentu.": "Guest OK is on — this share is open without a login, so smbd ignores the user list. Turn Guest OK off first to limit it to specific users.",
   "Belum ada user Samba. Tambahkan dulu di panel User Samba — akun Linux saja tidak cukup.": "No Samba user yet. Add one in the Samba Users panel first — a Linux account alone is not enough.",
   "nonaktif": "disabled",
   "tambahan, mis. @grup": "extra entries, e.g. @group",
   "Kosong = semua user Samba yang terdaftar boleh login ke share ini.": "Empty = every registered Samba user may log in to this share.",
   "Set password Samba untuk share ini (opsional)": "Set a Samba password for this share (optional)",
   "Sesi terminal ditutup": "Terminal session closed",
+  "Sesi terminal container ditutup": "Container terminal session closed",
+  "Terminal": "Terminal",
   "Sesi login tidak valid. Muat ulang halaman untuk login ulang.": "Invalid login session. Reload the page to sign in again.",
   "Akses terminal butuh sudo.": "Terminal access requires sudo.",
   "Kuota sesi terminal penuh. Tutup salah satu sesi aktif, atau naikkan kapasitas di menu Settings.": "The terminal session quota is full. Close an active session, or raise the capacity in the Settings menu.",
@@ -972,9 +970,6 @@ daftarkanTerjemahan({
   "9router → Token Saver": "9router → Token Saver",
   "Password akun ini wajib diganti. Banner SSH \"Default password must be changed\" muncul karena akun masih memakai password bawaan installer.": "This account's password must be changed. The SSH banner \"Default password must be changed\" appears because the account still uses the installer default.",
   "Ganti sekarang": "Change now",
-  "Guest OK akan dinonaktifkan": "Guest OK will be turned off",
-  "Share ini punya daftar user terbatas — Guest OK tidak bisa diaktifkan bersamaan (smbd mengabaikan valid users saat guest ok = yes). Lanjut tanpa Guest OK?": "This share has a limited user list — Guest OK cannot be enabled together with it (smbd ignores valid users when guest ok = yes). Continue without Guest OK?",
-  "Lanjut tanpa Guest OK": "Continue without Guest OK",
   "Coba lagi": "Try again",
   "{0} {1} dari {2} {3} terpakai": "{0} {1} of {2} {3} used",
   "{0} / {1} berjalan": "{0} / {1} running",
@@ -1075,6 +1070,16 @@ daftarkanTerjemahan({
   "Sumber ditarik ulang dari GitHub langsung ke versi paling baru — berapa pun commit yang tertinggal, bukan satu per satu — lalu dibangun ulang dan kedua service di-restart. Panel akan terputus sebentar di akhir proses, dan build bisa memakan beberapa menit di mesin kecil.":
     "The source is pulled again from GitHub straight to the newest version — however many commits behind you are, not one at a time — then rebuilt and both services are restarted. The panel drops briefly at the end, and the build can take several minutes on a small machine.",
   "Perbarui": "Update",
+  "Pembaruan tersedia": "Available updates",
+  "{0} berhasil diperbarui.": "{0} has been updated.",
+  "Gagal memperbarui {0}: {1}": "Failed to update {0}: {1}",
+  "Komponen terpasang yang punya versi baru. Pemeriksaan berjalan otomatis di backend tiap 2 menit — halaman ini menampilkan hasilnya.":
+    "Installed components with newer versions. The backend checks automatically every 2 minutes — this page shows the results.",
+  "Komponen": "Component",
+  "Versi terpasang": "Installed version",
+  "Versi tersedia": "Available version",
+  "Memeriksa pembaruan…": "Checking for updates…",
+  "Tidak ada pembaruan — semua komponen sudah versi terbaru.": "No updates — every component is already on the latest version.",
   "Perbarui sekarang": "Update now",
   "Memperbarui…": "Updating…",
   "Service sedang di-restart — menunggu panel hidup lagi…":
@@ -1524,4 +1529,11 @@ daftarkanTerjemahan({
   "Target Upstream": "Upstream Target",
   "Status TLS": "TLS Status",
   "Sertifikat / Masa Berlaku": "Certificate / Expiry",
+  // halaman error (views/error.tsx)
+  "Koneksi terputus": "Connection lost",
+  "Menyambungkan…": "Connecting…",
+  "Mencoba menyambungkan kembali ke server…": "Trying to reconnect to the server…",
+  "Server tidak merespons — data di layar ini mungkin sudah basi. Muat ulang halaman setelah layanan pulih.":
+    "The server is not responding — the data on this screen may be stale. Reload the page once the service recovers.",
+  "Hubungkan kembali": "Reconnect",
 })

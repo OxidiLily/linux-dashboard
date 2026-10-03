@@ -174,6 +174,14 @@ const (
 	CmdProxyCloudflareRecordDelete = "proxy.cloudflare_record_delete"
 
 	CmdDockerExec = "docker.exec"
+	// docker.logs: stream helper → client, `docker logs -f --tail N <id>`.
+	// Dipisah dari docker.exec karena jalurnya mengambil alih koneksi (log
+	// mengalir selama container hidup), bukan menunggu proses selesai.
+	CmdDockerLogs = "docker.logs" // stream: helper → client
+	// docker.term: shell container lewat PTY (`docker exec -i -t`). Tidak ada
+	// field perintah — shell adalah satu-satunya isi sesi. Butuh sudo karena
+	// setara root di container mana pun.
+	CmdDockerTerm = "docker.term" // stream: duplex
 
 	CmdVPNStatus    = "vpn.status"
 	CmdVPNConfigure = "vpn.configure"
@@ -205,7 +213,6 @@ const (
 	ErrFuseTidakAda      = "fuse_missing"
 	ErrNilaiTidakValid   = "value_invalid"
 	ErrPasswordPendek    = "password_too_short"
-	ErrGuestOKKonflik    = "guest_ok_conflict"
 	ErrAksiBerjalan      = "action_in_progress"
 	ErrDiskAdaFS         = "disk_has_filesystem"
 	ErrDiskDipakai       = "disk_in_use"
@@ -559,8 +566,11 @@ type SambaShare struct {
 	Name     string `json:"name"`
 	Path     string `json:"path"`
 	Writable bool   `json:"writable"`
-	Public   bool   `json:"public"`
-	Comment  string `json:"comment,omitempty"`
+	// Public menerima guest ok dari klien. Bukan fitur yang bisa diaktifkan:
+	// validasiSambaShare menolak nilai true, dan renderSambaShares selalu
+	// menulis guest ok = no. Panel tidak menyediakan share anonim.
+	Public  bool   `json:"public"`
+	Comment string `json:"comment,omitempty"`
 	// Users terdaftar di smbpasswd; password hanya dikirim saat set.
 	ValidUsers []string `json:"valid_users,omitempty"`
 	SmbUser    string   `json:"smb_user,omitempty"`
@@ -982,6 +992,23 @@ type DockerExecArgs struct {
 	// shell. Helper memvalidasi subcommand terhadap whitelist.
 	Args []string `json:"args"`
 	Dir  string   `json:"dir,omitempty"`
+}
+
+// DockerLogsArgs meminta stream log container. Tail dijepit helper ke rentang
+// wajar; ID tidak boleh diawali "-" supaya tidak terbaca sebagai flag.
+type DockerLogsArgs struct {
+	ID   string `json:"id"`
+	Tail int    `json:"tail,omitempty"`
+}
+
+// DockerTermArgs membuka sesi shell container lewat PTY (`docker exec -i -t
+// <id> <shell>`). Tidak ada field perintah: satu-satunya isi sesi adalah shell
+// container, dan shell-nya dipilih helper dari yang tersedia di container
+// (bash → zsh → ash → sh) supaya Tab-completion tetap jalan.
+type DockerTermArgs struct {
+	ID   string `json:"id"`
+	Cols uint16 `json:"cols"`
+	Rows uint16 `json:"rows"`
 }
 
 type ExecResult struct {

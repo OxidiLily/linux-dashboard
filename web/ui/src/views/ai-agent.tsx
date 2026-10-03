@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
-import { apiGet, apiSend } from "@/lib/api"
-import { pesanError } from "@/lib/pesan-error"
+import { apiGet } from "@/lib/api"
 import { Panel } from "@/components/ui/panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { notify } from "@/components/ui/toast"
-import { RefreshCw, Bot, Download, ArrowUpCircle } from "lucide-react"
+import { RefreshCw, Bot, Download } from "lucide-react"
 import { trf, useTr } from "@/stores/i18n"
 import { TerminalError, useTerminalSession } from "@/hooks/use-terminal-session"
 import { cn } from "@/lib/utils"
@@ -91,7 +89,6 @@ export function AIAgentView() {
 
   const [components, setComponents] = useState<ComponentStatus[]>([])
   const [loadingComp, setLoadingComp] = useState(false)
-  const [updating, setUpdating] = useState<string | null>(null)
   const loadSeq = useRef(0)
 
   // fresh=1 dipakai tombol Refresh: tanpa itu helper menjawab dari cache 30
@@ -104,52 +101,12 @@ export function AIAgentView() {
       const data = await apiGet<ComponentStatus[]>(`/api/components${fresh ? "?fresh=1" : ""}`)
       if (seq !== loadSeq.current) return
       setComponents(data || [])
-      // Cek info versi baru di background untuk badge tanpa menahan render katalog
-      apiGet<ComponentStatus[]>("/api/components/updates")
-        .then((updates) => {
-          if (seq !== loadSeq.current || !updates || updates.length === 0) return
-          const byName = new Map(updates.map((item) => [item.name, item]))
-          setComponents((current) =>
-            current.map((item) => {
-              const u = byName.get(item.name)
-              return u && item.installed && u.latest_version
-                ? { ...item, latest_version: u.latest_version }
-                : item
-            }),
-          )
-        })
-        .catch(() => undefined)
+      // Info versi baru tidak diambil di sini — pemeriksaan update kini milik
+      // backend dan tampil lewat ikon notifikasi topbar + halaman /updates.
     } catch {
       // Abaikan error fetch
     } finally {
       if (seq === loadSeq.current) setLoadingComp(false)
-    }
-  }
-
-  const handleUpdate = async (name: string) => {
-    setUpdating(name)
-    try {
-      await notify.tugas(
-        apiSend<{ status?: string; updated?: boolean; message?: string }>(
-          `/api/components/${name}/update`,
-          "POST",
-        ),
-        {
-          jalan: trf("Memeriksa pembaruan {0}…", name),
-          sukses: (res) => {
-            if (res && res.updated === false) {
-              return tr("Sudah di versi yang terbaru")
-            }
-            return trf("{0} berhasil diperbarui.", name)
-          },
-          gagal: (e) => trf("Gagal memperbarui {0}: {1}", name, pesanError(e)),
-        },
-      )
-      loadComponents(true)
-    } catch {
-      // Pesan gagalnya sudah ditampilkan notify.tugas.
-    } finally {
-      setUpdating(null)
     }
   }
 
@@ -204,18 +161,6 @@ export function AIAgentView() {
           >
             <RefreshCw className={cn("size-3.5", loadingComp && "animate-spin")} />
           </Button>
-          {isInstalled && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={updating !== null}
-              onClick={() => handleUpdate(selectedAgent.componentKey)}
-              title={trf("Perbarui {0}", selectedAgent.name)}
-            >
-              <ArrowUpCircle className={cn("mr-1 size-3.5", updating === selectedAgent.componentKey && "animate-spin")} />
-              {tr("Perbarui")}
-            </Button>
-          )}
         </div>
       }
     >
@@ -253,11 +198,6 @@ export function AIAgentView() {
               )}
               {installed && comp?.version && (
                 <span className="num text-[10px] text-muted-foreground">{comp.version}</span>
-              )}
-              {installed && comp?.latest_version && (
-                <Badge tone="warn" className="px-1.5 py-0 text-[10px]">
-                  {comp.latest_version === "commits" ? tr("Commit baru") : trf("v{0}", comp.latest_version)}
-                </Badge>
               )}
             </button>
           )

@@ -827,13 +827,17 @@ defaults.
   the machine and drops a skeleton into `/etc/skel`, so new accounts — created
   from the panel or with `useradd -m` in a terminal — get them right away.
 - `~/DATA/*` is this panel's primary data location. `%U` paths remain available
-  as a legacy/manual mode. Each new concrete-path share receives a dedicated
+  as a legacy/manual mode, but must name at least one allowed Samba user — a
+  share with no user list falls back to "all Samba users", so saving it is
+  rejected. Each new concrete-path share receives a dedicated
   no-login system account, a random password shown only at create/rotate time,
   and read-only/read-write ACLs without changing the directory owner/group.
   Deleting the share from the panel removes its account/ACLs but leaves the
   physical directory intact.
 - **Guest OK shares are disabled.** The root helper rejects anonymous shares
-  and always writes `guest ok = no`. On upgrade, panel-managed legacy Guest OK
+  and always writes `guest ok = no`; the Guest option itself is gone from the
+  UI, the form and the API payload — `public: true` is rejected at the helper
+  boundary. On upgrade, panel-managed legacy Guest OK
   shares are automatically migrated to authenticated shares. A ransomware-
   infected LAN device must not get write access merely by knowing the server
   address.

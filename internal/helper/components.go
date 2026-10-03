@@ -683,9 +683,22 @@ var (
 	updatesUserID    string
 	updatesBaseHash  string
 	updatesComputing bool // true saat goroutine background sedang menghitung
+	// updatesUser adalah identitas sesi TERAKHIR yang meminta cek update.
+	// Pemindaian otomatis tiap intervalScanUpdates memakainya: cek agent
+	// (git ls-remote, registry npm) dijalankan atas nama user panel yang
+	// home-nya benar, tanpa perlu menunggu permintaan berikutnya.
+	updatesUser *userInfo
 )
 
-const umurCacheUpdates = 10 * time.Minute
+// intervalScanUpdates adalah jeda pemindaian update otomatis di backend.
+// Hasilnya masuk ke updatesCache, jadi badge notifikasi topbar dan halaman
+// Pembaruan selalu punya data walau tab panel tidak pernah memuat ulang.
+const intervalScanUpdates = 2 * time.Minute
+
+// umurCacheUpdates dipakai jalur permintaan (bukan scan otomatis): scan
+// menulis cache tiap 2 menit, jadi umur 2 menit berarti request hampir
+// selalu dapat data segar dan jarang memicu hitung ulang sendiri.
+const umurCacheUpdates = intervalScanUpdates
 
 func hashBase(base []helperproto.ComponentStatus) string {
 	h := fnv.New64a()
@@ -713,6 +726,10 @@ func ComponentUpdates(base []helperproto.ComponentStatus, u *userInfo) []helperp
 	baseHash := hashBase(base)
 
 	updatesMu.Lock()
+	// Identitas terakhir dipakai scan otomatis (lihat scanUpdateOtomatis).
+	if u != nil {
+		updatesUser = u
+	}
 	// Cache hit segar: kembalikan langsung
 	if updatesCache != nil && updatesUserID == userID && updatesBaseHash == baseHash && time.Since(updatesWaktu) < umurCacheUpdates {
 		cached := updatesCache
@@ -780,6 +797,39 @@ func computeUpdates(base []helperproto.ComponentStatus, u *userInfo) []helperpro
 	}
 	wg.Wait()
 	return out
+}
+
+// scanUpdateOtomatis menjalankan cek update berkala DI BACKEND tanpa
+// menunggu permintaan browser: tiap intervalScanUpdates hasil terbaru masuk
+// ke updatesCache, sehingga badge notifikasi topbar dan halaman Pembaruan
+// selalu menyimpan daftar segar. Dijalankan sebagai goroutine dari Serve().
+//
+// Pemindaian berhenti kalau belum ada sesi yang pernah meminta cek (tidak
+// ada identitas home/UID untuk mengecek instalasi agent) atau hitung lain
+// sedang berjalan — satu pemeriksaan jaringan per siklus sudah cukup.
+func scanUpdateOtomatis() {
+	t := time.NewTicker(intervalScanUpdates)
+	for range t.C {
+		updatesMu.Lock()
+		u := updatesUser
+		if u == nil || updatesComputing {
+			updatesMu.Unlock()
+			continue
+		}
+		updatesComputing = true
+		updatesMu.Unlock()
+
+		base := AllComponentStatus()
+		fresh := computeUpdates(base, u)
+
+		updatesMu.Lock()
+		updatesCache = fresh
+		updatesWaktu = time.Now()
+		updatesUserID = fmt.Sprintf("%d", u.UID)
+		updatesBaseHash = hashBase(base)
+		updatesComputing = false
+		updatesMu.Unlock()
+	}
 }
 
 // lupakanCacheUpdates dibuang setelah aksi install/uninstall/update.
@@ -2474,7 +2524,10 @@ var (
 	}{}
 )
 
-const umurCacheTerbaru = time.Hour
+// umurCacheTerbaru mengikuti interval scan update backend: registry npm
+// dicek ulang tiap siklus supaya rilis baru terdeteksi dalam hitungan menit,
+// bukan tertahan cache per-jam.
+const umurCacheTerbaru = intervalScanUpdates
 
 func versiTerbaruNpm(paket string) string {
 	terbaruMu.Lock()

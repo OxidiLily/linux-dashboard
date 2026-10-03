@@ -10,16 +10,17 @@ import { trf, useTr } from "@/stores/i18n"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { salinKeClipboard } from "@/lib/utils"
 import { Share2, Trash2, Plus, RefreshCw, Pencil, UserCog, KeyRound, Lock, Unlock } from "lucide-react"
 
-// Backend helperproto.SambaShare: Name, Path, Writable, Public, Comment,
-// ValidUsers []string, SmbUser, SmbPass. Public = guest_ok di smb.conf.
+// Backend helperproto.SambaShare: Name, Path, Writable, Comment,
+// ValidUsers []string, SmbUser, SmbPass. Guest OK tidak pernah dikirim — panel
+// tidak membuat share anonim; backend menolak `public: true` secara fail-closed.
 type SambaShare = {
   name: string
   path: string
   comment?: string
   writable?: boolean
-  public?: boolean // legacy/external only; panel tidak membuat share anonim baru
   valid_users?: string[]
   /** Didefinisikan di smb.conf di luar panel — tampil, tapi tidak diedit dari sini. */
   external?: boolean
@@ -40,7 +41,6 @@ const FORM_KOSONG = {
   path: "",
   comment: "",
   writable: true,
-  public: false,
   valid_users: "",
   smb_user: "",
   smb_pass: "",
@@ -64,7 +64,6 @@ export function SambaView() {
     path: string
     comment: string
     writable: boolean
-    public: boolean
     valid_users: string
     smb_user: string
     smb_pass: string
@@ -103,7 +102,6 @@ export function SambaView() {
       path: s.path,
       comment: s.comment ?? "",
       writable: s.writable ?? false,
-      public: false,
       // Entri yang bukan user Samba terdaftar (mis. @grup) tetap bisa diedit.
       valid_users: semua.filter((u) => !terdaftar.includes(u)).join(", "),
       smb_user: "",
@@ -124,7 +122,8 @@ export function SambaView() {
       name: form.name,
       path: form.path,
       writable: form.writable,
-      public: form.public,
+      // Guest OK tidak pernah dikirim; helper root menolak `public: true`
+      // secara fail-closed dan renderer selalu menulis `guest ok = no`.
     }
     if (form.comment.trim()) body.comment = form.comment.trim()
     const tambahan = form.valid_users
@@ -133,12 +132,21 @@ export function SambaView() {
       .filter(Boolean)
     const daftar = [...pilihanUser, ...tambahan]
     if (daftar.length > 0) body.valid_users = daftar
-    // Guest OK tidak pernah dikirim. Backend juga menolaknya secara fail-closed
-    // agar klien/API lama tidak bisa membuka share anonim.
-    body.public = false
     if (form.smb_user.trim() && form.smb_pass) {
       body.smb_user = form.smb_user.trim()
       body.smb_pass = form.smb_pass
+    }
+    // Auth wajib. Share %U tidak pernah mendapat akun managed, jadi tanpa user
+    // ia jatuh ke "semua user Samba". Backend menolak hal yang sama sebelum
+    // menulis config; dicek di sini supaya pesannya menyebut pilihan yang
+    // harus diisi, bukan "nilai tidak valid".
+    if (
+      form.path.includes("%U") &&
+      daftar.length === 0 &&
+      !(form.smb_user.trim() && form.smb_pass)
+    ) {
+      notify.err(tr("Share %U butuh minimal satu user Samba yang diizinkan."))
+      return
     }
     const ok = await confirmDialog({
       title: editing ? trf("Simpan perubahan share \"{0}\"?", form.name) : trf("Simpan share \"{0}\"?", form.name),
@@ -164,6 +172,17 @@ export function SambaView() {
       load()
     } catch {
       // Pesan gagalnya sudah ditampilkan notify.tugas.
+    }
+  }
+
+  // navigator.clipboard hanya ada di secure context (https/localhost), sedangkan
+  // panel dibuka lewat http ke IP LAN — tombol salin mati diam-diam tanpa
+  // fallback. Lihat catatan di lib/utils salinKeClipboard.
+  const salin = async (teks: string) => {
+    if (await salinKeClipboard(teks)) {
+      notify.ok(tr("Disalin"))
+    } else {
+      notify.err(tr("Gagal menyalin"))
     }
   }
 
@@ -311,13 +330,9 @@ export function SambaView() {
                   <p className="font-semibold text-sm">{s.name}</p>
                   {s.external && <Badge tone="warn">{tr("dari smb.conf")}</Badge>}
                   <Badge tone={s.writable ? "ok" : "muted"}>{s.writable ? "Read/Write" : "Read-Only"}</Badge>
-                  {s.public && <Badge tone="warn">{tr("Guest OK")}</Badge>}
-                  {!s.public &&
-                    (s.valid_users && s.valid_users.length > 0 ? (
-                      <Badge tone="signal">{s.valid_users.join(", ")}</Badge>
-                    ) : (
-                      <Badge tone="muted">{tr("semua user Samba")}</Badge>
-                    ))}
+                  <Badge tone="signal">
+                    {s.valid_users && s.valid_users.length > 0 ? s.valid_users.join(", ") : tr("semua user Samba")}
+                  </Badge>
                 </div>
                 <p className="num text-xs text-muted-foreground mt-0.5">{s.path}</p>
                 {s.comment && <p className="text-xs text-muted-foreground">{s.comment}</p>}
@@ -443,9 +458,9 @@ export function SambaView() {
           <p className="text-sm font-semibold">{tr("Simpan Kredensial Samba")}</p>
           <p className="mt-1 text-xs text-warn">{tr("Password ini hanya ditampilkan sekali.")}</p>
           <label className="mt-3 block text-xs text-muted-foreground">{tr("Username")}</label>
-          <div className="mt-1 flex gap-2"><Input readOnly value={credential.username} /><Button type="button" variant="outline" onClick={() => navigator.clipboard.writeText(credential.username)}>{tr("Salin")}</Button></div>
+          <div className="mt-1 flex gap-2"><Input readOnly value={credential.username} /><Button type="button" variant="outline" onClick={() => void salin(credential.username)}>{tr("Salin")}</Button></div>
           <label className="mt-3 block text-xs text-muted-foreground">{tr("Password")}</label>
-          <div className="mt-1 flex gap-2"><Input readOnly value={credential.password} /><Button type="button" variant="outline" onClick={() => navigator.clipboard.writeText(credential.password ?? "")}>{tr("Salin")}</Button></div>
+          <div className="mt-1 flex gap-2"><Input readOnly value={credential.password} /><Button type="button" variant="outline" onClick={() => void salin(credential.password ?? "")}>{tr("Salin")}</Button></div>
           <div className="mt-4 flex justify-end"><Button type="button" onClick={() => setCredential(null)}>{tr("Sudah Disimpan")}</Button></div>
         </div>
       </div>
@@ -548,7 +563,7 @@ export function SambaView() {
                 </label>
                 {users.length === 0 ? (
                   <p className="mt-1 text-[11px] text-warn">
-                    {tr("Mode %U membutuhkan user Samba manual; Guest OK tetap dinonaktifkan.")}
+                    {tr("Mode %U membutuhkan minimal satu user Samba yang diizinkan.")}
                   </p>
                 ) : (
                   <div className="mt-1 space-y-1 rounded border border-border p-2">
@@ -587,12 +602,6 @@ export function SambaView() {
                 />
                 <span>{tr("Writable (Read/Write)")}</span>
               </label>
-            </div>
-            <div className="rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs">
-              <p className="font-semibold">{tr("Guest OK dinonaktifkan")}</p>
-              <p className="mt-1 text-muted-foreground">
-                {tr("Akses SMB anonim memungkinkan malware atau ransomware dari satu perangkat LAN mengubah seluruh share tanpa kredensial. Gunakan user Samba dan password.")}
-              </p>
             </div>
             {form.path.includes("%U") && (
               <details className="rounded border border-border p-2">

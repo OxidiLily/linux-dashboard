@@ -176,7 +176,7 @@ func versiBaruAgen(name string, u *userInfo) string {
 	}
 	key := fmt.Sprintf("%d:%s:%s", u.UID, name, path)
 	cacheAgenBaru.Lock()
-	if c, ok := cacheAgenBaru.items[key]; ok && time.Since(c.at) < time.Hour {
+	if c, ok := cacheAgenBaru.items[key]; ok && time.Since(c.at) < intervalScanUpdates {
 		cacheAgenBaru.Unlock()
 		return c.version
 	}
@@ -189,6 +189,20 @@ func versiBaruAgen(name string, u *userInfo) string {
 	}{version, time.Now()}
 	cacheAgenBaru.Unlock()
 	return version
+}
+
+// pesanUpdateHermes mengambil baris jumlah commit dari keluaran
+// `hermes --version` ("Update available: 728 commits behind — run 'hermes update'").
+// Mengembalikan teks setelah "Update available: " supaya badge notifikasi
+// bisa menyebut angkanya; "" kalau keluaran tidak memuat baris itu.
+func pesanUpdateHermes(out string) string {
+	for _, baris := range strings.Split(out, "\n") {
+		baris = strings.TrimSpace(baris)
+		if sisa, ok := strings.CutPrefix(baris, "Update available:"); ok {
+			return strings.TrimSpace(sisa)
+		}
+	}
+	return ""
 }
 
 func cekUpdateAgenLangsung(name string, u *userInfo, path string) (bool, string, error) {
@@ -208,6 +222,14 @@ func cekUpdateAgenLangsung(name string, u *userInfo, path string) (bool, string,
 					remoteSha := fields[0]
 					if headSha != "" && remoteSha == headSha {
 						return false, "", nil // Sudah versi terbaru di repo
+					}
+					// Ada commit baru: ambil teks jumlahnya dari --version
+					// ("728 commits behind — run 'hermes update'") supaya
+					// notifikasi panel menyebut angkanya, bukan cuma "commits".
+					if out, err := jalankanAgen(u, 6*time.Second, path, "--version"); err == nil {
+						if pesan := pesanUpdateHermes(out); pesan != "" {
+							return true, pesan, nil
+						}
 					}
 					return true, "commits", nil // Ada commit baru di remote
 				}
