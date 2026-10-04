@@ -93,7 +93,13 @@ func siapkanConfigHermes(u *userInfo, kunci string) {
 	dir := filepath.Join(u.Home, ".hermes")
 
 	cfg := filepath.Join(dir, "config.yaml")
-	isi, _ := os.ReadFile(cfg)
+	isi, err := bacaBerkasAgen(u, cfg)
+	if err != nil && !os.IsNotExist(err) {
+		if _, statErr := os.Lstat(cfg); !os.IsNotExist(statErr) {
+			log.Printf("config hermes: berkas tidak terbaca oleh user")
+			return
+		}
+	}
 	if !punyaKunciYAML(string(isi), "model") {
 		// Blok ditaruh di DEPAN, bukan di belakang: config yang sudah ada
 		// bisa berakhir di tengah blok bersarang, dan menempel di sana akan
@@ -107,12 +113,19 @@ func siapkanConfigHermes(u *userInfo, kunci string) {
 	// Config yang diarahkan user ke OpenAI atau Anthropic memakai
 	// OPENAI_API_KEY untuk kunci yang sama sekali lain, dan menimpanya akan
 	// merusak setelan yang sengaja dibuat.
-	if isiAkhir, _ := os.ReadFile(cfg); !strings.Contains(string(isiAkhir), base9Router) {
+	isiAkhir, err := bacaBerkasAgen(u, cfg)
+	if err != nil || !strings.Contains(string(isiAkhir), base9Router) {
 		return
 	}
 
 	env := filepath.Join(dir, ".env")
-	isiEnv, _ := os.ReadFile(env)
+	isiEnv, err := bacaBerkasAgen(u, env)
+	if err != nil {
+		if _, statErr := os.Lstat(env); !os.IsNotExist(statErr) {
+			log.Printf("config hermes: env tidak terbaca oleh user")
+			return
+		}
+	}
 	if lama, ada := nilaiVarEnv(string(isiEnv), "OPENAI_API_KEY"); ada && lama == kunci {
 		return
 	}
@@ -142,37 +155,65 @@ func siapkanConfigHermes(u *userInfo, kunci string) {
 // melambat, pindahkan pemanggilannya ke setelah PTY hidup seperti
 // perbaikiAgent, supaya user melihat prosesnya alih-alih terminal kosong.
 func siapkanConfigOpenClaw(u *userInfo, kunci string) {
-	if sudahPunyaProviderOpenClaw(filepath.Join(u.Home, ".openclaw", "openclaw.json"), kunci) {
+	if sudahPunyaProviderOpenClaw(u, filepath.Join(u.Home, ".openclaw", "openclaw.json"), kunci) {
 		return
 	}
-	err := jalankanSebagaiUser(u, "openclaw", "onboard",
+	if err := konfigurasiOpenClaw9Router(u, kunci, jalankanSebagaiUser); err != nil {
+		// CLI output may echo credentials from existing config. Never log it.
+		log.Printf("config openclaw: konfigurasi SecretRef 9router gagal untuk %s", u.Name)
+	}
+}
+
+// Only the existing caller's account receives the key; no shared file or new
+// recipient list. The existing gateway key grants gateway-wide access, not a
+// per-account capability: this transport fix does not broaden that policy.
+func konfigurasiOpenClaw9Router(u *userInfo, kunci string, run func(*userInfo, string, ...string) error) error {
+	if kunci == "" {
+		return fmt.Errorf("kunci 9router kosong")
+	}
+	// Onboard without a credential first. Older CLIs must reject ref mode,
+	// never fall back to plaintext argv. Verified with OpenClaw 2026.9.8.
+	if err := run(u, "openclaw", "onboard",
 		"--non-interactive", "--accept-risk", "--skip-health",
-		"--auth-choice", "custom-api-key",
+		"--auth-choice", "custom-api-key", "--secret-input-mode", "ref",
 		"--custom-provider-id", idProvider9Router,
 		"--custom-base-url", base9Router,
-		"--custom-api-key", kunci,
 		"--custom-model-id", model9Router,
 		"--custom-compatibility", "openai",
-	)
-	if err != nil {
-		log.Printf("config openclaw: onboarding 9router untuk %s: %v", u.Name, err)
+	); err != nil {
+		return fmt.Errorf("onboarding SecretRef tidak tersedia")
 	}
+	// A dedicated singleValue file avoids merging or overwriting the user's
+	// dotenv. The shared writer rejects unsafe .env modes, links and owners.
+	path := filepath.Join(u.Home, ".openclaw", "linux-dashboard-9router", ".env")
+	provider, _ := json.Marshal(map[string]string{"source": "file", "path": path, "mode": "singleValue"})
+	if err := run(u, "openclaw", "config", "set", "secrets.providers.panel9router", string(provider), "--strict-json"); err != nil {
+		return fmt.Errorf("provider secret file tidak didukung")
+	}
+	if err := tulisBerkasUser(path, kunci, u, 0o600); err != nil {
+		return fmt.Errorf("penulisan secret 9router gagal")
+	}
+	if err := run(u, "openclaw", "config", "set", "models.providers.9router.apiKey",
+		`{"source":"file","provider":"panel9router","id":"value"}`, "--strict-json"); err != nil {
+		return fmt.Errorf("pemasangan SecretRef 9router gagal")
+	}
+	return nil
 }
 
 // sudahPunyaProviderOpenClaw membaca config OpenClaw sebagai JSON, bukan
 // mencari potongan teks: nama "9router" bisa muncul di mana saja dalam berkas
 // itu — komentar, nama model, URL — dan yang menentukan hanyalah apakah ia
 // terdaftar sebagai provider.
-func sudahPunyaProviderOpenClaw(path, kunci string) bool {
-	b, err := os.ReadFile(path)
+func sudahPunyaProviderOpenClaw(u *userInfo, path, kunci string) bool {
+	b, err := bacaBerkasAgen(u, path)
 	if err != nil {
 		return false
 	}
 	var cfg struct {
 		Models struct {
 			Providers map[string]struct {
-				BaseURL string `json:"baseUrl"`
-				APIKey  string `json:"apiKey"`
+				BaseURL string          `json:"baseUrl"`
+				APIKey  json.RawMessage `json:"apiKey"`
 			} `json:"providers"`
 		} `json:"models"`
 	}
@@ -191,7 +232,19 @@ func sudahPunyaProviderOpenClaw(path, kunci string) bool {
 	// membuat "Default Key" baru. Onboarding diulang supaya tersambung lagi.
 	// Provider yang menunjuk URL lain sengaja dibiarkan: itu bukan gateway
 	// kita meski namanya sama.
-	return p.BaseURL != base9Router || p.APIKey == kunci
+	if p.BaseURL != base9Router {
+		return true
+	}
+	var plain string
+	if json.Unmarshal(p.APIKey, &plain) == nil {
+		return plain == kunci
+	}
+	var ref struct{ Source, Provider, ID string }
+	if json.Unmarshal(p.APIKey, &ref) != nil || ref.Source != "file" || ref.Provider != "panel9router" || ref.ID != "value" {
+		return true // User-managed references are not ours to replace.
+	}
+	secret, err := bacaBerkasAgen(u, filepath.Join(u.Home, ".openclaw", "linux-dashboard-9router", ".env"))
+	return err == nil && strings.TrimSpace(string(secret)) == kunci
 }
 
 // ---- kunci API 9router ---------------------------------------------------

@@ -19,6 +19,9 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 # yang dicegah hanya ikut ter-push. Konsekuensinya: klon baru tidak punya
 # proteksi regresi, jadi test harus dijalankan dari mesin yang menyimpannya.
 *_test.go
+!internal/helper/aiarahan_policy_test.go
+!internal/helper/aiarahan_write_test.go
+!deploy/test_install_ai_state.py
 
 # Test regresi fitur cron wajib ikut source tree/CI. Pola lama di atas tetap
 # dipertahankan untuk keputusan historis proyek, tetapi test fitur baru tidak
@@ -109,4 +112,6 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 # penutupan sesi saat proses di container keluar, dan penjagaan sesi/sudo.
 !internal/helper/docker_term_test.go
 !internal/api/ws_docker_term_test.go
+# AI agent writer security: descriptor-pinned writes, SecretRef, seed installer.
+!internal/helper/ai9router_secret_test.go
 web/dist.bak/
