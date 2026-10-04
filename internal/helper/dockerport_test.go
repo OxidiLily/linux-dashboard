@@ -221,14 +221,13 @@ func TestSinkronMelewatiPortKomponen(t *testing.T) {
 		"445/tcp":   ikatanDocker("0.0.0.0", "445"),   // samba
 		"22/tcp":    ikatanDocker("0.0.0.0", "22"),    // akses admin (SSH)
 		"20128/tcp": ikatanDocker("0.0.0.0", "20128"), // 9router
-		"5055/tcp":  ikatanDocker("0.0.0.0", "5055"),  // arkon
 		"19999/tcp": ikatanDocker("0.0.0.0", "19999"), // tidak diklaim siapa pun
 	}))
 	u.sinkron()
 
 	for _, d := range u.izinDibuka() {
 		switch d {
-		case "445/tcp", "22/tcp", "20128/tcp", "5055/tcp":
+		case "445/tcp", "22/tcp", "20128/tcp":
 			t.Errorf("port %s dideklarasikan komponen/akses admin, tidak boleh dibuka reconciler", d)
 		}
 	}

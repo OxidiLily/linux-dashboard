@@ -587,7 +587,6 @@ sedang nonaktif:
 | print-server | 631/tcp |
 | 9router | 20128/tcp |
 | supabase | 8000/tcp · 5432/tcp · 6543/tcp |
-| arkon | 5055/tcp · 3119/tcp |
 | stalwart | 8080/tcp · 443/tcp · 25/tcp · 465/tcp · 993/tcp · 995/tcp · 4190/tcp |
 | tailscale | 41641/udp |
 

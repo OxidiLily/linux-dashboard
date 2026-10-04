@@ -53,11 +53,9 @@ class MigrationTest(unittest.TestCase):
         self.file("stalwart-password")
         self.file("tailscale-authkey.mask")
         self.file("ponytail.terpasang", mode=0o644)
-        self.file("arkon/tier-viewer.json")
-        self.file("arkon/tier-pengelola.json")
         (self.new / "stalwart-password").write_bytes(b"newer")
         self.migrate()
-        for name in ("9router-password", "tailscale-authkey.mask", "ponytail.terpasang", "arkon/tier-viewer.json", "arkon/tier-pengelola.json"):
+        for name in ("9router-password", "tailscale-authkey.mask", "ponytail.terpasang"):
             self.assertFalse((self.old / name).exists(), name)
             self.assertEqual((self.new / name).read_bytes(), b"synthetic")
             self.assertEqual(stat.S_IMODE((self.new / name).stat().st_mode), 0o600)
@@ -68,23 +66,15 @@ class MigrationTest(unittest.TestCase):
     def test_rejects_web_owned_loose_symlink_hardlink_and_untrusted_directory(self):
         owner = self.file("9router-password")
         loose = self.file("stalwart-password", mode=0o666)
-        self.file("tailscale-authkey.mask")
+        hard = self.file("tailscale-authkey.mask")
         os.symlink("stalwart-password", self.old / "ponytail.terpasang")
-        extra = self.file("arkon/tier-viewer.json")
-        os.link(extra, self.old / "arkon/tier-pengelola.json")
+        os.link(hard, self.old / "decoy-hardlink")  # nlink=2 pada entri daftar-migrasi
         self.migrate((owner.stat().st_ino,))
         self.assertFalse((self.new / owner.name).exists())
         self.assertFalse((self.new / loose.name).exists())
         self.assertFalse((self.new / "ponytail.terpasang").exists())
-        self.assertFalse((self.new / "arkon/tier-pengelola.json").exists())
-        self.assertFalse((self.new / "arkon/tier-viewer.json").exists())  # hardlinked source rejected
-        self.assertTrue((self.new / "tailscale-authkey.mask").exists())
+        self.assertFalse((self.new / "tailscale-authkey.mask").exists())  # hardlinked source rejected
         self.assertTrue(owner.exists())
-
-    def test_rejects_untrusted_arkon_directory(self):
-        self.file("arkon/tier-viewer.json")
-        self.migrate(((self.old / "arkon").stat().st_ino,))
-        self.assertFalse((self.new / "arkon").exists())
 
 
 if __name__ == "__main__":

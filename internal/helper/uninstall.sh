@@ -109,7 +109,7 @@ if [[ "$MODE" == "total" || "$MODE" == "total-data" ]]; then
     systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
   done
   rm -rf /var/lib/docker /var/lib/containerd /etc/docker /var/run/docker.sock /var/run/docker
-  rm -rf /opt/supabase /opt/arkon /opt/headroom /opt/pipx /opt/dotnet
+  rm -rf /opt/supabase /opt/headroom /opt/pipx /opt/dotnet
   rm -f /usr/local/bin/9router /usr/bin/9router /usr/local/bin/headroom /usr/local/bin/rtk /usr/local/bin/graphify /usr/local/bin/browser-use*
   rm -rf /usr/local/lib/hermes-agent /usr/lib/node_modules/9router /usr/local/lib/node_modules/9router
   rm -f /etc/systemd/system/9router.service /etc/systemd/system/headroom.service
