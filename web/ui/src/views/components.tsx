@@ -209,7 +209,7 @@ export function ComponentsView() {
         : name === "nginx"
           ? tr("Semua domain dan rule Proxy Manager akan dihapus dari panel bersama konfigurasi nginx miliknya. Setelah nginx dipasang ulang, panel kembali ke rule bawaan tanpa domain. Sertifikat Certbot tidak ikut dihapus.")
           : agen
-            ? tr("Biner, konfigurasi, dan data agent ini dihapus seluruhnya — termasuk riwayat sesi, daftar server MCP, dan kredensialnya. Alat yang dipakai bersama agent (rtk, graphify, ponytail, browser-use, arkon) tidak ikut terhapus. Tidak bisa dibatalkan.")
+            ? tr("Biner, konfigurasi, dan data agent ini dihapus seluruhnya — termasuk riwayat sesi, daftar server MCP, dan kredensialnya. Alat yang dipakai bersama agent (rtk, graphify, ponytail, browser-use) tidak ikut terhapus. Tidak bisa dibatalkan.")
             : punyaData
               ? tr("Paketnya dicopot. Data yang sudah dibuat komponen ini tetap disimpan, kecuali kamu memilih menghapusnya di bawah.")
               : tr("Paket dicopot lewat apt. Konfigurasi dan data yang sudah dibuat komponen ini tidak ikut dibersihkan."),
@@ -287,7 +287,7 @@ export function ComponentsView() {
   // Komponen yang punya antarmuka web sendiri — tombol "Buka" muncul di
   // kartunya. Portnya ada di backend (handleOpenURL), bukan di sini: yang
   // perlu diketahui halaman ini cuma komponen mana yang punya halaman.
-  const punyaUIWeb = ["9router", "technitium-dns", "supabase", "arkon", "stalwart"]
+  const punyaUIWeb = ["9router", "technitium-dns", "supabase", "stalwart"]
 
   // bukaUIWeb membuka tab baru ke URL yang dikembalikan server. Pakai
   // endpoint (bukan hard-code "http://localhost:20128") supaya WSL/lxc

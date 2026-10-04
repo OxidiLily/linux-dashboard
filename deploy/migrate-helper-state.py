@@ -61,34 +61,6 @@ try:
         sys.exit(0)
     for name in ("9router-password", "stalwart-password", "tailscale-authkey.mask", "ponytail.terpasang"):
         move(old, new, name, name == "ponytail.terpasang")
-    try:
-        arkon = os.open("arkon", FLAGS, dir_fd=old)
-    except (FileNotFoundError, NotADirectoryError, OSError):
-        pass
-    else:
-        try:
-            try:
-                directory(arkon, 0o700)
-            except ValueError:
-                pass  # untrusted legacy directory; do not read its entries
-            else:
-                try:
-                    os.mkdir("arkon", 0o700, dir_fd=new)
-                except FileExistsError:
-                    pass
-                target = os.open("arkon", FLAGS, dir_fd=new)
-                try:
-                    directory(target, 0o700)
-                    for name in ("tier-pengelola.json", "tier-viewer.json"):
-                        move(arkon, target, name)
-                finally:
-                    os.close(target)
-                try:
-                    os.rmdir("arkon", dir_fd=old)
-                except OSError:
-                    pass  # leave unexpected files untouched
-        finally:
-            os.close(arkon)
 finally:
     os.close(old)
     os.close(new)

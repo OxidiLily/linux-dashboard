@@ -409,10 +409,9 @@ func bersihkanANSI(s string) string {
 //
 // Yang SENGAJA tidak ada di sini — dan tidak boleh dimasukkan:
 //
-//   - alat lintas agent (rtk, graphify, ponytail, browser-use) dan
-//   - sumber pengetahuannya (arkon),
+//   - alat lintas agent (rtk, graphify, ponytail, browser-use),
 //
-// keduanya dipakai BERSAMA lima agent. Mencabutnya bersama satu agent
+// yang dipakai BERSAMA lima agent. Mencabutnya bersama satu agent
 // mematikan alat itu untuk agent lain yang masih terpasang.
 //
 // Direktori konfigurasi dihapus bulat, bukan disunting satu per satu: riwayat

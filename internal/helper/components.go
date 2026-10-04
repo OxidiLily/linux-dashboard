@@ -232,29 +232,6 @@ var components = map[string]*component{
 	}, portKomponen{portGatewaySupabase, "tcp", "API gateway & Studio"},
 		portKomponen{"5432", "tcp", "Postgres"},
 		portKomponen{"6543", "tcp", "pooler Supavisor"}),
-	// Arkon sejenis Supabase dalam bentuk — stack docker compose di /opt — tapi
-	// masuk kategori AI, bukan Database & backend, karena yang dipakai panel
-	// darinya adalah endpoint MCP-nya: ia menjadi sumber pengetahuan untuk
-	// kelima CLI agent, bukan backend untuk aplikasi user. Pendaftarannya ke
-	// tiap agent ada di arkonmcp.go.
-	//
-	// installUser, bukan install: pemasangannya menyeret Docker ikut terpasang,
-	// dan user yang menekan Pasang harus masuk grup docker supaya halaman
-	// System → Docker bisa mengelola stack-nya.
-	//
-	// Port MinIO (9002/9003) sengaja tidak ikut didaftarkan — lihat arkon.go.
-	"arkon": denganPort(&component{
-		Name: "arkon", Category: katAI, Label: "Arkon",
-		Description: "Knowledge hub self-hosted + server MCP (FastAPI, Postgres/pgvector, Redis, MinIO, Next.js) di atas Docker Compose. Terpasang, ia otomatis didaftarkan sebagai sumber pengetahuan di setiap sesi AI Agent.",
-		RequiredFor: "AI → AI Agent",
-		KelolaDi:    "System → Docker",
-		installUser: installArkon,
-		uninstall:   uninstallArkon,
-		purge:       purgeArkon,
-		terpasang:   arkonTerpasang,
-		version:     versiArkon,
-	}, portKomponen{portAPIArkon, "tcp", "API & endpoint MCP"},
-		portKomponen{portWebArkon, "tcp", "portal admin"}),
 	"tailscale": denganPort(&component{
 		Name: "tailscale", Binary: "tailscale", Service: "tailscaled", Label: "Tailscale",
 		Category: katRuntime, Description: "Mesh VPN berbasis WireGuard, akses remote tanpa buka port.",
@@ -503,7 +480,7 @@ func ComponentNames() []string {
 	return []string{
 		"nginx", "certbot", "docker", "nodejs", "tailscale", "cloudflared", "9router",
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
-		"rtk", "graphify", "ponytail", "browser-use", "arkon",
+		"rtk", "graphify", "ponytail", "browser-use",
 		"supabase",
 		"samba", "nfs-server", "nfs-client", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs", "stalwart",
 		"ufw", "fail2ban",
@@ -552,9 +529,6 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	}
 	if st.Installed && name == "supabase" {
 		st.Note = catatanSupabase
-	}
-	if st.Installed && name == "arkon" {
-		st.Note = catatanArkon
 	}
 	if st.Installed && name == "stalwart" {
 		// Berkas env diselaraskan TANPA me-restart service: inilah jalur yang
@@ -1663,7 +1637,7 @@ func purgeDocker() error {
 }
 
 func bersihkanDockerLengkap() {
-	for _, dir := range []string{"/opt/supabase/supabase-project", "/opt/arkon/arkon"} {
+	for _, dir := range []string{"/opt/supabase/supabase-project"} {
 		if _, err := os.Stat(dir); err == nil {
 			_, _ = runIn(dir, nil, "docker", "compose", "down", "-v", "--remove-orphans")
 		}

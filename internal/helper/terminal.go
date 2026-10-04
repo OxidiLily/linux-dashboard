@@ -55,10 +55,6 @@ func (s *Server) handleTerminal(conn net.Conn, br *bufio.Reader, u *userInfo, re
 		// Jawabannya di panel ini selalu 9router di mesin yang sama, jadi
 		// ditulis di muka — hanya kalau user belum pernah memilih sendiri.
 		siapkanProvider9Router(u, args.Command)
-		// Arkon didaftarkan sebagai server MCP dengan token yang dipilih dari
-		// grup Linux user ini — lihat arkonmcp.go. Dilewati sendiri kalau
-		// komponennya belum terpasang.
-		siapkanArkonMCP(u, args.Command)
 	}
 
 	cmd := exec.Command(shell, "-l")

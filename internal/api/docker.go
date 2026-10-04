@@ -242,10 +242,10 @@ func argsCompose(st store.Stack, pemegang map[string]string) []string {
 	args = append(args, "-f", st.ComposePath)
 	// `-f` eksplisit mematikan pemuatan otomatis berkas override yang
 	// dilakukan compose saat dipanggil tanpa -f. Stack yang menyimpan
-	// penyesuaiannya di docker-compose.override.yml — Arkon meletakkan sumber
-	// image MinIO di sana — akan dijalankan panel dengan konfigurasi yang
-	// BERBEDA dari `docker compose up` yang diketik user di foldernya, dan
-	// tidak ada satu pun pesan yang menyebut override sebagai bedanya.
+	// penyesuaiannya di docker-compose.override.yml akan dijalankan panel
+	// dengan konfigurasi yang BERBEDA dari `docker compose up` yang diketik
+	// user di foldernya, dan tidak ada satu pun pesan yang menyebut
+	// override sebagai bedanya.
 	if o := berkasOverride(st.ComposePath); o != "" {
 		args = append(args, "-f", o)
 	}
@@ -301,11 +301,6 @@ var stackKomponen = []struct{ nama, compose, ket string }{
 	{
 		"supabase",
 		"/opt/supabase/supabase-project/docker-compose.yml",
-		"Dipasang dari Settings → Components.",
-	},
-	{
-		"arkon",
-		"/opt/arkon/arkon/docker-compose.yml",
 		"Dipasang dari Settings → Components.",
 	},
 }
@@ -417,7 +412,7 @@ var polaTugasSelesai = regexp.MustCompile(`([A-Za-z0-9_.-]+):service_completed_s
 //
 // Container yang dinyatakan compose sebagai TUGAS — service yang ditunggu
 // service lain dengan condition service_completed_successfully, seperti
-// migrator Arkon yang menjalankan `alembic upgrade head` lalu keluar — tidak
+// job migrasi skema database yang sekali jalan lalu keluar — tidak
 // dihitung begitu selesai dengan exit 0. Tanpa pengecualian ini stack yang
 // sepenuhnya sehat selamanya melapor "7 / 8" berwarna peringatan, dan user
 // mencari service ke-8 yang mati padahal tidak ada. Tugas yang keluar dengan
@@ -657,7 +652,7 @@ func (s *Server) handleStackEnvGet(w http.ResponseWriter, r *http.Request) {
 	stream, err := s.helper.Stream(helperproto.CmdFileRead, sess.HelperToken,
 		helperproto.PathArgs{Path: envPath})
 	if helperclient.Code(err) == helperproto.ErrDenied {
-		// Instalasi lama dapat meninggalkan .env Arkon 0600 milik root.
+		// Instalasi lama dapat meninggalkan .env stack 0600 milik root.
 		// Gunakan aturan kepemilikan yang sama dengan Simpan, tanpa membuka
 		// rahasia ke user lain atau mengambil berkas milik admin lain.
 		s.serahkanKonfigStack(sess.Username, sess.HelperToken, envPath)
