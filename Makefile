@@ -48,6 +48,7 @@ build: ui server helper
 
 test:
 	go test ./...
+	python3 -B -m unittest discover -s internal/helper -p 'test_grounded_search.py'
 	cd $(UI) && npm run test --if-present
 
 lint:

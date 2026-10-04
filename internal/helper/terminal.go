@@ -50,6 +50,10 @@ func (s *Server) handleTerminal(conn net.Conn, br *bufio.Reader, u *userInfo, re
 		// (~/.claude, ~/.codex, …), dan `rtk init -g` menolak menulis kalau
 		// direktori itu belum ada.
 		siapkanArahanAI(u, args.Command)
+		if err := siapkanPolicyAI(u, args.Command); err != nil {
+			fail(conn, errInvalid("bootstrap AI Agent gagal: %s", err))
+			return
+		}
 		siapkanToolingAgent(u, args.Command)
 		// Hermes dan OpenClaw menolak mulai bekerja sebelum provider dipilih.
 		// Jawabannya di panel ini selalu 9router di mesin yang sama, jadi

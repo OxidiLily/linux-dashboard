@@ -288,6 +288,44 @@ if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   ok "User sistem ${SERVICE_USER} dibuat"
 fi
 
+# Seed dipasang di direktori root-owned yang dapat dilintasi seluruh akun.
+# Checkout operator bisa berada di bawah home 0750 dan tidak dapat dibaca akun lain.
+# Berkas seed runtime dipasang root-owned agar akun baru dapat dibootstrap
+# sebagai dirinya sendiri; script AppData tidak pernah dijalankan sebagai root.
+seed_root=/usr/local/share/linux-dashboard/ai-seed
+# Seed akan dieksekusi pada login akun baru. Seluruh ancestor wajib root-owned,
+# tanpa symlink dan tanpa hak tulis grup/publik; jangan pernah percaya path lama.
+for dir in / /usr /usr/local /usr/local/share /usr/local/share/linux-dashboard \
+    "$seed_root" "$seed_root/deploy" "$seed_root/internal" "$seed_root/internal/helper"; do
+  [[ ! -L "$dir" ]] || die "Symlink pada path seed AI: $dir"
+  if [[ -e "$dir" ]]; then
+    [[ -d "$dir" && $(stat -c %u -- "$dir") -eq 0 ]] || die "Pemilik seed AI tidak aman: $dir"
+    (( (8#$(stat -c %a -- "$dir") & 8#022) == 0 )) || die "Direktori seed AI writable oleh selain root: $dir"
+    (( (8#$(stat -c %a -- "$dir") & 8#005) == 8#005 )) || die "Direktori seed AI tidak dapat dilintasi semua akun: $dir"
+  fi
+done
+install -d -o root -g root -m 0755 "$seed_root/deploy" "$seed_root/internal/helper"
+for file in "$seed_root/deploy/"{install-ai-state.sh,install-ai-state.py,soul-default.md,knowledge-base-default.md,knowledge-base-placeholder.md,prompt-deploy-shared-default.md,install-shared-adapters-reference.sh} \
+    "$seed_root/internal/helper/"{grounded-search.py,policy-seed.md}; do
+  [[ ! -e "$file" && ! -L "$file" ]] ||
+    [[ ! -L "$file" && -f "$file" && $(stat -c %u -- "$file") -eq 0 && $(stat -c %h -- "$file") -eq 1 ]] || die "File seed AI tidak aman: $file"
+done
+for file in install-ai-state.sh install-ai-state.py soul-default.md knowledge-base-default.md knowledge-base-placeholder.md prompt-deploy-shared-default.md install-shared-adapters-reference.sh; do
+  install -m 0644 "deploy/$file" "$seed_root/deploy/$file"
+done
+for file in grounded-search.py policy-seed.md; do
+  install -m 0644 "internal/helper/$file" "$seed_root/internal/helper/$file"
+done
+# Seed semua akun sebelum mengganti binary/unit; script kini terbaca meski
+# checkout berada dalam home operator yang tidak bisa dilintasi user lain.
+while IFS=: read -r akun _ uid gid _ home shell; do
+  [[ "$uid" =~ ^[0-9]+$ ]] || continue
+  (( uid >= 1000 )) || continue
+  [[ "$shell" != */nologin && "$shell" != */false && -d "$home" ]] || continue
+  runuser -u "$akun" -- env -i HOME="$home" PATH=/usr/bin:/bin LC_ALL=C \
+    bash "$seed_root/deploy/install-ai-state.sh" "$home" "$seed_root" || \
+    die "State AI gagal untuk $akun; binary/unit belum diganti"
+done < /etc/passwd
 install -m 0755 "${BIN_SRC}/linux-dashboard-server" "${PREFIX}/linux-dashboard-server"
 install -m 0755 "${BIN_SRC}/linux-dashboard-helper" "${PREFIX}/linux-dashboard-helper"
 # Command CLI `uninstall-linuxpanel` — dipasang sebelum servis dimatikan
