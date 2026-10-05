@@ -485,6 +485,10 @@ fi
 [[ "$(wc -c < "$totp_key")" -eq 32 ]] || die "Key TOTP harus tepat 32 byte"
 chown root:"$SERVICE_USER" "$totp_key"
 chmod 0640 "$totp_key"
+stat -c '%n %U:%G %a %s bytes' "$totp_key"
+# Uji akses nyata sebagai web, bukan root; jangan tampilkan isi key.
+runuser -u "$SERVICE_USER" -- dd if="$totp_key" of=/dev/null bs=32 count=1 status=none \
+  || die "Key TOTP tidak dapat dibaca oleh ${SERVICE_USER}; periksa permission direktori, berkas, dan ACL"
 set_env_dashboard DASHBOARD_TOTP_KEY "$totp_key"
 
 # Folder data per akun: ~/DATA/{AppData,Documents,Downloads,Gallery,Media}.
@@ -547,6 +551,9 @@ systemctl enable linux-dashboard-helper.service linux-dashboard-web.service >/de
 # binary baru, dan `--now` tidak me-restart unit yang sudah jalan.
 systemctl restart linux-dashboard-helper.service
 systemctl restart linux-dashboard-web.service
+# Restart helper tidak boleh membatalkan akses key yang sudah diverifikasi.
+runuser -u "$SERVICE_USER" -- dd if="$totp_key" of=/dev/null bs=32 count=1 status=none \
+  || die "Key TOTP tidak dapat dibaca setelah restart service; instalasi TFA belum siap"
 
 for unit in linux-dashboard-helper linux-dashboard-web; do
   systemctl is-active --quiet "$unit" || die "${unit}.service gagal start — cek: journalctl -u ${unit} -n 50"
