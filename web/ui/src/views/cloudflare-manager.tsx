@@ -22,6 +22,7 @@ import {
 import {
   recordFields,
   recordPayload,
+  recordName,
   recordTypes,
   priorityTypes,
   proxiedTypes,
@@ -78,6 +79,7 @@ export function CloudflareManager({ enabled }: { enabled: boolean }) {
   const tr = useTr()
   const [zones, setZones] = useState<Zone[]>([])
   const [zone, setZone] = useState("")
+  const zoneName = zones.find((z) => z.id === zone)?.name || ""
   const [page, setPage] = useState(1)
   const [result, setResult] = useState<Page | null>(null)
   const [busy, setBusy] = useState(false)
@@ -143,14 +145,14 @@ export function CloudflareManager({ enabled }: { enabled: boolean }) {
   const start = (record?: RecordDNS) => {
     setEditing(true)
     setEdit(record || null)
-    setDraft(record ? { ...record } : ({ ...blank, name: zones.find((z) => z.id === zone)?.name || "" } as RecordDNS))
+    setDraft(record ? { ...record } : ({ ...blank, name: "@" } as RecordDNS))
     setDraftTags(record?.tags ? record.tags.join(", ") : "")
     const data = record?.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : {}
     setDataFields(Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value)])))
   }
 
   const save = async () => {
-    if (!zone || !draft.name.trim() || !draft.type.trim()) {
+    if (!zoneName || !draft.name.trim() || !draft.type.trim()) {
       notify.err(tr("Jenis dan nama record wajib diisi."))
       return
     }
@@ -162,7 +164,7 @@ export function CloudflareManager({ enabled }: { enabled: boolean }) {
         : undefined
     const draftToSend = { ...draft, tags }
     try {
-      record = recordPayload(draftToSend, dataFields, edit?.proxiable !== false)
+      record = recordPayload(draftToSend, dataFields, edit?.proxiable !== false, zoneName)
     } catch (e) {
       notify.err(e instanceof Error ? e.message : tr("Record DNS tidak valid."))
       return
@@ -226,6 +228,7 @@ export function CloudflareManager({ enabled }: { enabled: boolean }) {
               setZone(val)
               setPage(1)
               setEdit(null)
+              setEditing(false)
             }}
             options={zones.map((z) => ({ value: z.id, label: z.name }))}
             placeholder={zones.length === 0 ? tr("Tidak ada zone") : tr("Pilih zone…")}
@@ -295,9 +298,12 @@ export function CloudflareManager({ enabled }: { enabled: boolean }) {
               <Input
                 className="mt-1"
                 value={draft.name}
-                placeholder="example.com / sub"
+                placeholder={`@ / mail / mail.${zoneName}`}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
+              <span className="mt-1 block break-all text-muted-foreground">
+                {tr("Nama lengkap")}: {recordName(draft.name, zoneName) || "—"}
+              </span>
             </label>
             {(!recordFields[draft.type] || (edit && !edit.data && edit.content)) && (
               <label className="text-xs">

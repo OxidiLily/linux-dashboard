@@ -64,12 +64,34 @@ for (const type of recordTypes) {
   const fields = recordFields[type]
   const data = Object.fromEntries((fields || []).map((field) => [field.key, field.options?.[0] ?? (field.number ? "1" : "example")]))
   const payload = recordPayload({ type, name: "example.com", ttl: 1, content: "example", priority: 10, proxied: true }, data)
+  const relative = recordPayload({ type, name: "mail", ttl: 1, content: "example", priority: 10 }, data, true, "domain.com")
+  cek(String(relative.name), "mail.domain.com", `dns/${type}/relative-name`)
   cek(String("data" in payload), String(!!fields), `dns/${type}/data`)
   cek(String("content" in payload), String(!fields), `dns/${type}/content`)
   cek(String("priority" in payload), String(priorityTypes.has(type)), `dns/${type}/priority`)
   cek(String("proxied" in payload), String(proxiedTypes.has(type)), `dns/${type}/proxied`)
   if (fields) cek(JSON.stringify(Object.keys(payload.data as object).sort()), JSON.stringify(fields.map((f) => f.key).sort()), `dns/${type}/fields`)
 }
+// Nama relatif, apex, wildcard, FQDN, dan edit memakai resolusi yang sama.
+for (const [name, expected] of [
+  ["@", "domain.com"], ["domain.com", "domain.com"],
+  ["mail.domain.com", "mail.domain.com"], ["MAIL.DOMAIN.COM", "MAIL.DOMAIN.COM"],
+  ["mail.domain.com.", "mail.domain.com."], [" mail ", "mail.domain.com"],
+  ["a.b", "a.b.domain.com"], ["*", "*.domain.com"],
+  ["_acme-challenge", "_acme-challenge.domain.com"],
+  ["_sip._tcp", "_sip._tcp.domain.com"],
+  ["notdomain.com", "notdomain.com.domain.com"],
+  ["other.net.", "other.net."],
+]) {
+  for (const id of [undefined, "existing"]) {
+    const payload = recordPayload({ id, type: "CNAME", name, ttl: 1, content: "target.other.net" }, {}, true, "domain.com")
+    cek(String(payload.name), expected, `dns/name/${name}/${id || "new"}`)
+    cek(String(payload.content), "target.other.net", `dns/target-unchanged/${name}/${id || "new"}`)
+  }
+}
+let emptyNameRejected = false
+try { recordPayload({ type: "A", name: "  ", ttl: 1, content: "192.0.2.1" }, {}, true, "domain.com") } catch { emptyNameRejected = true }
+cek(String(emptyNameRejected), "true", "dns/empty-name-rejected")
 const legacy = recordPayload({ id: "existing", type: "SRV", name: "example.com", ttl: 1, content: "1 2 443 target.example.com", priority: 5 }, {})
 cek(String("content" in legacy && !("data" in legacy) && !("priority" in legacy)), "true", "dns/srv-legacy")
 const tagged = recordPayload({ type: "A", name: "example.com", ttl: 1, content: "1.2.3.4", comment: "test comment", tags: ["web", "prod"] }, {})
