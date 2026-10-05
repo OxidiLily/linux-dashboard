@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { tr } from "@/stores/i18n"
 import { create } from "zustand"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { daftarkanEscape } from "@/lib/lapisan-escape"
 
 type Req = {
   title: string
-  message?: string
+  message?: ReactNode
   detail?: string
   confirmLabel?: string
   danger?: boolean
