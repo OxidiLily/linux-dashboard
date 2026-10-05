@@ -4,6 +4,15 @@ import { daftarkanTerjemahan } from "@/stores/i18n"
 // Kunci = kalimat aslinya, jadi menambah teks baru di view tidak pernah
 // membuat UI rusak: yang belum ada di sini tampil apa adanya.
 daftarkanTerjemahan({
+  "Pilih semua pada halaman ini": "Select all on this page",
+  "Pilihan": "Selection",
+  "Pilih record": "Select record",
+  "Dipilih": "Selected",
+  "Tidak mendukung proxy": "Proxy unsupported",
+  "Hapus terpilih": "Delete selected",
+  "Dilewati (tidak mendukung proxy)": "Skipped (proxy unsupported)",
+  "Record yang akan dihapus": "Records to delete",
+  "Penghapusan tidak dapat dibatalkan.": "Deletion cannot be undone.",
   // ---- umum ----
   "Batal": "Cancel",
   "Simpan": "Save",
@@ -1457,8 +1466,6 @@ daftarkanTerjemahan({
   "Gagal membaca DNS Cloudflare": "Failed to read Cloudflare DNS",
   "Belum ada record A untuk domain ini.": "No A record for this domain yet.",
   "Hapus record DNS Cloudflare?": "Delete this Cloudflare DNS record?",
-  "Record DNS dihapus.": "DNS record deleted.",
-  "Gagal menghapus record DNS": "Failed to delete DNS record",
   "Muat record": "Load records",
   "Belum ada record dimuat. Isi token + domain lalu tekan Muat record.": "No records loaded yet. Fill in token + domain, then press Load records.",
   "Proxy aktif": "Proxied",
@@ -1491,7 +1498,6 @@ daftarkanTerjemahan({
   "HTTP langsung di port 1122 tidak mengenkripsi password, OTP, maupun sesi. Gunakan HTTPS sebelum membuka akses publik.": "Direct HTTP on port 1122 does not encrypt passwords, OTPs, or sessions. Use HTTPS before exposing it publicly.",
   "Simpan token Cloudflare untuk memuat zone dan semua jenis record DNS.": "Save a Cloudflare token to load zones and all DNS record types.",
   "Zone Cloudflare": "Cloudflare Zone",
-  "Muat zone": "Load zones",
   "Pilih zone…": "Select zone…",
   "Tidak ada zone": "No zones",
   "Cari zone…": "Search zone…",

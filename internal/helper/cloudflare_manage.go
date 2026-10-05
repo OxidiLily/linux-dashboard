@@ -100,8 +100,11 @@ func managedSave(token string, args helperproto.CloudflareManagedArgs) (json.Raw
 	if err := managedZone(token, args.ZoneID); err != nil {
 		return nil, err
 	}
+	var existing json.RawMessage
 	if args.RecordID != "" {
-		if _, err := managedRecord(token, args); err != nil {
+		var err error
+		existing, err = managedRecord(token, args)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -115,32 +118,44 @@ func managedSave(token string, args helperproto.CloudflareManagedArgs) (json.Raw
 			return nil, fmt.Errorf("field record tidak didukung: %s", key)
 		}
 	}
-	var typ, name string
-	if json.Unmarshal(input["type"], &typ) != nil || !regexp.MustCompile(`^[A-Z][A-Z0-9]{0,15}$`).MatchString(typ) {
-		return nil, errors.New("jenis record tidak valid")
-	}
-	if json.Unmarshal(input["name"], &name) != nil || name == "" || len(name) > 253 || strings.ContainsAny(name, "/\\\r\n\x00") {
-		return nil, errors.New("nama record tidak valid")
-	}
-	var recordZone string
-	zones, err := managedZones(token)
-	if err != nil {
-		return nil, err
-	}
-	for _, z := range zones {
-		if z.ID == args.ZoneID {
-			recordZone = z.Name
-			break
+	proxyOnly := len(input) == 1 && input["proxied"] != nil
+	var desired *bool
+	if proxyOnly {
+		var current struct {
+			Type      string `json:"type"`
+			Proxiable bool   `json:"proxiable"`
 		}
-	}
-	name = strings.ToLower(strings.TrimSuffix(name, "."))
-	recordZone = strings.ToLower(recordZone)
-	if recordZone == "" || (name != recordZone && !strings.HasSuffix(name, "."+recordZone)) {
-		return nil, errors.New("nama record di luar zone")
-	}
-	if _, ok := input["content"]; !ok {
-		if _, ok := input["data"]; !ok {
-			return nil, errors.New("content atau data wajib diisi")
+		if args.RecordID == "" || json.Unmarshal(input["proxied"], &desired) != nil || desired == nil || json.Unmarshal(existing, &current) != nil || !current.Proxiable || (current.Type != "A" && current.Type != "AAAA" && current.Type != "CNAME") {
+			return nil, errors.New("proxy record tidak valid")
+		}
+	} else {
+		var typ, name string
+		if json.Unmarshal(input["type"], &typ) != nil || !regexp.MustCompile(`^[A-Z][A-Z0-9]{0,15}$`).MatchString(typ) {
+			return nil, errors.New("jenis record tidak valid")
+		}
+		if json.Unmarshal(input["name"], &name) != nil || name == "" || len(name) > 253 || strings.ContainsAny(name, "/\\\r\n\x00") {
+			return nil, errors.New("nama record tidak valid")
+		}
+		var recordZone string
+		zones, err := managedZones(token)
+		if err != nil {
+			return nil, err
+		}
+		for _, z := range zones {
+			if z.ID == args.ZoneID {
+				recordZone = z.Name
+				break
+			}
+		}
+		name = strings.ToLower(strings.TrimSuffix(name, "."))
+		recordZone = strings.ToLower(recordZone)
+		if recordZone == "" || (name != recordZone && !strings.HasSuffix(name, "."+recordZone)) {
+			return nil, errors.New("nama record di luar zone")
+		}
+		if _, ok := input["content"]; !ok {
+			if _, ok := input["data"]; !ok {
+				return nil, errors.New("content atau data wajib diisi")
+			}
 		}
 	}
 	path := "/zones/" + args.ZoneID + "/dns_records"
@@ -164,10 +179,22 @@ func managedSave(token string, args helperproto.CloudflareManagedArgs) (json.Raw
 	if err := json.Unmarshal(result.Result, &saved); err != nil || !cloudflareID.MatchString(saved.ID) {
 		return nil, errors.New("respons record tidak valid")
 	}
+	if args.RecordID != "" && saved.ID != args.RecordID {
+		return nil, errors.New("ID record berubah")
+	}
 	args.RecordID = saved.ID
 	verified, err := managedRecord(token, args)
 	if err != nil {
 		return nil, err
+	}
+	if proxyOnly {
+		var current struct {
+			ID      string `json:"id"`
+			Proxied *bool  `json:"proxied"`
+		}
+		if json.Unmarshal(verified, &current) != nil || current.ID != args.RecordID || current.Proxied == nil || *current.Proxied != *desired {
+			return nil, errors.New("verifikasi proxy gagal")
+		}
 	}
 	return verified, rejectCloudflareTokenEcho(token, verified)
 }

@@ -11,6 +11,75 @@ import (
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
 
+func TestCloudflareProxyOnly(t *testing.T) {
+	for _, cmd := range []string{helperproto.CmdProxyCloudflareRecordSave, helperproto.CmdProxyCloudflareRecordDelete} {
+		if !sudoRequired[cmd] {
+			t.Fatalf("sudo missing: %s", cmd)
+		}
+	}
+	const zone = "0123456789abcdef0123456789abcdef"
+	const id = "abcdef0123456789abcdef0123456789"
+	for _, tc := range []struct {
+		name, typ, payload        string
+		proxiable, want, mismatch bool
+	}{
+		{"enable", "A", `{"proxied":true}`, true, true, false},
+		{"disable", "AAAA", `{"proxied":false}`, true, true, false},
+		{"cname", "CNAME", `{"proxied":true}`, true, true, false},
+		{"txt", "TXT", `{"proxied":true}`, true, false, false},
+		{"not-proxiable", "A", `{"proxied":true}`, false, false, false},
+		{"null", "A", `{"proxied":null}`, true, false, false},
+		{"string", "A", `{"proxied":"true"}`, true, false, false},
+		{"extra", "A", `{"proxied":true,"ttl":1}`, true, false, false},
+		{"readback", "A", `{"proxied":true}`, true, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			patches, gets := 0, 0
+			proxied := tc.name == "disable"
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == "GET" && r.URL.Path == "/zones":
+					fmt.Fprintf(w, `{"success":true,"result":[{"id":%q,"name":"example.test"}]}`, zone)
+				case r.Method == "GET" && r.URL.Path == "/zones/"+zone+"/dns_records/"+id:
+					gets++
+					fmt.Fprintf(w, `{"success":true,"result":{"id":%q,"type":%q,"name":"example.test","proxiable":%t,"proxied":%t}}`, id, tc.typ, tc.proxiable, proxied)
+				case r.Method == "PATCH" && r.URL.Path == "/zones/"+zone+"/dns_records/"+id:
+					patches++
+					var body map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					value, ok := body["proxied"].(bool)
+					if len(body) != 1 || !ok {
+						t.Errorf("not narrow: %v", body)
+					}
+					if !tc.mismatch {
+						proxied = value
+					}
+					fmt.Fprintf(w, `{"success":true,"result":{"id":%q}}`, id)
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+			}))
+			defer srv.Close()
+			oldURL, oldClient := cloudflareAPIBase, cloudflareHTTPClient
+			cloudflareAPIBase, cloudflareHTTPClient = srv.URL, srv.Client()
+			defer func() { cloudflareAPIBase, cloudflareHTTPClient = oldURL, oldClient }()
+			_, err := managedSave("test-token", helperproto.CloudflareManagedArgs{ZoneID: zone, RecordID: id, Record: json.RawMessage(tc.payload)})
+			if (err == nil) != tc.want {
+				t.Fatalf("success=%t err=%v", tc.want, err)
+			}
+			if tc.want || tc.mismatch {
+				if patches != 1 || gets != 2 {
+					t.Fatalf("patches=%d gets=%d", patches, gets)
+				}
+			} else if patches != 0 {
+				t.Fatal("invalid input mutated DNS")
+			}
+		})
+	}
+}
+
 func TestCloudflareManagerZonesRecordsAndMutations(t *testing.T) {
 	const zone = "0123456789abcdef0123456789abcdef"
 	const id = "abcdef0123456789abcdef0123456789"

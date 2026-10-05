@@ -29,8 +29,9 @@ import { tr, trf } from "@/stores/i18n"
 import { simpanBahasaPralogin, usePrefs } from "@/stores/prefs"
 import { cariBerkas, detailItemLog, rootAktif, unggahLaluMuatUlang } from "@/views/files"
 import { bacaCrontab, cariJadwal, ukuranByte, ukuranCrontabTersimpan } from "@/views/cron"
-import { tautanProxy } from "@/views/proxy"
+import { ProxyManagerView, tautanProxy } from "@/views/proxy"
 import { OverlayTerputus } from "@/views/error"
+import { CloudflareManager, bulkDNS, selectedDNS } from "@/views/cloudflare-manager"
 import { recordFields, recordPayload, recordTypes, priorityTypes, proxiedTypes } from "@/views/cloudflare-record-fields"
 import { salinKeClipboard } from "@/lib/utils"
 
@@ -54,6 +55,54 @@ cek(String(cariJadwal(quotedCron, "a  b").length), "1", "cron/search-literal-whi
 const sumberFiles = readFileSync(resolve(process.cwd(), "src/views/files.tsx"), "utf8")
 for (const [i, match] of [...sumberFiles.matchAll(/urutanCari\.current\+\+([^]*?)(?:\n\s*\/\/|\n\s*})/g)].entries()) {
   cek(String(match[1].includes("setCariProses(false)")), "true", `files/cancel-busy-${i}`)
+}
+
+const proxyManagerHtml = renderToStaticMarkup(createElement(ProxyManagerView))
+cek(String(proxyManagerHtml.indexOf("DNS Cloudflare") < proxyManagerHtml.indexOf("Kelola nama domain")), "true", "proxy/header-below-tabs")
+cek(String(proxyManagerHtml.indexOf("DNS Cloudflare") < proxyManagerHtml.indexOf("Uji config")), "true", "proxy/actions-below-tabs")
+
+const dnsManagerHtml = renderToStaticMarkup(createElement(CloudflareManager, { enabled: true }))
+cek(String(dnsManagerHtml.includes("Muat zone")), "false", "dns/no-separate-zone-reload")
+cek(String((dnsManagerHtml.match(/Muat ulang/g) || []).length), "1", "dns/single-reload")
+cek(String((dnsManagerHtml.match(/<button\b[^]*?<\/button>/g) || []).some((button) => button.includes("Muat ulang") && /\sdisabled=""/.test(button))), "false", "dns/reload-without-zone")
+
+const bulkRows = [
+  { id: "a", name: "a.example.test", type: "A", proxiable: true },
+  { id: "txt", name: "example.test", type: "TXT", proxiable: false },
+  { id: "fail", name: "fail.example.test", type: "CNAME", proxiable: true },
+  { id: "aaaa", name: "v6.example.test", type: "AAAA", proxiable: true },
+  { id: "blocked", name: "blocked.example.test", type: "A", proxiable: false },
+]
+cek(String(selectedDNS(bulkRows, new Set(["a", "old-page"])).length), "1", "dns/selection-page-only")
+cek(String(dnsManagerHtml.includes("Pilih semua pada halaman ini")), "true", "dns/select-page-label")
+async function testBulkDNS() {
+const bulkFetch = globalThis.fetch
+const bulkCalls: { path: string; method: string; body: Record<string, unknown> }[] = []
+let activeBulk = 0
+let maxActiveBulk = 0
+globalThis.fetch = (async (path: string | URL | Request, init?: RequestInit) => {
+  activeBulk++
+  maxActiveBulk = Math.max(maxActiveBulk, activeBulk)
+  const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+  bulkCalls.push({ path: String(path), method: init?.method || "", body })
+  await Promise.resolve()
+  activeBulk--
+  return { ok: body.record_id !== "fail", status: 500, json: async () => ({ error: "test failure" }) } as Response
+}) as typeof fetch
+try {
+  const result = await bulkDNS("zone-id", bulkRows, "proxied")
+  cek(JSON.stringify([result.succeeded.length, result.failed.length, result.skipped.length]), "[2,1,2]", "dns/bulk-partial")
+  cek(String(maxActiveBulk), "1", "dns/bulk-sequential")
+  cek(JSON.stringify(bulkCalls.map((call) => call.body.record_id)), '["a","fail","aaaa"]', "dns/bulk-continue-after-failure")
+  cek(String(bulkCalls.every((call) => call.path === "/api/proxy/cloudflare/records" && call.method === "PUT" && call.body.zone_id === "zone-id" && JSON.stringify(call.body.record) === '{"proxied":true}')), "true", "dns/bulk-narrow-payload")
+  bulkCalls.length = 0
+  await bulkDNS("zone-id", bulkRows.slice(0, 1), "dns-only")
+  cek(JSON.stringify(bulkCalls[0].body.record), '{"proxied":false}', "dns/bulk-disable")
+  bulkCalls.length = 0
+  const deleted = await bulkDNS("zone-id", bulkRows, "delete")
+  cek(JSON.stringify([deleted.succeeded.length, deleted.failed.length, deleted.skipped.length]), "[4,1,0]", "dns/bulk-delete-all-types")
+  cek(String(bulkCalls.every((call) => call.path === "/api/proxy/cloudflare/records/delete" && call.method === "POST" && !call.body.record)), "true", "dns/bulk-delete-route")
+} finally { globalThis.fetch = bulkFetch }
 }
 
 // Form DNS: setiap jenis mengirim field sesuai schema, tanpa prioritas liar.
@@ -618,6 +667,8 @@ const ujiClipboard = (async () => {
 // sonner.promise yang memanggil rekam(). Uji upload ditunggu juga agar seluruh
 // assertion asynchronous selesai sebelum hasil akhir dicetak.
 void Promise.all([ujiUpload, ujiClipboard, Promise.resolve().then(() => Promise.resolve())])
+  .then(testBulkDNS)
+  .then(async () => { const { cekCloudflare } = await import("./cek-cloudflare"); await cekCloudflare() })
   .then(() => {
     const tugasGagal = tercatat.find((t) => t.detail === "detail:boom")
     const tugasSukses = tercatat.find((t) => t.detail === "tugas-ok:selesai")
@@ -630,4 +681,8 @@ void Promise.all([ujiUpload, ujiClipboard, Promise.resolve().then(() => Promise.
       process.exit(1)
     }
     console.log(`[✓] runtime: ${jumlah} pemeriksaan lolos`)
+  })
+  .catch((e) => {
+    console.error("[✗] " + (e instanceof Error ? e.stack : String(e)))
+    process.exit(1)
   })

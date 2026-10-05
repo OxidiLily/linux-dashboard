@@ -201,29 +201,7 @@ export function ProxyManagerView() {
   ]
 
   return (
-    <Panel
-      title={tr("Proxy manager")}
-      hint={tr("Kelola nama domain dan teruskan trafiknya ke alamat IP serta port aplikasi.")}
-      actions={<div className="flex gap-2"><Button variant="outline" size="sm" onClick={testConfig}><CheckCircle2 className="mr-1 size-3.5" />{tr("Uji config")}</Button><Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCw className="mr-1 size-3.5" />{tr("Muat ulang")}</Button></div>}
-    >
-      {/* Dibungkus Badge crit (satu bahasa visual dengan kartu Components)
-          supaya peringatan terbaca sebagai panel peringatan, bukan teks merah
-          yang bercampur dengan paragraf lain. */}
-      <p className="mb-3">
-        <Badge
-          tone="crit"
-          className="w-full items-start gap-1.5 whitespace-normal px-3 py-2 text-xs leading-relaxed"
-        >
-          <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-          <span>{tr("HTTP langsung di port 1122 tidak mengenkripsi password, OTP, maupun sesi. Gunakan HTTPS sebelum membuka akses publik.")}</span>
-        </Badge>
-      </p>
-      <div className="mb-4 flex flex-wrap gap-2">
-        <Badge tone={status?.running ? "signal" : "crit"}>{status?.running ? tr("Nginx aktif") : tr("Nginx nonaktif")}</Badge>
-        <Badge tone={status?.config_ok ? "signal" : "warn"}>{status?.config_ok ? tr("Config valid") : tr("Config bermasalah")}</Badge>
-        {status?.message && <span className="text-xs text-crit">{status.message}</span>}
-      </div>
-
+    <div>
       <div className="mb-4 flex gap-1 border-b border-border">
         {tabs.map((t) => (
           <button
@@ -237,6 +215,28 @@ export function ProxyManagerView() {
           </button>
         ))}
       </div>
+    <Panel
+      title={tab === "proxy" ? tr("Proxy manager") : tab === "ssl" ? tr("SSL/TLS") : tr("DNS Cloudflare")}
+      hint={tab === "proxy" ? tr("Kelola nama domain dan teruskan trafiknya ke alamat IP serta port aplikasi.") : undefined}
+      actions={tab !== "dns" ? <div className="flex flex-wrap gap-2">{tab === "proxy" && <Button variant="outline" size="sm" onClick={testConfig}><CheckCircle2 className="mr-1 size-3.5" />{tr("Uji config")}</Button>}<Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCw className="mr-1 size-3.5" />{tr("Muat ulang")}</Button></div> : undefined}
+    >
+      {/* Dibungkus Badge crit (satu bahasa visual dengan kartu Components)
+          supaya peringatan terbaca sebagai panel peringatan, bukan teks merah
+          yang bercampur dengan paragraf lain. */}
+      <p className="mb-3">
+        <Badge
+          tone="crit"
+          className="w-full items-start gap-1.5 whitespace-normal px-3 py-2 text-xs leading-relaxed"
+        >
+          <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+          <span>{tr("HTTP langsung di port 1122 tidak mengenkripsi password, OTP, maupun sesi. Gunakan HTTPS sebelum membuka akses publik.")}</span>
+        </Badge>
+      </p>
+      {tab !== "dns" && <div className="mb-4 flex flex-wrap gap-2">
+        <Badge tone={status?.running ? "signal" : "crit"}>{status?.running ? tr("Nginx aktif") : tr("Nginx nonaktif")}</Badge>
+        <Badge tone={status?.config_ok ? "signal" : "warn"}>{status?.config_ok ? tr("Config valid") : tr("Config bermasalah")}</Badge>
+        {status?.message && <span className="text-xs text-crit">{status.message}</span>}
+      </div>}
 
       {tab === "proxy" && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -501,5 +501,6 @@ export function ProxyManagerView() {
         </div>
       )}
     </Panel>
+    </div>
   )
 }
