@@ -1000,3 +1000,11 @@ sh   scripts/cek-runtime.sh       # tr()/trf()/pesanError() + logika kecil di vi
 | `make install` | `build` lalu `./deploy/install.sh` dari checkout (jalankan dengan sudo) |
 | `make dev` | Mencetak tiga perintah yang harus dijalankan di terminal terpisah (helper, server, `vite dev`) |
 | `make clean` | Hapus `bin/` dan `web/dist/assets` |
+
+## Lisensi
+
+MIT License — lihat [LICENSE](LICENSE).
+
+Boleh dipakai, dimodifikasi, dan disebarluaskan gratis, termasuk untuk keperluan
+komersial, dengan syarat menyertakan sumber: `Copyright (c) 2026 OxidiLily` dan
+notice lisensi MIT pada setiap salinan atau bagian penting dari Software.

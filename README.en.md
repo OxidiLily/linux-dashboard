@@ -912,3 +912,12 @@ sh   scripts/cek-runtime.sh       # runs tr()/trf()/pesanError() and small view 
 | `make install` | `build` then `./deploy/install.sh` from the checkout (run with sudo) |
 | `make dev` | Prints the three commands to run in separate terminals (helper, server, `vite dev`) |
 | `make clean` | Remove `bin/` and `web/dist/assets` |
+
+## License
+
+MIT License — see [LICENSE](LICENSE).
+
+You are free to use, modify, and redistribute this software, including for
+commercial purposes, as long as you credit the source: `Copyright (c) 2026
+OxidiLily` and include the MIT license notice in all copies or substantial
+portions of the Software.
