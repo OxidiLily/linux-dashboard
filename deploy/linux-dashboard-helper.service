@@ -17,8 +17,9 @@ RuntimeDirectoryMode=0750
 # harus root-owned. State web /var/lib/linux-dashboard tetap milik web;
 # helper tidak boleh mengklaimnya lewat StateDirectory. Web boleh membaca
 # direktori helper lewat grup bila perlu, tetapi tidak boleh menulisnya.
-StateDirectory=linux-dashboard-helper
-StateDirectoryMode=0750
+# Direktori disiapkan installer root:linux-dashboard 0750. StateDirectory
+# dengan User=root dapat chown rekursif ke root:root saat start/restart,
+# sehingga key TOTP 0640 tidak lagi dapat dibaca proses web.
 
 # Daemon ini memang butuh root untuk useradd/systemctl/ufw dan untuk mem-fork
 # shell sebagai user lain, jadi CAP_* tidak bisa dipangkas banyak.

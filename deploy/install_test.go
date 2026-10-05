@@ -15,8 +15,19 @@ func TestHelperTidakMengambilKepemilikanStateWeb(t *testing.T) {
 	if strings.Contains(isi, "StateDirectory=linux-dashboard linux-dashboard-helper") {
 		t.Fatal("helper mengubah ownership state web ke root dan membuat start pertama web gagal")
 	}
-	if !strings.Contains(isi, "StateDirectory=linux-dashboard-helper") {
-		t.Fatal("state directory rahasia helper hilang")
+	if strings.Contains(isi, "StateDirectory=") {
+		t.Fatal("StateDirectory helper root dapat mengubah key TOTP menjadi root:root saat restart; direktori dikelola installer")
+	}
+}
+
+func TestInstallerMemeriksaKeyTOTPSesudahRestart(t *testing.T) {
+	b, err := os.ReadFile("install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := strings.SplitN(string(b), "systemctl restart linux-dashboard-web.service", 2)
+	if len(s) != 2 || !strings.Contains(s[1], `runuser -u "$SERVICE_USER" -- dd if="$totp_key"`) {
+		t.Fatal("akses key TOTP wajib diperiksa setelah restart service")
 	}
 }
 
