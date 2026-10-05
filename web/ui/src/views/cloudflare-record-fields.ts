@@ -21,11 +21,21 @@ export const recordTypes = ["A", "AAAA", "CAA", "CERT", "CNAME", "DNSKEY", "DS",
 export const priorityTypes = new Set(["MX", "URI"])
 export const proxiedTypes = new Set(["A", "AAAA", "CNAME"])
 
-export function recordPayload(draft: { id?: string; type: string; name: string; ttl?: number; content?: string; priority?: number; proxied?: boolean; comment?: string; tags?: string[]; data?: unknown }, fields: Record<string, string>, proxiable = true): Record<string, unknown> {
+export function recordName(name: string, zone: string): string {
+  const value = name.trim()
+  const domain = zone.trim().replace(/\.$/, "")
+  if (!value || !domain) return value
+  if (value === "@") return domain
+  const lower = value.toLowerCase()
+  if (value.endsWith(".") || lower === domain.toLowerCase() || lower.endsWith(`.${domain.toLowerCase()}`)) return value
+  return `${value}.${domain}`
+}
+
+export function recordPayload(draft: { id?: string; type: string; name: string; ttl?: number; content?: string; priority?: number; proxied?: boolean; comment?: string; tags?: string[]; data?: unknown }, fields: Record<string, string>, proxiable = true, zone = ""): Record<string, unknown> {
   const type = draft.type.toUpperCase()
   if ((!recordTypes.includes(type) && !(draft.id && /^[A-Z][A-Z0-9]{0,15}$/.test(type))) || !draft.name.trim()) throw Error("Jenis atau nama record tidak valid.")
   if (!Number.isInteger(draft.ttl) || (draft.ttl !== 1 && (draft.ttl! < 60 || draft.ttl! > 86400))) throw Error("TTL harus Auto (1) atau 60–86400 detik.")
-  const record: Record<string, unknown> = { type, name: draft.name.trim(), ttl: draft.ttl }
+  const record: Record<string, unknown> = { type, name: recordName(draft.name, zone), ttl: draft.ttl }
   if (draft.comment !== undefined) record.comment = draft.comment
   if (draft.tags !== undefined) record.tags = draft.tags
   if (priorityTypes.has(type)) {

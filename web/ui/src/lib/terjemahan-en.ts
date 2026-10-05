@@ -1500,6 +1500,7 @@ daftarkanTerjemahan({
   "Tidak ada zone yang dapat diakses token ini.": "No zones accessible with this token.",
   "Tidak ada record DNS pada zone ini.": "No DNS records in this zone.",
   "Jenis dan nama record wajib diisi.": "DNS record type and name are required.",
+  "Nama lengkap": "Full name",
   "Record DNS tersimpan.": "DNS record saved.",
   "Gagal menyimpan DNS Cloudflare": "Failed to save Cloudflare DNS",
   "Name": "Name",
