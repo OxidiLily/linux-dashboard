@@ -313,6 +313,7 @@ export function FileManagerView() {
   const folderInputRef = useRef<HTMLInputElement>(null)
   const urutanDirektori = useRef(0)
   const urutanPreview = useRef(0)
+  const urutanMenu = useRef(0)
   // Drag-and-drop: counter menghitung enter/leave bersarang, visual cuma muncul
   // saat > 0. Boolean sederhana salah karena enter pada anak memicu leave di
   // induk sebelum enter berikutnya tiba.
@@ -335,6 +336,7 @@ export function FileManagerView() {
 
   const loadDir = useCallback(async (path: string) => {
     const nomor = ++urutanDirektori.current
+    urutanMenu.current++
     setLoading(true)
     try {
       const res = await apiGet<{ path: string; entries: FileEntry[] }>(`/api/files?path=${encodeURIComponent(path)}`)
@@ -378,8 +380,7 @@ export function FileManagerView() {
 
   // Tutup context menu saat klik di tempat lain atau tekan Escape.
   useEffect(() => {
-    if (!contextMenu) return
-    const close = () => setContextMenu(null)
+    const close = () => { urutanMenu.current++; setContextMenu(null) }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close()
     }
@@ -391,7 +392,7 @@ export function FileManagerView() {
       document.removeEventListener("scroll", close, true)
       document.removeEventListener("keydown", onKey)
     }
-  }, [contextMenu])
+  }, [])
 
   // Ukuran tiap folder di layar dihitung setelah listing tampil. Penelusuran
   // sendiri sudah satu worker per folder (file.usage di helper), jadi yang
@@ -907,7 +908,7 @@ export function FileManagerView() {
       setRenameTarget(null)
       return
     }
-    const newPath = `${currentPath}/${renameValue}`
+    const newPath = `${renameTarget.path.slice(0, renameTarget.path.lastIndexOf("/") + 1)}${renameValue}`
     const ok = await confirmDialog({
       title: trf('Ganti nama jadi "{0}"?', renameValue),
       message: tr("Kalau sudah ada berkas dengan nama itu di folder ini, berkas tersebut akan tertimpa."),
@@ -1119,6 +1120,25 @@ export function FileManagerView() {
     if (e.is_dir) loadDir(e.path)
     else handlePreview(e)
   }
+
+  // Search hits omit permissions. Read the existing parent listing, never invent mode 000.
+  const bukaMenuHasil = async (h: HasilCari, x: number, y: number) => {
+    const nomor = ++urutanMenu.current
+    const pencarian = urutanCari.current
+    setContextMenu(null)
+    try {
+      const parent = h.path.slice(0, h.path.lastIndexOf("/")) || "/"
+      const res = await apiGet<{ entries: FileEntry[] }>(`/api/files?path=${encodeURIComponent(parent)}`)
+      if (nomor !== urutanMenu.current || pencarian !== urutanCari.current) return
+      const entry = res.entries?.find(e => e.path === h.path)
+      if (!entry) throw new Error(tr("Tidak bisa membuka file"))
+      setContextMenu({ x, y, entry })
+    } catch (e) {
+      if (nomor === urutanMenu.current && pencarian === urutanCari.current) notify.err(trf("Gagal membuka direktori: {0}", pesanError(e)))
+    }
+  }
+
+  useEffect(() => { urutanMenu.current++; setContextMenu(null); return () => { urutanMenu.current++ } }, [cari])
 
   const startRename = (e: FileEntry) => {
     setRenameTarget(e)
@@ -1438,6 +1458,10 @@ export function FileManagerView() {
                     <tr
                       key={h.path}
                       className="cursor-pointer hover:bg-secondary/40 transition-colors"
+                      onContextMenu={(ev) => {
+                        ev.preventDefault()
+                        void bukaMenuHasil(h, ev.clientX, ev.clientY)
+                      }}
                       onClick={() => {
                         if (h.is_dir) {
                           void loadDir(h.path)
@@ -1468,6 +1492,18 @@ export function FileManagerView() {
                             <File className="size-4 text-muted-foreground" />
                           )}
                           <span className="truncate max-w-xs">{h.name}</span>
+                          <button
+                            type="button"
+                            className="ml-auto shrink-0 rounded p-1.5 text-muted-foreground hover:bg-secondary sm:hidden"
+                            aria-label={trf("Aksi untuk {0}", h.name)}
+                            onClick={(ev) => {
+                              ev.stopPropagation()
+                              const r = ev.currentTarget.getBoundingClientRect()
+                              void bukaMenuHasil(h, r.right, r.bottom)
+                            }}
+                          >
+                            <MoreVertical className="size-4" />
+                          </button>
                         </div>
                       </td>
                       {/* Lokasi relatif, bukan path penuh: yang dicari user

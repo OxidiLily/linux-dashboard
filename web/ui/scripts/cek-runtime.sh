@@ -13,3 +13,4 @@ jalankan() { # $1 = nama berkas entry di scripts/
 }
 
 jalankan cek-runtime.ts
+jalankan cek-files-context.ts
