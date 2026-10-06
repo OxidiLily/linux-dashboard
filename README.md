@@ -2,16 +2,14 @@
 
 # Linux Server Dashboard (Go + React)
 
-Panel web untuk memonitor dan mengelola satu server Linux: metrik real-time,
+Panel web untuk memonitor & mengelola satu server Linux: metrik real-time,
 file manager, berbagi file (Samba/NFS/mergerfs), print server (CUPS), proses,
-Docker, terminal, firewall, dan pengaturan sistem. Login memakai akun Linux yang
-sudah ada di mesin — tidak ada tabel user terpisah.
+Docker, terminal, firewall, dan pengaturan sistem. Login memakai akun Linux
+yang sudah ada — tidak ada tabel user terpisah.
 
-Target: **Ubuntu & Debian**, arsitektur **amd64 / arm64 / armhf**, dirancang
-agar tetap ringan di mesin **2 core**.
+Target: **Ubuntu & Debian**, amd64/arm64/armhf, ringan di mesin **2 core**.
 
-> **Disclaimer:** project ini masih pada tahap pengembangan, jadi mohon maaf
-> jika ada bug.
+> **Disclaimer:** masih tahap pengembangan, mohon maaf kalau ada bug.
 
 ## Instalasi cepat
 
@@ -19,141 +17,70 @@ agar tetap ringan di mesin **2 core**.
 cd / && curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
 ```
 
-Skrip memasang dependency build serta keamanan (Go, Node 24, `libpam0g-dev`,
-`openssl`, `acl`, `ufw`, dan `fail2ban`), mengambil sumber ke
-`/usr/local/src/go-react-linux-dashboard`, build UI + dua binary, memasang unit
-systemd + file PAM, lalu menyalakan service HTTPS native di port **1122**.
-Sertifikat self-signed dibuat bila sertifikat custom belum tersedia; browser akan
-memberi peringatan sampai sertifikat tepercaya dipasang. Installer mengaktifkan
-UFW/fail2ban tanpa reset, delete, atau mengganti default/rule firewall yang sudah
-ada. Menjalankan perintah yang sama lagi = upgrade ke `main` terbaru.
-
-Installer **mendeteksi dulu, baru memasang**: dependency yang sudah ada
-dilewati, dan Go yang dipasang di luar apt (tarball resmi, asdf, snap) tidak
-diganti paket `golang-go`. Di akhir instalasi ditampilkan komponen opsional
-mana yang sudah ada dan mana yang perlu dipasang dari menu Components.
-
-Login memakai akun Linux yang sudah ada di mesin (butuh akun bergrup `sudo`
-untuk menu Docker, Firewall, Fail2ban, Samba, Disk Pool, NFS, dan Components).
-
----
+- Memasang dependency build + keamanan (Go, Node 24, `libpam0g-dev`,
+  `openssl`, `acl`, `ufw`, `fail2ban`), build UI + dua binary, memasang unit
+  systemd + file PAM, menyalakan HTTPS native port **1122** (sertifikat
+  self-signed bila belum ada).
+- **Deteksi dulu, baru memasang**: dependency yang sudah ada dilewati; Go
+  dari tarball/asdf/snap tidak diganti paket `golang-go`.
+- UFW/fail2ban diaktifkan tanpa reset atau menghapus rule yang sudah ada.
+- Perintah sama lagi = upgrade ke `main` terbaru.
+- Butuh akun bergrup `sudo` untuk menu Docker, Firewall, Fail2ban, Samba,
+  Disk Pool, NFS, dan Components.
 
 ## Menu
 
 | Grup | Menu |
 |---|---|
-| Home | Dashboard (CPU, RAM, Storage, GPU, Network real-time; disk kosong bisa diformat & di-mount dari sini, mount yang ada bisa dilepas) |
-| File manager | File Manager (editor teks, buat file, cetak berkas, **unggah dengan bar kemajuan**, **pencarian nama di folder terbuka maupun sampai ke subfolder**) · Samba (share + user) · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
-| AI | AI Agent (sesi CLI agent di dalam panel: claude-code, codex, opencode, hermes, openclaw) |
-| Logs | Logs (semua alert panel) · File Operations · Activity Logs |
-| Settings | Network (DNS + Tailscale/Cloudflare Tunnel) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Components |
-| System | Processes · Docker (aksi per container, log, editor compose & `.env`, image/volume/network, pemakaian disk) · Cronjob · Terminal |
+| Home | Dashboard (CPU, RAM, Storage, GPU, Network real-time; disk kosong bisa diformat & di-mount, mount bisa dilepas) |
+| File manager | File Manager (editor, buat file, cetak, unggah berprogres, pencarian nama sampai subfolder) · Samba · Disk Pool (mergerfs) · NFS Exports · Bookmarks |
+| AI | AI Agent (sesi CLI agent di panel: claude-code, codex, opencode, hermes, openclaw) |
+| Logs | Logs (alert) · File Operations · Activity Logs |
+| Settings | Network (DNS + Tailscale/Cloudflare Tunnel) · Firewall (ufw) · Fail2ban · Alert Thresholds · Print server (CUPS) · Proxy manager (nginx + certbot) · Components |
+| System | Processes · Docker · Cronjob · Terminal |
 
-**Akun** tidak ada di sidebar: pintu masuknya adalah blok profil di kaki
-sidebar, yang membuka menu berisi identitas akun, Akun, Uninstall panel (khusus
-sudoer), dan Keluar. Rutenya tetap `/settings/account`.
+Halaman **Pembaruan** (`/updates`) tidak punya entri sidebar — pintu masuknya
+ikon notifikasi di topbar.
 
-Halaman yang butuh software tertentu (Samba, ufw, Docker, mergerfs, NFS,
-fail2ban) menampilkan **"Belum Terpasang"** dengan tombol ke Components, bukan
-daftar kosong atau error `command not found`.
+- **Akun** tidak di sidebar: pintu masuknya blok profil di kaki sidebar
+  (identitas, Akun, Uninstall panel, Keluar). Rute tetap `/settings/account`.
+- Halaman yang butuh software tertentu menampilkan **"Belum Terpasang"** +
+  tombol ke Components, bukan `command not found`.
 
-**Pencarian di File Manager** bekerja seperti `grep -r` pada NAMA berkas:
-tulis kata kunci, lalu tekan **Enter** atau tombol **Cari**, dan penelusuran
-menembus seluruh subfolder dari folder yang sedang dibuka — tanpa mode yang
-perlu dinyalakan lebih dulu. Isi berkas tidak dibaca: folder data user bisa
-berisi puluhan GB, dan membaca semuanya untuk satu kata kunci membuat
-pencarian tidak bisa dipakai. Penelusuran berjalan di server sebagai akun yang
-login, jadi jail home tetap berlaku untuk user non-sudo.
+### Perilaku inti
 
-Sambil mengetik (sebelum Enter ditekan), daftar disaring cepat di klien — nol
-permintaan jaringan, hasil seketika walau foldernya berisi puluhan ribu
-berkas. Begitu kueri berubah setelah hasil muncul, daftar kembali ke saringan
-cepat, sehingga hasil untuk kata kunci lama tidak pernah tertinggal di layar
-seolah-olah hasil yang baru.
-
-Karakter seperti `.` dan `*` diperlakukan literal (orang mencari nama berkas,
-bukan pola). Tiap baris hasil menampilkan **lokasi relatif**
-(`sub/dalam/berkas.txt`) dan halaman melaporkan berapa folder ditelusuri.
-Hasil dibatasi 500 baris dan penelusuran dihentikan setelah 20 detik; keduanya
-dinyatakan di layar beserta sebabnya, bukan disembunyikan. `/proc`, `/sys`, dan
-direktori perangkat tidak ditelusuri — isinya dibangkitkan kernel dan membuat
-hasil penuh kecocokan yang tidak berarti.
-
-**Cronjob** (System → Cronjob) mengedit crontab **milik akun yang login**, dan
-itulah satu-satunya yang tersentuh: `crontab -l` / `crontab -` dijalankan helper
-sebagai identitas akun tersebut, jadi tidak ada jalan dari halaman ini menuju
-crontab user lain atau crontab sistem. Karena itu menunya **tidak** bertanda
-sudo — mengatur jadwal sendiri bukan aksi admin. Yang dijaga di sisi server:
-isi maksimum 64 KiB, `previous` wajib (isi terakhir yang dilihat UI) dan
-ketidakcocokannya dijawab HTTP 409 ("crontab berubah; muat ulang"), serta
-pembacaan ulang setelah menulis supaya penulisan yang tidak mendarat terlihat.
-Halaman ini juga melaporkan **keadaan penjadwalnya**: crontab yang rapi tapi
-tanpa unit cron yang berjalan adalah kegagalan yang paling lama tidak
-ketahuan. `crontab -l` untuk akun tanpa crontab keluar dengan status 1 dan
-stderr `no crontab for <user>` — itu keadaan normal, bukan error.
-
-Menu **Logs** berisi tiga sudut pandang dengan masa simpan yang ditegakkan
-server, bukan sekadar dijanjikan: **Logs** (semua alert panel — berhasil,
-gagal, peringatan, info — bisa disaring per status, **1 bulan**),
-**File Operations** (**1 bulan**), dan **Activity Logs** (jejak audit login &
-aksi admin, **2 tahun**). Catatan yang lewat umurnya dihapus sendiri lewat
-sapuan yang jalan saat server start dan sekali sejam sesudahnya. Halaman Logs
-mencatat notifikasi yang benar-benar muncul di layar, jadi kegagalan yang tidak
-pernah sampai ke server — validasi di browser, koneksi putus — tetap punya
-jejak, lengkap dengan halaman asalnya dan keluaran mentahnya.
-
-### Pekerjaan panjang tidak batal saat pindah halaman
-
-Berlaku untuk seluruh panel, bukan satu halaman saja:
-
-- **Sesi Terminal dan AI Agent bertahan.** Dulu berpindah menu menutup
-  WebSocket-nya, dan di sisi server penutupan itu membunuh PTY — `apt install`,
-  build, atau sesi agent yang sedang berjalan mati begitu user membuka menu
-  lain. Sekarang sesi (xterm + WebSocket + elemen host-nya) disimpan di luar
-  daur hidup komponen React; halaman hanya menyediakan slot, dan elemennya
-  diparkir ke penampung tersembunyi saat halaman ditinggalkan. Isi layar,
-  riwayat gulir, dan proses yang berjalan tetap utuh saat halamannya dibuka
-  lagi. Kuota tetap dijaga: satu sesi shell dan satu sesi agent — berpindah
-  agent menutup sesi agent sebelumnya. Reload penuh (F5) tetap mengakhiri sesi,
-  karena seluruh JS beserta WebSocket-nya ikut dibuang.
-- **Aksi panjang punya toast yang ikut berpindah halaman.** Setiap aksi yang
-  dikerjakan helper daemon — pasang/copot komponen, driver printer, ufw,
-  fail2ban, Samba, NFS, mergerfs, VPN, salin/pindah/hapus berkas, format disk,
-  user Linux, Docker — memakai satu toast yang berputar sejak tombol
-  ditekan lalu berubah sendiri jadi berhasil atau gagal. `<Toaster />` dipasang
-  di app-shell (di luar rute), jadi toast itu ikut berpindah halaman bersama
-  user. Sebelumnya toast baru muncul di akhir, sehingga aksi yang selesai saat
-  user sudah di halaman lain tampak "tiba-tiba selesai" tanpa konteks.
-- **Selesai = daftar dimuat ulang sendiri.** Tidak ada langkah reload manual:
-  tiap aksi menarik ulang datanya begitu selesai, dan halaman yang dibuka lagi
-  selalu menarik data segar saat mount. Halaman Components bahkan mengangkat
-  kembali aksi yang MASIH berjalan (`/api/components/progress`) sehingga
-  bar-nya muncul lagi, bukan kartu yang keliru berkata "Belum Terpasang".
-
-Aksi yang benar-benar seketika — bookmark, ambang alert, pendaftaran stack di
-SQLite — sengaja tidak ikut: toast berputar untuk pekerjaan 20 milidetik hanya
-menambah kedipan di layar.
-
-Panel dipakai penuh dari **layar HP**: di bawah `lg` sidebar berubah jadi drawer
-dengan scrim (ditutup oleh scrim, Escape, atau pemilihan menu), tabel berubah
-jadi tumpukan kartu di bawah 640px lewat satu kelas CSS + `data-label` per sel —
-struktur `<table>` tetap satu-satunya sumber, jadi urutan kolom dan pembacaan
-screen reader tidak punya versi kembar. Rename, Edit teks, dan Ubah Permission
-di File Manager punya tombol per-baris di HP, karena menu klik-kanan tidak bisa
-diandalkan di layar sentuh.
-
-Antarmuka tersedia penuh dalam **bahasa Indonesia dan Inggris** — termasuk pesan
-error yang datang dari backend. Pilihan bahasa dan zona waktu ada di topbar dan
-tersimpan per akun di server, bukan di browser.
+- **Pencarian File Manager** = `grep -r` pada NAMA berkas: ketik → Enter/Cari,
+  menembus subfolder folder terbuka. Isi berkas tidak dibaca (data bisa
+  puluhan GB). Sambil mengetik, daftar disaring di klien (nol request); begitu
+  query berubah, hasil lama tidak tertinggal. Karakter `.`/`*` literal. Hasil
+  dibatasi 500 baris / 20 detik, dinyatakan di layar; `/proc`, `/sys`, device
+  dir tidak ditelusuri.
+- **Cronjob** hanya mengedit crontab akun yang login (`crontab -l`/`-` via
+  helper), tanpa sudo. Server menjaga isi maks 64 KiB, field `previous` wajib
+  (mismatch → HTTP 409), dan pembacaan ulang setelah menulis. Halaman juga
+  melaporkan apakah unit cron benar-benar berjalan.
+- **Logs** tiga sudut, umur simpan ditegakkan server: Logs (alert, 1 bulan),
+  File Operations (1 bulan), Activity Logs (audit login & aksi admin, 2
+  tahun), disapu saat start + tiap jam.
+- **Pekerjaan panjang tidak batal pindah halaman**: sesi Terminal & AI Agent
+  disimpan di luar daur hidup React (F5 tetap menutup); toast aksi helper
+  dipasang di app-shell sehingga ikut berpindah halaman; selesai → daftar
+  reload sendiri, dan halaman Components mengangkat aksi yang masih jalan
+  (`/api/components/progress`).
+- **Mobile**: sidebar jadi drawer di bawah `lg`, tabel jadi tumpukan kartu di
+  bawah 640px lewat satu kelas CSS + `data-label` (struktur `<table>` tetap
+  satu sumber). Rename/Edit/Ubah Permission punya tombol per-baris.
+- **i18n** Indonesia + Inggris penuh (termasuk pesan error backend); pilihan
+  bahasa & zona waktu disimpan per akun di server.
 
 ## Components
 
-35 software opsional yang tidak ikut di instalasi dasar Ubuntu/Debian, bisa
-dipasang/dicopot dari panel:
+36 software opsional (daftar resmi: `ComponentNames()` di
+`internal/helper/components.go`), dipasang/dicopot dari panel:
 
 | Kategori | Isi |
 |---|---|
-| Runtime & tunnel | docker · nodejs · tailscale · cloudflared |
+| Runtime & tunnel | nginx · certbot · docker · nodejs · tailscale · cloudflared |
 | AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail · browser-use |
 | Database & backend | supabase |
 | Berbagi file & jaringan | samba · nfs-server · nfs-client · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
@@ -162,166 +89,43 @@ dipasang/dicopot dari panel:
 | Monitoring & disk | lm-sensors · smartmontools · nvme-cli · qemu-guest-agent |
 | Utilitas | htop · ncdu · fastfetch · restic |
 
-Software yang sudah ada di sistem — dipasang manual atau lewat repo lain —
-dikenali apa adanya dan **tidak dipasang ulang**.
-
-Selama instalasi berjalan, kartu komponen menampilkan **bar berpersen** yang
-angkanya datang dari apt sendiri (`APT::Status-Fd`), bukan dari stopwatch:
-indeks 0–10%, unduh 10–55%, pasang 55–99%, dan angkanya tidak pernah turun.
-Skrip installer vendor ikut terbaca: apt yang dipanggil di dalamnya menulis
-status ke fd yang sama lewat `APT_CONFIG`, jadi Tailscale pun punya angka.
-Selama laporan pertama belum datang — installer npm, atau skrip yang masih
-mengunduh berkasnya sendiri — yang berjalan sepotong kecil isian menyeberangi
-jalur, dan keterangannya menyebut langkah yang sedang dikerjakan ("mengunduh
-dan memasang paket npm"). Jalur yang terisi penuh sengaja dihindari: itu
-terbaca sebagai pekerjaan 100% yang menggantung. Selama aksinya berjalan,
-badge kartu berbunyi "Sedang dipasang", bukan "Belum Terpasang" yang berdiri
-di sebelah bar yang sedang jalan.
-
-**Mencopot komponen** menawarkan centang "hapus data juga", tapi hanya untuk
-komponen yang memang menyimpan sesuatu di luar paketnya (ditandai `has_data`
-dari helper). Default-nya mati, karena yang dihapus tidak bisa dikembalikan.
-Contoh gunanya: `~/.9router` menyimpan password yang sudah diganti user, dan
-selama folder itu ada, install ulang tidak akan pernah mengembalikan password
-awal.
-
-`cloudflared` adalah satu-satunya komponen yang **tidak** punya tombol
-Jalankan/Hentikan di halaman ini: tunnel-nya tidak berarti apa-apa tanpa token,
-dan tokennya diisi di Settings → Network — jadi kendalinya ada di sana, halaman
-Components hanya menampilkan statusnya. Mencopotnya ikut membuang unit systemd
-`cloudflared.service` yang ditulis `cloudflared service install <token>`;
-token tunnel ada di dalam unit itu dan bukan bagian dari paket .deb, jadi tanpa
-langkah ini kunci tunnel lama tetap tertinggal di mesin setelah uninstall.
-
-Uninstall panel mode **"Hapus total"** mencopot seluruh komponen yang bisa
-dipasang panel — termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI
-— berikut seluruh datanya, container/volume/image Docker, dan cache, memakai
-uninstaller yang sama dengan halaman Components.
-
-Empat mode uninstall bertingkat: `panel` (binary, unit systemd, PAM, sumber),
-`panel-data` (+ database, kunci sesi, `/etc/default`, akun service), `total`
-(+ copot components), dan `total-data` (+ hapus folder `~/DATA` setiap akun
-beserta isinya serta `/etc/skel/DATA`). Mode terakhir adalah satu-satunya yang
-menyentuh berkas pribadi, dan ia menuntut kata konfirmasi `HAPUS DATA` diketik
-ulang sebelum tombolnya menyala; akun Linux dan home directory-nya sendiri
-tidak pernah dihapus.
+- Software yang sudah ada dikenali apa adanya, **tidak dipasang ulang**.
+- Bar berpersen datang dari `APT::Status-Fd` (indeks 0–10%, unduh 10–55%,
+  pasang 55–99%, tidak pernah turun); skrip vendor ikut terbaca via
+  `APT_CONFIG`. Badge "Sedang dipasang" selama bar jalan.
+- **Copot** menawarkan "hapus data juga" hanya untuk komponen ber-flag
+  `has_data`; default mati.
+- `cloudflared` satu-satunya tanpa tombol Jalankan/Hentikan (kendali di
+  Settings → Network); mencopotnya ikut membuang `cloudflared.service` yang
+  memuat token tunnel.
+- **Uninstall panel** 4 mode bertingkat: `panel` → `panel-data` (+ database,
+  kunci sesi, `/etc/default`, akun service) → `total` (+ seluruh components)
+  → `total-data` (+ folder `~/DATA` tiap akun & `/etc/skel/DATA`, wajib ketik
+  `HAPUS DATA`). Akun Linux & home directory tidak pernah dihapus.
 
 ### Supabase self-hosted
 
-Komponen `supabase` memasang backend Supabase lengkap — Postgres, Auth
-(GoTrue), PostgREST, Realtime, Storage, Edge Functions, dan Studio — sebagai
-stack Docker Compose di `/opt/supabase/supabase-project`. Yang dijalankan panel
-adalah **setup.sh resmi** (`curl -fsSL https://supabase.link/setup.sh | sh`,
-di sini diunduh ke berkas dulu lalu dieksekusi `sh setup.sh -y`), mengikuti
-<https://supabase.com/docs/guides/self-hosting/docker>. Skrip itu yang
-melakukan sparse-clone folder `docker/` dari tag rilis self-hosted terbaru dan
-membangkitkan seluruh rahasianya lewat `utils/generate-keys.sh` dan
-`utils/add-new-auth-keys.sh` — JWT_SECRET, ANON_KEY, SERVICE_ROLE_KEY,
-POSTGRES_PASSWORD, dan DASHBOARD_PASSWORD. Panel tidak pernah menyusun
-compose atau kuncinya sendiri: bagian yang paling gampang tertinggal saat
-Supabase merilis versi baru justru pembangkitan kunci, dan salah di situ
-berarti deployment terbuka untuk siapa pun.
-
-Tiga hal yang dikerjakan panel di sekitarnya:
-
-1. **Docker dipasang lewat jalur panel**, bukan dibiarkan ke setup.sh — supaya
-   akun yang menekan Pasang ikut masuk grup `docker` dan halaman
-   System → Docker benar-benar bisa mengelola stack yang baru dibuat.
-2. **URL publik diarahkan ke IP LAN mesin ini.** Bawaan `.env.example` adalah
-   `http://localhost:8000`; nilai itu dipakai BROWSER untuk memanggil API,
-   jadi dibiarkan apa adanya Studio hanya bekerja dari server itu sendiri.
-   Yang diganti hanya `SUPABASE_PUBLIC_URL` dan `API_EXTERNAL_URL` —
-   `SITE_URL` menunjuk aplikasi milik Anda, bukan Supabase.
-3. **Stack dinyalakan sekali** dengan `sh run.sh start --wait-timeout 600`
-   (pembungkus resmi Supabase untuk `docker compose up -d --wait`), sehingga
-   sesudah Pasang selesai stack-nya sudah muncul dan bisa dikelola di
-   System → Docker.
-4. **Stack-nya didaftarkan sendiri** di System → Docker. Stack yang dibuat
-   komponen panel tidak berdiri di daftar "belum terdaftar" menunggu tombol
-   Daftarkan — panel sendiri yang membuat berkas compose-nya, jadi panel juga
-   yang tahu di mana ia berada. Pendaftarannya idempoten dan dikunci pada
-   path berkas compose (bukan nama, jadi stack yang Anda ganti namanya tetap
-   dikenali), dan barisnya ikut hilang begitu komponennya dicopot. Mesin yang
-   sudah memasang Supabase sebelum rilis ini ikut terbereskan sendiri saat
-   halaman Docker dibuka.
-
-Nama stack-nya **wajib** `supabase`: `docker-compose.yml` Supabase menyetel
-`name: supabase` di tingkat atas, dan panel menurunkan nama project compose
-dari nama stack. Kalau keduanya berbeda, sekali `Down` dari panel akan
-meninggalkan container lama sebagai yatim dan `Up` menyalakan set kedua yang
-bentrok port.
-
-Hanya port **8000** (gateway Kong/Envoy — Studio, REST, Auth, Realtime, dan
-Storage semuanya lewat sana) yang didaftarkan ke ufw. Postgres 5432 dan pooler
-6543 juga terbuka di compose bawaan, tapi mengizinkannya ke seluruh LAN adalah
-keputusan admin di Settings → Firewall, bukan efek samping menekan Pasang.
-Tombol **Buka** di kartu komponen mengarah ke `http://<host panel>:8000`.
-Yang menyambut di sana adalah kotak basic auth milik gateway, dan passwordnya
-dibangkitkan setup.sh — tidak pernah diketik siapa pun. Karena itu kartu
-komponen membawa catatan yang menyebut di mana nilainya:
-`DASHBOARD_USERNAME` dan `DASHBOARD_PASSWORD` di `.env` stack, satu klik lewat
-System → Docker → supabase → tombol **.env** (di disk:
-`/opt/supabase/supabase-project/.env`). Nilainya sendiri sengaja TIDAK dicetak
-di kartu: halaman Components terbaca sekali pandang oleh siapa pun yang
-melihat layar, dan halaman itu pula yang paling sering ikut terpotret saat
-melaporkan masalah.
-
-**Konfigurasinya milik user panel, bukan root.** setup.sh dijalankan helper
-daemon (root), jadi tanpa langkah tambahan seluruh isi folder proyek lahir
-milik root — sementara panel MENULIS berkas sebagai user yang login, karena
-worker-nya berjalan dengan kredensial user supaya kernel yang menegakkan
-izinnya. Akibatnya menyimpan `.env` berakhir `permission denied` untuk berkas
-yang justru dibuat panel itu sendiri. Karena itu, sesudah setup.sh selesai
-panel menyerahkan folder proyek beserta seluruh isinya ke akun yang menekan
-Pasang — **kecuali `volumes/`**, yang isinya bind mount yang DITULIS container
-dengan UID masing-masing (`volumes/db/data` milik proses postgres,
-`volumes/storage` milik storage-api). Menyerahkan yang itu membuat Postgres
-menolak start. Aturannya satu kalimat: folder `volumes/` milik container,
-sisanya milik Anda — `.env`, `docker-compose.yml`, override, `run.sh`,
-`utils/`, dan folder proyeknya sendiri (jadi `docker-compose.override.yml`
-baru bisa dibuat dari panel maupun dari shell).
-
-Berlaku untuk **semua stack**, bukan cuma Supabase: saat sebuah berkas `.env`
-atau compose disimpan dari System → Docker, panel lebih dulu menyerahkan
-kepemilikan berkas itu — dan direktori yang memuatnya, karena penyimpanan
-compose menulis berkas sementara di sebelahnya lalu memindahkannya — ke sudoer
-yang menyimpannya. Penyerahan itu **hanya** berlaku untuk berkas yang masih
-milik `root`; berkas milik admin lain didiamkan, jadi ini tidak pernah jadi
-pengambilalihan. Direktori sistem (`/`, `/etc`, `/usr`, `/var`, `/opt`, …)
-tidak pernah ikut diserahkan, betapa pun sebuah stack didaftarkan dengan
-`compose_path` di sana.
-
-**Menyimpan `.env` tidak menerapkan apa pun — dan Restart tidak cukup.**
-Container membaca environment saat ia **dibuat**, bukan saat ia dinyalakan,
-jadi `docker compose restart` menyalakan ulang container yang sama beserta
-salinan nilai lamanya. Hanya `docker compose up -d` yang membuat ulang
-container yang konfigurasinya berubah — dan hanya yang berubah. Perbedaan itu
-paling menggigit di Supabase: `DASHBOARD_USERNAME` dan `DASHBOARD_PASSWORD`
-dipakai container gerbang API (`envoy`), jadi mengganti keduanya lalu menekan
-Restart menghasilkan kotak login yang tetap meminta password LAMA — persis
-seperti panel tidak menyimpan apa-apa. Karena itu, sesudah `.env` atau compose
-tersimpan panel langsung **menawarkan Up**, bukan menitipkan langkah terakhir
-ke kalimat di toast.
-
-**Down dan Restart mati pada stack yang tidak punya satu pun container.**
-Keduanya tetap keluar dengan status 0 di sana, jadi panel melaporkan "selesai"
-untuk perintah yang tidak mengerjakan apa pun; badge "0 / 0 berjalan" di baris
-yang sama adalah alasannya. Stack yang container-nya **ada tapi mati** tidak
-ikut dimatikan tombolnya — di situ Down masih berguna (ia membersihkan
-container exited berikut network-nya) dan Restart masih menyalakannya. Kedua
-keadaan itu bisa dibedakan karena status stack dibaca dengan `docker compose
-ps -a`, bukan `ps` saja. Kalau statusnya gagal dibaca, tombolnya tetap hidup:
-angka 0 di situ berarti "tidak tahu", dan mematikan satu-satunya jalan
-membereskan stack justru saat panel tidak bisa membaca Docker akan membuatnya
-tidak bisa disentuh sama sekali.
-
-**Mencopotnya tidak menghapus database.** Seluruh data Supabase ada di dalam
-folder proyek (`volumes/db/data`, `volumes/storage`, dan `.env` yang memuat
-JWT_SECRET), jadi uninstall biasa menghentikan stack lalu *memindahkan*
-foldernya ke `/opt/supabase/bekas-<tanggal>-<jam>` — kartunya kembali ke
-"belum terpasang", pemasangan berikutnya tidak ditolak setup.sh, dan datanya
-masih ada kalau ternyata masih dibutuhkan. Centang "hapus data juga" yang
-membuang `/opt/supabase` seluruhnya, termasuk folder `bekas-*`.
+- Menjalankan **setup.sh resmi** Supabase ke `/opt/supabase/supabase-project`
+  (sparse-clone tag rilis + generate semua rahasia). Panel tidak menyusun
+  compose/kunci sendiri.
+- Panel: memasang Docker lewat jalur panel (akun ikut grup `docker`),
+  mengarahkan `SUPABASE_PUBLIC_URL`/`API_EXTERNAL_URL` ke IP LAN, menjalankan
+  `sh run.sh start --wait-timeout 600`, lalu **mendaftarkan stack sendiri**
+  ke System → Docker (idempoten, dikunci path compose).
+- Nama stack **wajib** `supabase`. Port **8000/5432/6543 TCP** didaftarkan
+  ke ufw (gateway, Postgres, pooler Supavisor). Tombol **Buka** →
+  basic auth gateway; kredensial di `/opt/supabase/supabase-project/.env`
+  (DASHBOARD_USERNAME/PASSWORD), tidak pernah dicetak di kartu.
+- Folder proyek diserahkan ke user panel **kecuali `volumes/`** (milik
+  container). Berlaku juga untuk `.env`/compose stack lain saat disimpan dari
+  panel (hanya file milik root; direktori sistem tidak pernah ikut).
+- **Simpan `.env` ≠ terapkan**: container baca env saat *dibuat*, jadi panel
+  menawarkan **Up** setelah simpan — Restart tidak cukup.
+- Down/Restart mati pada stack tanpa container (dibedakan via
+  `docker compose ps -a`).
+- **Copot tidak menghapus data**: folder dipindah ke
+  `/opt/supabase/bekas-<tanggal>-<jam>`; "hapus data juga" membuang
+  `/opt/supabase` seluruhnya.
 
 ### Stalwart (server email)
 
@@ -353,233 +157,118 @@ lewat "hapus data juga", yang sekaligus menghapus akun sistem `stalwart` —
 dengan pagar UID < 1000 dan shell nologin, supaya akun manusia bernama sama
 tidak pernah ikut terhapus.
 
-### Alat & skill wajib AI Agent
+### Alat wajib AI Agent
 
-Empat komponen terakhir di kategori AI — `rtk`, `graphify`, `ponytail`,
-`browser-use` — bukan agent, melainkan alat yang dipakai **semua** agent.
-Keempatnya dipasang otomatis
-begitu agent mana pun dipasang, dan arahan pemakaiannya ditulis ke berkas
-instruksi global tiap agent (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, dan
-seterusnya) setiap sesi AI Agent dibuka — jadi akun panel yang dibuat setelah
-instalasi pun ikut mendapatkannya.
+Empat komponen AI terakhir bukan agent, melainkan alat untuk **semua** agent
+— dipasang otomatis begitu agent dipasang, dan arahannya ditulis ke berkas
+instruksi global tiap sesi AI Agent dibuka:
 
-| Alat | Peran | Dokumentasi |
-|---|---|---|
-| rtk | Memangkas keluaran perintah shell sebelum masuk konteks agent | <https://github.com/rtk-ai/rtk#quick-start> |
-| graphify | Knowledge graph kode lewat parsing AST lokal | <https://github.com/Graphify-Labs/graphify#install> |
-| ponytail | Harness "lazy senior dev" level ultra + skill audit/review/debt | <https://github.com/DietrichGebert/ponytail#install> |
-| browser-use | Kendali browser lewat CDP — halaman ber-JavaScript, login, klik, isi form | <https://browser-use.com> · <https://docs.browser-use.com> |
+| Alat | Peran |
+|---|---|
+| rtk | Memangkas keluaran shell sebelum masuk konteks agent |
+| graphify | Knowledge graph kode via parsing AST lokal |
+| ponytail | Harness "lazy senior dev" + skill audit/review/debt |
+| browser-use | Kendali browser via CDP (halaman JS, login, klik, form) |
 
-Pendaftaran ke agent dilakukan **per user dan per agent**, tepat sebelum sesi
-AI Agent dibuka — bukan sekali saat instalasi. Daemon helper berjalan sebagai
-root, jadi `rtk init -g` yang dipanggil installer hanya menambal `/root`;
-akun panel lain membuka agent dengan HOME miliknya sendiri. Target yang
-dipakai per agent:
+Pendaftaran **per user & per agent**, tepat sebelum sesi dibuka (installer
+hanya menambal `/root`):
 
-| Agent panel | rtk | graphify | browser-use |
+| Agent | rtk | graphify | browser-use |
 |---|---|---|---|
 | claude-code | `rtk init -g --auto-patch --no-trust-filters` | `graphify install --platform claude` | `--target claude` |
-| codex | `rtk init -g --codex` | `graphify install --platform codex` | `--target codex` |
-| opencode | `rtk init -g --opencode --auto-patch --no-trust-filters` | `graphify install --platform opencode` | `--target opencode` |
-| hermes | `rtk init -g --agent hermes` | `graphify install --platform hermes` | — (belum punya direktori skill) |
-| openclaw | — (rtk belum punya target OpenClaw) | `graphify install --platform claw` | `--target openclaw` |
+| codex | `rtk init -g --codex` | `--platform codex` | `--target codex` |
+| opencode | `rtk init -g --opencode --auto-patch --no-trust-filters` | `--platform opencode` | `--target opencode` |
+| hermes | `rtk init -g --agent hermes` | `--platform hermes` | — |
+| openclaw | — (belum ada target) | `--platform claw` | `--target openclaw` |
 
-`--auto-patch` dan `--no-trust-filters` wajib untuk target yang menambal
-`settings.json`: tanpa keduanya rtk bertanya ke terminal, dan daemon tidak
-punya siapa pun untuk menjawab.
-
-Kolom browser-use adalah argumen `browser-use skill install --no-install
---target <nilai>`, yang menulis `SKILL.md` resmi ke direktori skill agent itu.
-`--no-install` wajib: tanpanya perintah tersebut memasang salinan browser-use
-keduanya sendiri lewat `uv` ke `~/.local/bin`, bersaing dengan yang sudah
-dipasang panel system-wide. hermes tidak punya direktori skill di daftar
-browser-use, jadi untuknya hanya arahan di `~/.hermes/AGENTS.md` yang berlaku.
+`--auto-patch` + `--no-trust-filters` wajib untuk target yang menambal
+`settings.json` (daemon tidak punya terminal untuk menjawab prompt).
+`browser-use skill install --no-install --target …` juga wajib `--no-install`
+agar tidak memasang salinan kedua via `uv`.
 
 ### Provider inferensi lewat 9router
 
-Sesi pertama Hermes dan OpenClaw di mesin yang belum dikonfigurasi berhenti
-menunggu user memilih provider — Hermes dengan "No inference provider is
-configured yet", OpenClaw dengan "no models available". Di panel ini jawabannya
-sudah pasti: 9router yang berjalan di mesin yang sama sebagai gateway
-OpenAI-compatible. Keduanya karena itu **disambungkan otomatis** saat sesi AI
-Agent dibuka, sebagai user pemilik sesi.
+Sesi pertama **hermes** dan **openclaw** berhenti menunggu provider; panel
+menyambungkannya otomatis ke 9router (`:20128`, gateway OpenAI-compatible):
 
 | Agent | Disambungkan | Cara |
 |---|---|---|
 | hermes | otomatis | `~/.hermes/config.yaml` + `OPENAI_API_KEY` di `~/.hermes/.env` |
 | openclaw | otomatis | `openclaw onboard --non-interactive --auth-choice custom-api-key --custom-provider-id 9router` |
-| claude-code | tidak — opsional, manual | blok `env` di `~/.claude/settings.json` |
-| codex · opencode | tidak — opsional, manual | provider `9router` di config masing-masing |
+| claude-code · codex · opencode | tidak — opsional, manual | config masing-masing |
 
-Claude Code dan Codex/OpenCode sengaja **tidak** diarahkan otomatis: keduanya
-punya login sendiri (langganan Anthropic, akun ChatGPT), dan memaksa base
-URL-nya ke 9router akan merusak instalasi yang sebenarnya sudah bekerja.
-Keduanya tetap bisa dipakai lewat 9router sebagai pilihan sadar user.
-
-API key tidak pernah ditebak. 9router membuat "Default Key" sendiri saat
-pertama kali hidup dan menyimpannya di tabel `apiKeys` pada
-`~/.9router/db/data.sqlite`; panel membacanya dari sana. Perlu diketahui saat
-menguji sendiri: `GET /v1/models` menjawab 200 **tanpa** header Authorization,
-sedangkan `POST /v1/chat/completions` menolak dengan 401 — jadi endpoint chat
-yang menentukan, bukan endpoint models.
-
-Config yang sudah menyebut provider tidak pernah ditimpa: user yang sengaja
-pindah ke Anthropic, OpenAI, atau model lokal lain tetap di sana.
-
-#### Memakai 9router di Claude Code (opsional)
-
-Ganti `sk-…` dengan API key dari halaman 9router, dan sesuaikan nama model
-dengan yang tersedia di gateway.
-
-```json
-{
-  "hasCompletedOnboarding": true,
-  "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:20128/v1",
-    "ANTHROPIC_AUTH_TOKEN": "sk-…",
-    "ANTHROPIC_DEFAULT_FABLE_MODEL": "cc/claude-fable-5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "cc/claude-opus-5",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "cc/claude-sonnet-5",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "cc/claude-haiku-4-5-20251001"
-  }
-}
-```
-
-Berkas ini sama dengan yang ditambal `rtk init -g --auto-patch`; blok `env` di
-atas hidup berdampingan dengan hook rtk.
-
-#### Memakai 9router di OpenCode (opsional)
-
-`provider/model-id` adalah placeholder — isi dengan id model yang dilaporkan
-`GET /v1/models` milik gateway.
-
-```json
-{
-  "provider": {
-    "9router": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": "http://127.0.0.1:20128/v1",
-        "apiKey": "sk-…"
-      },
-      "models": {
-        "provider/model-id": {
-          "name": "provider/model-id",
-          "modalities": { "input": ["text", "image"], "output": ["text"] }
-        }
-      }
-    }
-  },
-  "model": "9router/provider/model-id",
-  "agent": {
-    "explorer": {
-      "description": "Fast explorer subagent for codebase exploration",
-      "mode": "subagent",
-      "model": "9router/provider/model-id"
-    }
-  }
-}
-```
+Claude Code/Codex/OpenCode sengaja tidak dipaksa (mereka punya login
+sendiri). API key dibaca dari tabel `apiKeys` di `~/.9router/db/data.sqlite`,
+tidak pernah ditebak. Config yang sudah menyebut provider tidak pernah
+ditimpa. Contoh config manual (blok `env` Claude Code, `provider.9router`
+OpenCode — keduanya `baseURL http://127.0.0.1:20128/v1`) ada di git history
+README ini.
 
 ## Docker — sumber daya & pemakaian disk
 
-Selain container dan stack, halaman System → Docker mengelola **image, volume,
-dan network** dalam satu panel bertab, dengan **ringkasan pemakaian disk** di
-atasnya. Ringkasan itu berasal dari `docker system df` (tanpa `-v`, yang mahal
-di host dengan banyak volume) dan menjawab pertanyaan yang tidak bisa dijawab
-ketiga tabel di bawahnya: dari sekian puluh GB yang dipakai Docker, berapa yang
-masih terpakai dan berapa yang bisa dibebaskan.
+Tab Images/Volume/Network + **ringkasan pemakaian disk** dari
+`docker system df` (tanpa `-v`):
 
-| Baris | Tombol Bersihkan | Perintah |
+| Baris | Bersihkan | Perintah |
 |---|---|---|
 | Images | ada | `docker image prune -f -a` |
-| Containers | — | (tidak ada; container berhenti dihapus satu per satu di panel Containers) |
+| Containers | — | (hapus satu per satu di panel) |
 | Local Volumes | ada | `docker volume prune -f` |
 | Build Cache | ada | `docker builder prune -f` |
 
-**Ada DUA tingkat pembersihan image, dan itu disengaja.** Tombol Bersihkan di
-tab Images menjalankan `image prune` polos — hanya image *dangling*, yang tidak
-punya tag sama sekali. Tombol di baris Images pada ringkasan menjalankan
-`image prune -a`: setiap image yang tidak dipakai container mana pun, termasuk
-image stack yang sedang `Down` (container-nya sudah dihapus, jadi image-nya
-dihitung tidak terpakai) yang lalu harus diunduh ulang. Selisihnya terlalu
-besar untuk satu tombol yang diam-diam memilih, jadi keduanya punya kalimat
-konfirmasi sendiri. Justru selisih itu yang membuat baris ringkasan ada: di
-host yang penuh image bertag tapi tak terpakai, prune polos mengembalikan 0 B
-dan terbaca sebagai tombol yang rusak.
-
-Cache build adalah satu-satunya sumber daya di sini yang isinya murni hasil
-turunan — menghapusnya tidak pernah menghilangkan data, paling mahal membuat
-build berikutnya mulai dari nol. Ia tidak punya daftar dan tidak punya entri
-yang dihapus satu per satu; hanya tombol Bersihkan pada barisnya.
-
-Penghapusan satu per satu (ikon tong sampah) **tidak pernah memakai `-f`**:
-daemon menolak menghapus image, volume, atau network yang masih dipakai, dan
-penolakan itu justru pengaman yang paling berguna di sini — memaksanya berarti
-container yang sedang jalan kehilangan datanya. Network bawaan docker
-(`bridge`, `host`, `none`) tidak punya tombol hapus sama sekali.
-
-Di sisi helper, whitelist perintah docker disusun **per sumber daya**, bukan
-satu daftar bersama: `system` hanya boleh `df` dan `builder` hanya boleh
-`prune`. `docker system prune` sengaja tidak pernah tersedia — ia menyapu
-container berhenti, network, cache build, dan (dengan `--volumes`) seluruh
-volume tak terpakai dalam satu perintah, cakupan yang tidak bisa dijelaskan
-dengan jujur di satu dialog konfirmasi.
+- **Dua tingkat prune image disengaja**: tombol tab Images = prune polos
+  (dangling saja); tombol baris ringkasan = `prune -a` (termasuk image stack
+  yang sedang Down) — keduanya punya konfirmasi sendiri.
+- Hapus per item **tidak pernah pakai `-f`** (penolakan daemon = pengaman);
+  network bawaan (`bridge`/`host`/`none`) tanpa tombol hapus.
+- Whitelist helper disusun per sumber daya (`system` hanya `df`, `builder`
+  hanya `prune`); `docker system prune` tidak pernah tersedia.
 
 ## Print server (CUPS)
 
-`print-server` adalah komponen **opsional** dan sengaja tidak ikut instalasi
-dasar: panel ini dipakai di segala jenis mesin, dan di LXC print server memang
-tidak bisa berjalan sama sekali. Mesin yang tidak akan pernah mencetak karena
-itu tidak dianggap kurang lengkap — halaman Print server cukup menampilkan
-"Belum Terpasang" dengan tombol ke Components.
+Komponen **opsional** (di LXC CUPS memang tidak bisa jalan), alur cetak
+selesai di panel:
 
-Kalau dipasang, seluruh alur mencetak selesai di dalam panel, tanpa membuka
-terminal:
+1. Components → print-server: pasang `cups` + `printer-driver-gutenprint`
+   (wajib — printer USB rumahan umumnya tanpa IPP Everywhere).
+2. Settings → Print server → **Deteksi**: `lpinfo` + driver tersedia +
+   antrean, agar "siap didaftarkan" bisa dibedakan dari "driver belum ada".
+3. **Pasang driver**: frontend mengirim nama **vendor**, mapping vendor →
+   paket adalah whitelist backend (`internal/helper/printer.go`).
+4. **Daftarkan antrean**, lalu cetak dari File Manager (printer, jumlah,
+   media, satu/dua sisi) dan pantau antrean.
 
-1. **Components → print-server** memasang `cups` + `printer-driver-gutenprint`.
-   Gutenprint ikut dipasang, bukan opsional: printer USB rumahan (Canon PIXMA,
-   Epson, banyak HP) tidak mendukung IPP Everywhere, dan CUPS akan menerima
-   antrean tanpa driver dengan senang hati sebelum tiap cetakan berakhir kosong.
-2. **Settings → Print server → Deteksi** menggabungkan tiga hal yang harus
-   dilihat bersamaan — perangkat dari `lpinfo`, driver yang tersedia di sistem,
-   dan antrean yang sudah ada — sehingga "printer siap didaftarkan" bisa
-   dibedakan dari "printer terlihat tapi drivernya belum ada".
-3. **Pasang driver** untuk printer yang belum siap. Yang dikirim frontend adalah
-   nama **vendor**, bukan nama paket; pemetaan vendor → paket adalah whitelist
-   di backend (`internal/helper/printer.go`), jadi endpoint ini tidak pernah
-   bisa berubah jadi "frontend memilih paket apa pun untuk dipasang sebagai
-   root".
-4. **Daftarkan antrean**, lalu **cetak** lewat menu di File Manager (pilih
-   printer, jumlah salinan, ukuran media, satu/dua sisi) dan pantau antreannya.
+Ubah daftar printer/scan/driver = sudo; melihat & mencetak berkas sendiri
+tidak. File dialirkan lewat worker yang sudah turun privilege ke stdin `lp`;
+skema `file://` ditolak. Deteksi jaringan butuh Avahi (sengaja bukan
+dependensi print-server).
 
-Pembagian sudo di halaman ini sengaja tidak seragam: mengubah daftar printer,
-memindai perangkat, dan memasang driver butuh sudo karena mengubah konfigurasi
-mesin untuk semua orang. Melihat printer, melihat antrean, dan mencetak berkas
-sendiri tidak — itu justru alasan fitur ini ada.
+## Proxy manager (nginx + certbot)
 
-Mencetak **tidak** membuka berkas sebagai root: setelah pemeriksaan path, isinya
-dialirkan lewat worker yang privilegenya sudah diturunkan ke user login lalu
-masuk ke stdin `lp`. Skema device `file://` ditolak — itu bukan printer, itu
-cara menyuruh `cupsd` menulis berkas sembarangan sebagai root.
+Halaman `Settings → Proxy manager` (dijaga `ComponentGuard nginx`; TLS
+butuh `certbot`). Tiga tab:
 
-Penemuan printer jaringan lewat mDNS bergantung pada Avahi. Avahi sengaja
-**tidak** dijadikan dependensi print-server (ia mengubah perilaku jaringan mesin
-lebih luas daripada sekadar mencetak), jadi halaman Deteksi menyebutkan kondisi
-itu beserta jalan keluarnya kalau Avahi belum ada.
+- **Proxy Manager** — daftar proxy host: domain/IPv4 → target upstream
+  (IP/hostname + port + scheme http/https), aktif/nonaktif, **Uji config**
+  (`nginx -t`) dan **Muat ulang**. Ada host bawaan "Panel bawaan" yang tidak
+  bisa dihapus (target/port/scheme tetap bisa diubah).
+- **SSL/TLS** — terbitkan sertifikat per host: certbot **HTTP-01** (domain
+  harus mengarah ke server ini, port 80 terbuka dari internet) atau
+  **DNS-01 Cloudflare** memakai token tersimpan, plus mode staging untuk
+  pengujian. Matikan TLS menampilkan peringatan bahwa akses berikutnya
+  (password, OTP, sesi) jadi tidak terenkripsi.
+- **DNS Cloudflare** — simpan/hapus token API (hanya ditampilkan tersamar),
+  muat zone + record, tambah/edit/hapus record, dan aksi massal pada record
+  terpilih: nyalakan proxy, matikan proxy (dns-only), atau hapus.
 
----
+## Firewall
 
-## Firewall: port komponen didaftarkan sebelum firewall menyala
-
-`ufw` dipasang dengan `DEFAULT_INPUT_POLICY=DROP`, jadi menyalakannya memutus
-setiap layanan yang portnya belum diizinkan. Karena itu port **dideklarasikan
-per komponen** dan didaftarkan saat komponennya dipasang, bukan saat firewall
-dinyalakan — `ufw allow` tetap tersimpan di `/etc/ufw/user.rules` meski ufw
-sedang nonaktif:
+`ufw` dipasang `DEFAULT_INPUT_POLICY=DROP`, jadi port **dideklarasikan per
+komponen** dan didaftarkan saat komponen dipasang:
 
 | Komponen | Port |
 |---|---|
+| nginx | 80/tcp · 443/tcp |
 | samba | 445/tcp · 139/tcp · 137:138/udp |
 | nfs-server | 2049/tcp · 111/tcp · 111/udp |
 | avahi | 5353/udp |
@@ -590,183 +279,61 @@ sedang nonaktif:
 | stalwart | 8080/tcp · 443/tcp · 25/tcp · 465/tcp · 993/tcp · 995/tcp · 4190/tcp |
 | tailscale | 41641/udp |
 
-Port komponen, SSH, dan panel didaftarkan ke firewall (`Anywhere`) saat dipasang,
-sehingga pengguna tidak perlu memasukkan port manual. Memasang `ufw` belakangan
-tidak membuat komponen yang sudah ada tertinggal — saat itu seluruh port komponen
-yang terpasang didaftarkan menyusul. Mencopot komponen mencabut izinnya lagi.
-
-Setiap rule yang ditulis panel membawa **label pemiliknya** — `ufw allow 445/tcp
-comment 'Samba'` — jadi `ufw status numbered` maupun halaman Firewall menyebut
-siapa yang memakai portnya: `Samba`, `SSH`, `panel linux-dashboard`,
-`Docker: <nama container>`, `9router`, dan seterusnya. Halaman Firewall
-menampilkannya sebagai `# <label>` di sebelah port.
-
-fail2ban tidak menyediakan filter untuk satu pun komponen di katalog, jadi jail
-`sshd` dinyalakan otomatis saat fail2ban dipasang, dan filter Samba dipasang
-panel sendiri. Filter itu hanya berguna kalau kegagalan login benar-benar
-tercatat, sementara `map to guest = Bad User` bawaan Ubuntu memetakan username
-tak dikenal ke guest tanpa satu pun baris `NT_STATUS_LOGON_FAILURE` — karena itu
-blok berisi `map to guest = Never` dan `log level = 0 auth_audit:3` disisipkan di
-**akhir** section `[global]` `smb.conf` (Samba memakai nilai terakhir dalam satu
-section, jadi setelan panel menang tanpa mengedit baris milik admin, dan membuang
-blok itu mengembalikan konfigurasi lama persis).
-
-Aturan dan jail yang dibuat **sesudahnya milik user**: `ufw enable` tidak
-mendaftarkan ulang port komponen, dan jail yang sudah ada atau sudah dihapus
-tidak dibuat ulang. Yang tetap dipastikan sebelum firewall menyala hanya akses
-admin, karena kehilangan itu berarti kehilangan mesinnya. Port komponen tetap
-diselaraskan sesudahnya — tapi lewat keadaan layanannya, bukan lewat `ufw enable`.
-
-### Port komponen mengikuti keadaan layanannya
-
-Port yang didaftarkan panel tidak dibiarkan tetap terbuka sesudah layanannya
-hilang. Penyelaras yang sama dengan pengawas container berjalan setiap **30
-detik** (dan tiap kali komponen dipasang/dicopot/dinyalakan/dihentikan dari
-panel):
-
-- layanan **hidup** → portnya dibuka dan dilabeli. Rule lama dari versi panel
-  sebelum label ada **diperbarui di tempat** (`ufw` mencetak "Rule updated"),
-  bukan dihapus lalu ditulis ulang: tidak ada jeda saat portnya tertutup, dan
-  cakupan yang sudah ada — mis. yang sengaja dibatasi ke subnet lokal — tidak
-  ikut dilonggarkan;
-- layanan **mati, atau unitnya sudah tidak ada** (mis. paket CUPS dicopot) →
-  izinnya dicabut lagi. Port yang tetap terbuka untuk layanan yang sudah mati
-  tidak menjaga apa pun. Rule lama yang belum berlabel pun ikut dicabut,
-  **kecuali** kalau portnya sedang dipublikasikan container yang jalan, atau
-  cakupannya dibatasi ke alamat lain — dua bentuk itu bukan tulisan panel, jadi
-  tidak disentuh;
-- rule yang dihapus sendiri lewat Settings → Firewall **tidak** dibuat ulang
-  selama layanannya masih hidup; sedangkan rule yang hilang di luar panel
-  (`ufw reset`, dihapus dari terminal) dikembalikan, karena menjaga itulah
-  tugasnya.
-
-Yang gagal dibaca tidak dianggap mati: `systemctl` atau `ufw` yang error hanya
-menunda putaran itu, bukan mencabut izin layanan yang mungkin masih jalan.
-Catatan rule milik panel disimpan di
-`/var/lib/linux-dashboard/komponen-ports.json`.
-
-### Port container Docker ikut dijaga
-
-Container mempublikasikan port host (`0.0.0.0:8090->8090/tcp`) lewat docker,
-bukan lewat ufw: aturannya hidup di chain iptables milik docker, dan halaman
-Firewall tidak pernah melihatnya. Helper menutup jarak itu dengan pengawas yang
-menyelaraskan keduanya setiap **30 detik**:
-
-- container **sedang jalan** → setiap port host yang dipublikasikannya
-  didaftarkan sebagai `allow <port>/<proto>` (`Anywhere`, sama seperti port
-  komponen);
-- container **berhenti/keluar** → izin itu dicabut lagi, supaya port layanan
-  yang sudah mati tidak tertinggal terbuka.
-
-Penyelarasan juga langsung dipicu sesudah Start/Stop/Restart/Hapus container
-atau `compose up/down` dari panel, dan sebelum tombol UFW di halaman Firewall
-dinyalakan — jendela beberapa detik di mana layanan container tidak bisa
-dihubungi tidak perlu ada. Pemeriksaan berkala tetap perlu karena container
-juga menyala dari terminal, dari `docker compose` di luar panel, atau oleh
-`restart: always` sesudah reboot.
-
-Yang **tidak** disentuh:
-
-- rule yang sudah ada sebelum panel melihatnya — rule komponen, SSH/panel, dan
-  rule yang ditulis sendiri tidak pernah diakui sebagai milik panel, jadi tidak
-  pernah dicabut;
-- port yang sudah dideklarasikan komponen (Samba, NFS, Supabase, 9router, …),
-  berapa pun urutan pemasangannya;
-- rule yang dihapus sendiri lewat Settings → Firewall: selama container-nya
-  masih memakai port itu, rule tersebut **tidak** dibuat ulang.
-
-Kalau docker tidak bisa dijawab (`docker ps` gagal), tidak ada yang diubah —
-daftar container yang tidak terbaca bukan bukti bahwa container-nya berhenti.
-Kalau hanya sebagian daftar yang terbaca, izin baru tetap dibuka tapi
-pencabutan ditunda ke putaran berikutnya, karena container yang gagal dibaca
-mungkin masih jalan.
-
-Catatan rule siapa-milik-siapa ada di
-`/var/lib/linux-dashboard/docker-ports.json`. Mencopot komponen `docker`
-mencabut seluruh rule yang dibuat dengan cara ini.
-
----
+- Setiap rule panel membawa **label pemilik** (`ufw allow 445/tcp comment
+  'Samba'`); memasang ufw belakangan menyusul seluruh port komponen yang
+  sudah ada; mencopot komponen mencabut izinnya.
+- fail2ban: jail `sshd` menyala otomatis; filter Samba dipasang panel
+  sendiri, dengan blok `map to guest = Never` + `log level` disisipkan di
+  **akhir** section `[global]` `smb.conf` (nilai terakhir menang, baris
+  admin tidak diedit).
+- Rule/jail yang dibuat sesudahnya milik user (tidak dibuat ulang). Yang
+  dipastikan sebelum firewall menyala hanya akses admin.
+- **Penyelaras tiap 30 detik**: layanan hidup → port dibuka & dilabeli
+  (rule lama di-update di tempat); layanan mati/unit hilang → izin dicabut.
+  Rule yang dihapus sendiri di Settings → Firewall tidak dibuat ulang; yang
+  hilang di luar panel (`ufw reset`) dikembalikan. Gagal dibaca ≠ mati
+  (putaran ditunda). Catatan: `/var/lib/linux-dashboard-helper/komponen-ports.json`.
+- **Port container Docker** ikut dijaga (docker menulis iptables, bukan ufw):
+  container jalan → port host didaftarkan; berhenti → dicabut. Dicetuskan
+  juga setelah Start/Stop/Restart/Hapus container & `compose up/down`. Rule
+  lama milik panel, port komponen, dan rule buatan admin tidak pernah
+  disentuh. Catatan: `/var/lib/linux-dashboard-helper/docker-ports.json`.
 
 ## Disk & Disk Pool
 
-Disk mentah yang belum dipakai ikut dilaporkan collector (`unused_disks`: tanpa
-partisi, tanpa holder LVM/RAID, tidak ter-mount) dan muncul di kartu Storage
-dashboard. Kapasitasnya sengaja **tidak** ikut total storage — ruang itu belum
-bisa dipakai, jadi memasukkannya akan membuat persentase pemakaian bohong.
-
-Mengklik disk itu membuka dialog format & mount: pilih mount point dan
-filesystem (ext4/xfs/btrfs), lalu helper menjalankan `mkfs`, menulis entri
-`/etc/fstab` lewat UUID dengan opsi `nofail`, dan me-mount-nya. Pagarnya: hanya
-disk yang diakui `UnusedDisks()` yang boleh disentuh (daftar yang sama persis
-dengan yang dipakai dashboard), disk yang ternyata sudah berisi filesystem
-ditolak dengan kode `disk_has_filesystem` lalu dialognya menawarkan mount tanpa
-format, dan `fstab` ditulis atomik lalu dikembalikan kalau mount gagal.
-
-Kebalikannya ada di baris mount yang sama: tiap mount di kartu Storage punya
-tombol **lepas** (`umount` saja — barisnya tetap di `/etc/fstab`, jadi disknya
-terpasang lagi setelah boot) dan **lepas & lupakan** (`umount`, baris `fstab`
-tulisan panel dibuang, folder mount point dihapus). Isi disknya tidak pernah
-disentuh; memasangnya kembali lewat baris disk belum-ter-mount di daftar yang
-sama. Pagarnya: hanya mount di `/mnt` atau `/media` (`/`, `/var`, `/boot`
-dikelola sistem), path diperiksa `filepath.Clean(p) == p` supaya
-`/mnt/../etc` tidak lolos pemeriksaan awalan, pool mergerfs, anggota
-(branch) pool mergerfs, dan mount NFS ditolak dengan arahan ke halaman
-pengelolanya sendiri supaya baris `fstab`-nya tidak menggantung — dan supaya
-pool tidak tiba-tiba menulis ke direktori kosong di disk sistem — dan baris
-`fstab` yang bukan tulisan panel dibiarkan utuh lalu dilaporkan — kalau tidak,
-mount-nya kembali setelah reboot tanpa penjelasan. Disk yang dicabut saat
-masih ter-mount tidak bisa di-`umount` biasa (kernel masih memegangnya dan
-setiap pembacaan dijawab `input/output error`); helper jatuh ke `umount -l`,
-satu-satunya jalan keluar yang tidak menuntut reboot — tapi hanya kalau
-device-nya memang sudah hilang dari `/dev`. `umount` yang gagal pada disk yang
-masih ada berarti ada proses yang sedang memakainya, dan itu dilaporkan, bukan
-disembunyikan dengan lazy unmount.
-
-**Disk Pool (mergerfs)** menggabungkan beberapa disk jadi satu mount point.
-Yang perlu diketahui:
-
-- Kebijakan bawaannya `category.create=pfrd` — berkas baru disebar acak dengan
-  bobot sisa ruang, bukan ditumpuk di satu disk seperti `mfs`. Pool yang sudah
-  ada tidak ikut berubah; opsinya tersimpan di `/etc/fstab` dan hanya berubah
-  lewat Edit.
-- Pool bisa **dipasang/dilepas** tanpa menghapus definisinya. Operasinya
-  idempoten dan tidak menyentuh `/etc/fstab`, jadi pool yang dilepas terpasang
-  lagi setelah boot.
-- Mount point **dikunci immutable** setiap kali direktorinya telanjang (sebelum
-  mount dan sesudah umount). Tanpa itu, berkas yang diunggah saat pool lepas
-  memenuhi disk sistem lalu tersembunyi begitu pool dipasang lagi.
-- Melepas atau menghapus pool ikut membuang folder mount point-nya kalau kosong;
-  folder yang **tidak** kosong dipertahankan beserta isinya lalu dikunci.
-- Tiap pool yang sedang ter-mount muncul sebagai pintasan "Disk pool : &lt;Nama&gt;"
-  tepat setelah `Root (/)` di File Manager — sudo-only, sama seperti `Root (/)`.
-
----
+- Disk mentah (`unused_disks`) muncul di kartu Storage tapi **tidak** ikut
+  total storage (ruang belum bisa dipakai). Klik → dialog format (ext4/xfs/
+  btrfs) & mount: helper `mkfs`, tulis `/etc/fstab` via UUID + `nofail`,
+  mount. Hanya disk yang diakui `UnusedDisks()`; disk berfilesystem ditolak
+  (`disk_has_filesystem`) lalu ditawarkan mount tanpa format; `fstab`
+  ditulis atomik dan dikembalikan kalau mount gagal.
+- Tiap mount punya **lepas** (umount saja, baris fstab tetap) dan **lepas &
+  lupakan** (umount + buang baris fstab tulisan panel + hapus folder kosong).
+  Isi disk tidak pernah disentuh. Hanya mount di `/mnt`/`/media`; path harus
+  lolos `filepath.Clean`; pool/anggota mergerfs dan mount NFS ditolak (arahan
+  ke halamannya). Disk dicabut saat ter-mount → `umount -l` hanya bila device
+  hilang dari `/dev`.
+- **Disk Pool (mergerfs)**: kebijakan bawaan `category.create=pfrd`
+  (sebar bobot sisa ruang); pool bisa dipasang/dilepas tanpa menghapus
+  definisi (idempoten, tidak menyentuh fstab); mount point dikunci
+  immutable selama direktori telanjang; pool ter-mount muncul sebagai
+  pintasan "Disk pool : Nama" di File Manager (sudo-only).
 
 ## Konfigurasi milik sistem
 
-Samba share, pool mergerfs, disk yang disiapkan panel, export NFS, jail
-fail2ban, dan antrean printer ditulis ke file konfigurasi sistem (`smb.conf`
-include, `/etc/fstab`, `/etc/exports`, `jail.local`, `printers.conf` lewat
-`lpadmin`). Aturannya sama untuk semuanya:
+Berlaku untuk `smb.conf` include, `/etc/fstab`, `/etc/exports`,
+`jail.local`, `printers.conf`:
 
-- baris/section yang **bukan tulisan panel** ikut ditampilkan, ditandai, dan
-  bersifat read-only — konfigurasi milik admin tidak pernah ditulis ulang;
-- penulisan lewat file sementara lalu `rename`, karena file yang terpotong di
-  tengah penulisan bisa membuat sistem gagal boot;
-- status yang ditampilkan dibaca dari sistem (`exportfs -s`, `findmnt`,
-  `fail2ban-client status`, `lpstat`), bukan dari isi file.
+- baris/section bukan tulisan panel ditandai & read-only;
+- penulisan via file sementara + `rename`;
+- status dibaca dari sistem (`exportfs -s`, `findmnt`, `fail2ban-client
+  status`, `lpstat`), bukan dari isi file.
 
-Satu pengecualian yang disengaja: blok `[global]` yang disisipkan panel di
-`smb.conf` supaya kegagalan login Samba benar-benar tercatat (lihat bagian
-Firewall di atas). Ia ditambahkan di akhir section, bukan menimpa baris admin;
-aslinya dicadangkan ke `smb.conf.lindash.bak`, dan hasil yang ditolak `testparm`
-dikembalikan otomatis sebelum `smbd` sempat gagal start.
-
----
+Pengecualian disengaja: blok `[global]` untuk logging Samba (lihat Firewall)
+— disisipkan di akhir section, dicadangkan ke `smb.conf.lindash.bak`, hasil
+yang ditolak `testparm` dikembalikan otomatis.
 
 ## Arsitektur
-
-Dua proses, dipisah berdasarkan privilege:
 
 ```
 Browser (React SPA)
@@ -781,30 +348,26 @@ linux-dashboard-helper      ← root
   useradd · apt · docker · PTY
 ```
 
-Proses web **tidak pernah** punya akses root. Semua operasi privileged dikirim
-sebagai command terstruktur ke helper daemon, ditandatangani HMAC, dan
-dieksekusi dengan argumen array — tidak pernah lewat `sh -c`.
-
-Untuk operasi yang harus berjalan **sebagai user yang login** (baca/tulis file
-di home, kill proses sendiri, shell terminal), helper mem-fork proses anak
-dengan `SysProcAttr.Credential`. Kernel yang menegakkan izin, bukan kode kita —
-jadi tidak ada logika permission Unix yang ditiru ulang dan bisa salah.
+Proses web **tidak pernah** punya akses root: operasi privileged dikirim
+sebagai command terstruktur, ditandatangani HMAC, dieksekusi dengan argumen
+array — tidak pernah lewat `sh -c`. Operasi yang harus berjalan sebagai user
+yang login di-fork dengan `SysProcAttr.Credential`, jadi kernel yang
+menegakkan izin.
 
 ## Struktur
 
 ```
-cmd/server          entrypoint web app
-cmd/helper          entrypoint helper daemon (+ mode worker)
+cmd/server            entrypoint web app
+cmd/helper            entrypoint helper daemon (+ mode worker)
 internal/helperproto  kontrak command antara keduanya
-internal/helper       implementasi daemon root (components, samba, mergerfs,
-                      nfs, fail2ban, printer, portkomponen, progres, vpn,
-                      files, users, docker, terminal)
+internal/helper       implementasi daemon root
 internal/helperclient client HMAC ke daemon
 internal/api          REST handler + WebSocket
 internal/metrics      collector gopsutil + deteksi GPU multi-vendor
-internal/platform     deteksi OS/kernel/platform (14 skenario)
+internal/platform     deteksi OS/kernel/platform
 internal/store        SQLite: session, log, bookmark, threshold, stack
-internal/terminal     kuota + daftar sesi terminal berbasis jumlah core
+internal/terminal     kuota + daftar sesi terminal
+internal/totp         TOTP/TFA
 internal/config       konfigurasi dari environment
 web/embed.go          go:embed hasil build React
 web/ui                sumber frontend (React TSX + Vite + Tailwind v4)
@@ -813,9 +376,8 @@ deploy/               unit systemd, file PAM, installer satu baris
 
 ## Membangun
 
-Butuh **Go 1.26.6+** (versi di `go.mod`; toolchain lama otomatis mengunduh yang
-tepat lewat `GOTOOLCHAIN=auto`), **Node.js 20+**, dan `libpam0g-dev` — helper
-daemon memakai PAM lewat cgo.
+Butuh **Go 1.26.6+** (lihat `go.mod`, `GOTOOLCHAIN=auto`), **Node.js 20+**,
+`libpam0g-dev` (helper pakai PAM via cgo):
 
 ```bash
 sudo apt install -y build-essential libpam0g-dev
@@ -823,51 +385,26 @@ make build          # build UI → embed → dua binary di bin/
 sudo ./deploy/install.sh
 ```
 
-Tanpa `sudo` di depan pun bisa: skrip mendeteksi dirinya bukan root lalu
-menjalankan ulang dirinya sendiri lewat `sudo` (variabel override seperti
-`PREFIX` ikut terbawa). Kalau paket `sudo` sendiri belum terpasang, installer
-memasangnya — grup `sudo` yang dibuat paket itu yang dipakai panel untuk
-menentukan siapa sudoer. Versi yang dipipe dari `curl` tetap harus ditulis
-`| sudo bash`, karena tidak ada berkas yang bisa dijalankan ulang.
+Tanpa `sudo` pun bisa (skrip re-exec dirinya sendiri, `PREFIX` ikut terbawa);
+versi yang dipipe dari `curl` tetap harus `| sudo bash`.
 
-### Dependensi
+- **Build**: `ca-certificates`, `curl`, `git`, `make`, `build-essential`,
+  `libpam0g-dev`, Go 1.26.6+, Node 24 dari NodeSource.
+- **Runtime dasar**: `systemctl`, `ip`, `hostnamectl`, `resolvectl`,
+  `findmnt`, `mount`/`umount`, `useradd`/`usermod`/`userdel`, `apt-get`,
+  `dpkg-query`.
+- **Runtime opsional** (kelola dari Components, halaman tampil "Belum
+  Terpasang" selama belum ada): nginx, certbot, samba, mergerfs,
+  nfs-kernel-server, cups+gutenprint, ufw, fail2ban, docker-ce, tailscale,
+  cloudflared, stalwart (skrip resmi get.stalw.art), nodejs.
+- **Library Go**: `chi/v5`, `coder/websocket`, `creack/pty`,
+  `msteinert/pam/v2`, `gopsutil/v4`, `modernc.org/sqlite`.
+- **Frontend**: React 18 + Vite 6 + TS 5.7, Tailwind v4, Radix Slot,
+  Zustand 5, react-router-dom 6, `@xterm/xterm`, lucide-react. Dialog/toast
+  adalah source TSX proyek di `src/components/ui/`.
 
-**Build** (dipasang otomatis oleh installer kalau belum ada):
-`ca-certificates`, `curl`, `git`, `make`, `build-essential`, `libpam0g-dev`,
-Go 1.26.6+, Node 24 dari NodeSource (Node 20+ yang sudah ada tidak diganti).
-
-**Runtime dari sistem dasar** — dipakai helper daemon, sudah ada di Ubuntu/Debian
-normal; installer memperingatkan kalau image minimal memangkasnya:
-`systemctl`, `ip`, `hostnamectl`, `resolvectl`, `findmnt`, `mount`/`umount`,
-`useradd`/`usermod`/`userdel`, `apt-get`, `dpkg-query`.
-
-**Runtime opsional** — tidak dipasang installer, dikelola dari menu Components;
-halaman yang membutuhkannya menampilkan "Belum Terpasang" sampai dipasang:
-
-| Paket | Binary | Halaman |
-|---|---|---|
-| samba | `smbd`, `smbpasswd`, `pdbedit`, `testparm` | File manager → Samba |
-| mergerfs | `mergerfs` (butuh `/dev/fuse`) | File manager → Disk Pool |
-| nfs-kernel-server | `exportfs` | File manager → NFS Exports |
-| cups + printer-driver-gutenprint | `cupsd`, `lpadmin`, `lpinfo`, `lpstat`, `lp` | Settings → Print server |
-| ufw | `ufw` | Settings → Firewall |
-| fail2ban | `fail2ban-client` | Settings → Fail2ban |
-| docker-ce + docker-compose-plugin (repo resmi Docker) | `docker` | System → Docker |
-| tailscale, cloudflared | `tailscale`, `cloudflared` | Settings → Network |
-| stalwart | `stalwart` (skrip resmi get.stalw.art) | Components → Stalwart |
-| nodejs | `node`, `npm` | Components → 9Router |
-
-**Library Go**: `go-chi/chi/v5`, `coder/websocket`, `creack/pty`,
-`msteinert/pam/v2` (cgo), `shirou/gopsutil/v4`, `modernc.org/sqlite` (pure Go).
-**Frontend**: React 18 + Vite 6 + TypeScript 5.7, Tailwind v4 (`@tailwindcss/vite`),
-`@radix-ui/react-slot`, Zustand 5, react-router-dom 6, `@xterm/xterm` 5,
-`lucide-react`. Dialog, toast, dan komponen UI lain adalah source TSX milik
-proyek di `src/components/ui/` — bukan library pihak ketiga.
-
-`make release-server` mem-build web app untuk amd64, arm64, dan armhf sekaligus
-(cross-compile bawaan Go, tanpa toolchain tambahan — web app sengaja
-`CGO_ENABLED=0`). Helper daemon memakai PAM lewat cgo, jadi harus di-build
-dengan compiler untuk arsitektur targetnya.
+`make release-server` mem-build web app untuk amd64 + arm64 + armhf
+sekaligus (cross-compile bawaan Go, `CGO_ENABLED=0`); helper wajib cgo.
 
 ## Development
 
@@ -885,106 +422,69 @@ Semua lewat environment variable; nilai di bawah adalah default.
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `DASHBOARD_LISTEN` | `127.0.0.1:8080` | Alamat bind web app; installer menyetel `0.0.0.0:1122` dengan TLS native |
-| `DASHBOARD_TLS_CERT` | kosong | Sertifikat TLS; wajib bersama key untuk bind non-loopback yang aman |
-| `DASHBOARD_TLS_KEY` | kosong | Private key TLS; harus diisi bersama `DASHBOARD_TLS_CERT` |
-| `DASHBOARD_ALLOW_PLAINTEXT` | `false` | Opt-in berisiko untuk HTTP pada bind non-loopback; jangan aktifkan pada Internet |
-| `DASHBOARD_RUN_DIR` | `/run/linux-dashboard` | Lokasi socket helper |
-| `DASHBOARD_STATE_DIR` | `/var/lib/linux-dashboard` | Lokasi SQLite web app |
-| `DASHBOARD_SOCKET` | `$RUN_DIR/helper.sock` | Path socket helper (override penuh) |
-| `DASHBOARD_SOCKET_GROUP` | `linux-dashboard` | Grup yang boleh mengakses socket |
-| `DASHBOARD_SECRET_DIR` | `/var/lib/linux-dashboard-helper` | Direktori secret helper — sengaja terpisah dari state dir web, karena user service web tidak boleh bisa mengganti isi secret |
-| `DASHBOARD_SECRET` | `$SECRET_DIR/secret.key` | File HMAC secret helper (0640, milik root, grup web app hanya boleh membaca) |
-| `DASHBOARD_DB` | `$STATE_DIR/lindash.db` | Path database SQLite |
+| `DASHBOARD_LISTEN` | `127.0.0.1:8080` | Bind web app; installer menyetel `0.0.0.0:1122` + TLS |
+| `DASHBOARD_TLS_CERT` | kosong | Sertifikat TLS |
+| `DASHBOARD_TLS_KEY` | kosong | Private key TLS |
+| `DASHBOARD_ALLOW_PLAINTEXT` | `false` | Opt-in HTTP non-loopback; jangan di Internet |
+| `DASHBOARD_RUN_DIR` | `/run/linux-dashboard` | Socket helper |
+| `DASHBOARD_STATE_DIR` | `/var/lib/linux-dashboard` | SQLite web app |
+| `DASHBOARD_SOCKET` | `$RUN_DIR/helper.sock` | Path socket helper |
+| `DASHBOARD_SOCKET_GROUP` | `linux-dashboard` | Grup yang boleh akses socket |
+| `DASHBOARD_SECRET_DIR` | `/var/lib/linux-dashboard-helper` | Secret helper (terpisah dari state web) |
+| `DASHBOARD_SECRET` | `$SECRET_DIR/secret.key` | File HMAC (0640, root) |
+| `DASHBOARD_DB` | `$STATE_DIR/lindash.db` | Path SQLite |
 | `DASHBOARD_SESSION_TTL_HOURS` | `12` | Umur session |
-| `DASHBOARD_SECURE_COOKIE` | `false` | Menjadi efektif `true` saat TLS native aktif |
-| `DASHBOARD_TOTP_KEY` | kosong | Path key AES-256-GCM 32-byte untuk mengenkripsi secret TOTP; wajib untuk pengaturan TFA |
+| `DASHBOARD_SECURE_COOKIE` | `false` | Efektif `true` saat TLS native |
+| `DASHBOARD_TOTP_KEY` | kosong | Key AES-256-GCM 32-byte untuk TOTP; wajib untuk TFA |
 
 ## Model otorisasi
 
-- **Root (UID 0)** selalu diizinkan, dicek **sebelum** keanggotaan grup — root
-  memang tidak pernah jadi anggota grup `sudo` di Debian/Ubuntu, jadi otorisasi
-  yang hanya mengecek grup akan salah menolak root.
-- **Anggota grup `sudo`** (atau `admin`) diizinkan untuk operasi privileged.
-- **User biasa** tetap bisa: melihat dashboard, mengelola file di home
-  directory sendiri (termasuk folder data `~/DATA/*`), menghentikan proses
-  miliknya sendiri, mengganti passwordnya sendiri, dan memakai Terminal dengan
-  izin akunnya.
-- **Installer menyiapkan folder ini untuk akun yang sudah ada** di mesin dan
-  menaruh kerangkanya di `/etc/skel`, jadi akun baru — dibuat dari panel maupun
-  `useradd -m` di terminal — langsung memilikinya tanpa menunggu login.
-- `~/DATA/*` adalah lokasi data utama panel ini. Path `%U` tetap tersedia sebagai
-  mode legacy/manual, tetapi wajib menentukan minimal satu user Samba — share
-  tanpa daftar user jatuh ke "semua user Samba", jadi simpanannya ditolak.
-  Share baru dengan path konkret mendapat satu akun system
-  no-login khusus, password acak yang hanya ditampilkan saat create/rotate, dan
-  ACL read-only/read-write tanpa mengganti owner/group direktori. Menghapus share
-  dari panel menghapus akun/ACL miliknya, tetapi tidak menghapus folder fisik.
-- **Share Guest OK dinonaktifkan.** Panel menolak pembuatan share anonim di
-  helper root dan selalu menulis `guest ok = no`; pilihan Guest OK sudah
-  dihapus dari UI, form, dan payload API — `public: true` ditolak di boundary
-  helper. Pada upgrade, share Guest OK lama milik panel otomatis dimigrasikan
-  menjadi authenticated share. Satu perangkat LAN yang terkena ransomware tidak
-  boleh mendapat akses tulis tanpa kredensial hanya karena mengetahui alamat
-  server.
-- Export NFS baru memakai default `ro,sync,no_subtree_check`; `rw` dan opsi lain
-  tetap dapat dipilih secara eksplisit. NFS tidak setara dengan autentikasi SMB,
-  jadi hindari client `*` pada jaringan yang tidak sepenuhnya tepercaya.
-- TFA kompatibel Google Authenticator dapat diaktifkan dari halaman Akun. Secret
-  TOTP dienkripsi dengan key terpisah dari SQLite, recovery code hanya ditampilkan
-  sekali, dan session/helper capability baru diterbitkan setelah faktor kedua.
-- **Folder data per user** (`~/DATA/AppData`, `~/DATA/Documents`,
-  `~/DATA/Downloads`, `~/DATA/Gallery`, `~/DATA/Media`) dibuat otomatis saat
-  File Manager dibuka dan muncul di sana sebagai root tersendiri. Semuanya
-  ada di dalam home masing-masing akun, jadi tidak ada folder yang dipakai
-  bersama: user A tidak melihat `~/DATA` milik user B. Isinya dibaca **sebagai
-  user yang login** — entri yang tidak bisa ia buka disembunyikan dari daftar.
-  `Root (/)` tetap sudo-only.
-- Penolakan selalu eksplisit: HTTP 403 dengan kode `requires_sudo` dan pesan
-  "Aksi ini butuh akses sudo" — tidak pernah gagal diam-diam.
+- **Root (UID 0)** selalu diizinkan, dicek sebelum keanggotaan grup (root
+  tidak pernah masuk grup `sudo` di Debian/Ubuntu).
+- **Anggota grup `sudo`/`admin`**: seluruh operasi privileged.
+- **User biasa**: dashboard, file di home sendiri (termasuk `~/DATA/*`),
+  hentikan prosesnya, ganti passwordnya, Terminal dengan izin akunnya.
+- `~/DATA/*` lokasi data utama; folder per user dibuat otomatis saat File
+  Manager dibuka (user A tidak melihat `~/DATA` user B); `Root (/)`
+  sudo-only. `%U` tetap ada sebagai mode legacy dan wajib minimal satu user
+  Samba; share baru mendapat akun system no-login + password acak + ACL
+  read-only/read-write. **Share Guest OK dinonaktifkan** (migrasi otomatis
+  saat upgrade).
+- Export NFS baru default `ro,sync,no_subtree_check`.
+- **TFA** kompatibel Google Authenticator di halaman Akun: secret TOTP
+  dienkripsi key terpisah, recovery code sekali tampil, session/capability
+  baru diterbitkan setelah faktor kedua.
+- Penolakan selalu eksplisit: HTTP 403 kode `requires_sudo`.
 
 ## Catatan keamanan
 
-- **Terminal web** setara akses SSH penuh lewat browser, dibatasi murni oleh
-  permission Unix akun yang login. Tombol **Hapus sesi** di header Terminal
-  menutup semua sesi sekaligus (termasuk milik user lain), jadi panel meminta
-  password akun dan memverifikasinya lewat PAM sebelum menjalankannya. Ini
-  keputusan produk yang disengaja, tapi membuat helper daemon jadi komponen
-  paling sensitif di sistem.
-- **Menu Docker mensyaratkan sudo.** Akses ke `docker.sock` setara root karena
-  container bisa mem-bind mount filesystem host.
-- **Menu Components mensyaratkan sudo** — memasang paket mengubah sistem secara
-  permanen.
-- **Kredensial tunnel tidak pernah ditampilkan utuh.** Token Cloudflare Tunnel
-  dan auth key Tailscale dikirim ke browser dalam bentuk tersamar
-  (`eyJhIjoiZ...xxxxxxxxxxxxxxxx`); yang utuh tidak pernah meninggalkan helper
-  daemon. Tailscale tidak pernah mengembalikan auth key-nya sama sekali, jadi
-  panel hanya menyimpan bentuk tersamarnya.
-- **Menulis konfigurasi sistem selalu lewat file sementara + `rename`,** dan
-  baris milik admin tidak pernah disentuh — `/etc/fstab` atau `/etc/exports`
-  yang rusak bisa membuat server gagal boot atau membuka data ke host yang
-  tidak diizinkan.
-- Login dibatasi 5 percobaan per 5 menit per kombinasi user + IP. PAM tidak
-  menyediakan proteksi brute force sendiri.
+- **Terminal web** = akses SSH penuh lewat browser, dibatasi permission
+  Unix akun login. **Hapus sesi** (menutup sesi semua user) butuh verifikasi
+  password via PAM → helper daemon komponen paling sensitif.
+- **Docker & Components mensyaratkan sudo** (`docker.sock` = root).
+- **Token tunnel tidak pernah ditampilkan utuh** (Cloudflare/Tailscale hanya
+  bentuk tersamar; Tailscale tidak pernah mengembalikan auth key).
+- Menulis konfigurasi sistem selalu via file sementara + `rename`.
+- Login dibatasi tiga dimensi, jendela 5 menit: **5** percobaan per
+  kombinasi user+IP, **20** per username dari seluruh alamat, **50** per
+  IP dengan username apa pun. PAM tidak punya proteksi brute force sendiri.
 - **Pakai HTTPS di produksi** (reverse proxy Caddy/Nginx, atau TLS langsung).
 
 ## Testing
 
 ```bash
-make test     # go test ./... + npm run test --if-present
+make test     # go test ./... + unittest Python grounded_search + npm test
 make lint     # go vet ./...
 ```
 
-Sebagian test helper (user Linux, Samba, ufw, fail2ban, mergerfs, NFS) menyentuh
-sistem sungguhan dan **skip otomatis** kalau tidak dijalankan sebagai root atau
-kalau paket yang diuji belum terpasang — jadi `make test` aman dijalankan di mesin
-pengembangan biasa.
+Sebagian test helper menyentuh sistem sungguhan dan **skip otomatis** bila
+bukan root / paket belum terpasang — aman di mesin dev biasa.
 
-Cakupan terjemahan diperiksa terpisah, dari `web/ui`:
+Cakupan terjemahan (dari `web/ui`):
 
 ```bash
-node scripts/cek-terjemahan.mjs   # teks UI yang belum dibungkus tr()/belum punya padanan Inggris
-sh   scripts/cek-runtime.sh       # tr()/trf()/pesanError() + logika kecil di view dijalankan sungguhan
+node scripts/cek-terjemahan.mjs   # teks belum tr()/belum ada padanan Inggris
+sh   scripts/cek-runtime.sh       # tr()/trf()/pesanError() dijalankan sungguhan
 ```
 
 ## Target Makefile
@@ -992,19 +492,19 @@ sh   scripts/cek-runtime.sh       # tr()/trf()/pesanError() + logika kecil di vi
 | Target | Efek |
 |---|---|
 | `make` / `make all` | Alias `make build` |
-| `make build` | `ui` + `server` + `helper` — urutan wajib, binary meng-embed hasil build UI |
-| `make ui` | `npm ci` lalu `vite build` ke `web/dist` |
-| `make server` | Web app, `CGO_ENABLED=0` (bisa cross-compile) |
-| `make helper` | Helper daemon, `CGO_ENABLED=1` (PAM lewat cgo) |
-| `make release-server` | Web app untuk amd64 + arm64 + armhf sekaligus |
-| `make install` | `build` lalu `./deploy/install.sh` dari checkout (jalankan dengan sudo) |
-| `make dev` | Mencetak tiga perintah yang harus dijalankan di terminal terpisah (helper, server, `vite dev`) |
+| `make build` | `ui` + `server` + `helper` (urutan wajib) |
+| `make ui` | `npm ci` + `vite build` ke `web/dist` (+ audit npm) |
+| `make server` | Web app, `CGO_ENABLED=0` |
+| `make helper` | Helper daemon, `CGO_ENABLED=1` |
+| `make release-server` | Web app amd64 + arm64 + armhf |
+| `make install` | `build` lalu `./deploy/install.sh` (jalankan dengan sudo) |
+| `make dev` | Cetak tiga perintah terminal terpisah |
 | `make clean` | Hapus `bin/` dan `web/dist/assets` |
 
 ## Lisensi
 
 MIT License — lihat [LICENSE](LICENSE).
 
-Boleh dipakai, dimodifikasi, dan disebarluaskan gratis, termasuk untuk keperluan
-komersial, dengan syarat menyertakan sumber: `Copyright (c) 2026 OxidiLily` dan
-notice lisensi MIT pada setiap salinan atau bagian penting dari Software.
+Boleh dipakai, dimodifikasi, dan disebarluaskan gratis, termasuk komersial,
+dengan syarat menyertakan sumber: `Copyright (c) 2026 OxidiLily` dan notice
+lisensi MIT pada setiap salinan atau bagian penting dari Software.

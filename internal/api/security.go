@@ -10,17 +10,15 @@ import (
 // perilaku aplikasi, hanya menutup kelas serangan yang tidak butuh bug di
 // kode kita untuk berhasil.
 
-// Panel ini menyajikan seluruh asetnya sendiri dari binary (go:embed) dan
-// tidak pernah memuat script/gambar/font dari domain lain. Karena itu CSP-nya
-// bisa dikunci ke 'self' — kalau suatu saat ada XSS yang lolos, script
-// injeksi tetap tidak bisa dieksekusi maupun mengirim data keluar.
+// Aset panel berasal dari binary (go:embed); hanya gambar bendera GeoIP
+// diizinkan dari https://cdn.ipwhois.io. Script/font tetap dikunci ke 'self'.
 //
 // 'unsafe-inline' pada style-src disengaja: React/xterm menulis style inline
 // untuk ukuran terminal dan lebar meter. Script tidak pernah inline.
 const cspApp = "default-src 'self'; " +
 	"script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob:; " +
+	"img-src 'self' data: blob: https://cdn.ipwhois.io; " +
 	"font-src 'self' data:; " +
 	"connect-src 'self' ws: wss:; " +
 	"media-src 'self' blob:; " +

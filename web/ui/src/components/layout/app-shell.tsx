@@ -317,6 +317,7 @@ export function AppShell() {
   )
 
   const crumb = useMemo(() => {
+    if (location.pathname === "/settings/fail2ban/history") return { group: "nav.settings", label: "nav.fail2banHistory" }
     for (const g of NAV) {
       for (const i of g.items) {
         if (i.to === location.pathname) return { group: g.group, label: i.label }

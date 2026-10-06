@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { formatWaktu, zonaTampilan } from "@/lib/format"
+import { usePrefs } from "@/stores/prefs"
 import { daftarkanEscape } from "@/lib/lapisan-escape"
 import { pesanError } from "@/lib/pesan-error"
-import { ShieldBan, Trash2, Plus, RefreshCw, Pencil, Unlock, Download, Power } from "lucide-react"
+import { Link } from "react-router-dom"
+import { GEOIP_HINT, kunciGeoIP, lokasiGeoIP, pollGeoIP, statusGeoIP, pollGeoIPFull, poleGeoIP, labelGeoIP, nilaiGeoIP, benderaGeoIP, gambarBenderaGeoIP, riwayatIP, type GeoIPFull, type GeoIP } from "@/lib/fail2ban-geoip"
+import { ShieldBan, Trash2, Plus, RefreshCw, Pencil, Unlock, Download, Power, Flag, Globe, Network, Clock, Languages, Coins, ShieldCheck, Gauge, Info, Check, X, History } from "lucide-react"
 
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
@@ -28,29 +32,187 @@ type Jail = {
   external?: boolean
 }
 
-const FORM_KOSONG = { name: "", enabled: true, maxretry: 5, bantime: "1h", findtime: "10m", port: "" }
+export { muatDetailIP } from "@/lib/fail2ban-detail"
+
+export function GeoIPFields({ data }: { data: Record<string, unknown> | null }) {
+  const tr = useTr()
+  const [failedImage, setFailedImage] = useState<string | null>(null)
+  const image = gambarBenderaGeoIP(data?.flag && typeof data.flag === "object" ? (data.flag as Record<string, unknown>).img : null)
+  const groups: Record<string, [string, unknown][]> = Object.create(null)
+  const icons: Record<string, typeof Globe> = { connection: Network, timezone: Clock, flag: Flag, native: Languages, currency: Coins, security: ShieldCheck, rate: Gauge }
+  const flag = data ? benderaGeoIP(data) : null
+  try {
+    for (const [key, value] of Object.entries(data || {})) {
+      const group = value !== null && typeof value === "object" ? key : tr("Identitas dan lokasi")
+      ;(groups[group] ||= []).push(...poleGeoIP(value, key, 1))
+    }
+  } catch {
+    return <p role="alert">{tr("GeoIP ditolak: kedalaman JSON melebihi 32; payload tidak ditampilkan.")}</p>
+  }
+  return <>
+    {data === null && <p>{tr("GeoIP tidak tersedia")}</p>}
+    {Object.entries(groups).map(([group, rows]) => {
+      const Icon = Object.hasOwn(icons, group) ? icons[group] : (group === tr("Identitas dan lokasi") ? Globe : Info)
+      return <section key={group}>
+      <h3 className="mb-2 flex items-center gap-2 font-semibold"><Icon aria-hidden={true} className="size-4 text-muted-foreground" />{group === tr("Identitas dan lokasi") ? group : labelGeoIP(group)}</h3>
+      <div className="overflow-x-auto rounded-lg border border-border"><table className="tabel-kartu w-full text-left text-xs">
+        <thead><tr className="border-b border-border bg-secondary/30 text-muted-foreground"><th scope="col" className="p-2.5 font-medium">{tr("Kolom")}</th><th scope="col" className="p-2.5 font-medium">{tr("Nilai")}</th></tr></thead>
+        <tbody>{rows.map(([key, value]) => <tr key={key} data-field={key} className="transition-colors hover:bg-secondary/40"><td data-label={tr("Kolom")} className="p-2.5 break-words font-medium">{key === "flag.img" ? labelGeoIP("flag") : labelGeoIP(key.startsWith(`${group}.`) ? key.slice(group.length + 1) : key)}</td><td data-label={tr("Nilai")} className="p-2.5 whitespace-pre-wrap break-all">
+          <span className="inline-flex items-center gap-1.5">
+            {key === "flag.img" ? image && failedImage !== image ? <img src={image} alt={labelGeoIP("flag")} loading="lazy" referrerPolicy="no-referrer" width={24} height={16} className="h-4 w-6 object-contain" onError={() => setFailedImage(image)} /> : <span role="img" aria-label={labelGeoIP("flag")}>{flag || <Flag aria-hidden={true} className="size-4" />}</span> : <>
+              {typeof value === "boolean" && (value ? <Check aria-hidden={true} className="size-3.5" /> : <X aria-hidden={true} className="size-3.5" />)}
+              {nilaiGeoIP(key, value, data!)}
+            </>}
+          </span>
+        </td></tr>)}</tbody>
+      </table></div>
+    </section>})}
+  </>
+}
+
+export function DetailIPModal({ jail, ip, tutup, lepas }: {
+  jail: string; ip: string; tutup: () => void; lepas: () => Promise<boolean | void>
+}) {
+  const tr = useTr()
+  const timezone = usePrefs((s) => s.timezone)
+  const [data, setData] = useState<GeoIPFull>()
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const active = useRef(false)
+  useEffect(() => {
+    active.current = true
+    const previous = document.activeElement as HTMLElement | null
+    closeRef.current?.focus()
+    return () => { active.current = false; previous?.isConnected && previous.focus() }
+  }, [])
+  useEffect(() => {
+    const controller = new AbortController()
+    setData(undefined)
+    setError("")
+    pollGeoIPFull(jail, ip, controller.signal, setData).then((exhausted) => {
+      if (!controller.signal.aborted && exhausted) setError(trf("Polling GeoIP berhenti; muat ulang untuk mencoba lagi."))
+    }).catch((e) => {
+      if (!controller.signal.aborted) setError(pesanError(e))
+    })
+    return () => controller.abort()
+  }, [jail, ip])
+  useEffect(() => daftarkanEscape(tutup), [tutup])
+  const unban = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const success = await lepas()
+      if (active.current && success) tutup()
+    } finally {
+      if (active.current) { setBusy(false); closeRef.current?.focus() }
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="fail2ban-detail-title"
+        className="max-h-[85dvh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-surface p-4 shadow-xl"
+        onKeyDown={(e) => {
+          if (e.key !== "Tab") return
+          const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], summary"))
+          const first = buttons[0], last = buttons[buttons.length - 1]
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus() }
+          if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus() }
+        }}>
+        <h2 id="fail2ban-detail-title" className="text-sm font-semibold">{tr("Detail IP diblokir")}</h2>
+        <p className="num mt-2 break-all text-sm">{jail} · {ip}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{tr(GEOIP_HINT)}</p>
+        <p className="mt-1 text-xs">{tr("Cache GeoIP")}: {statusGeoIP(data?.status)} · {data?.source || "—"}</p>
+        <p className="mt-1 text-xs">{tr("Waktu pengambilan cache")}: {data?.fetched_at ? formatWaktu(data.fetched_at) : "—"} · {tr("Zona waktu")}: {timezone || zonaTampilan() || Intl.DateTimeFormat().resolvedOptions().timeZone}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{tr("Waktu snapshot menunjukkan waktu saat data diambil, bukan jam saat ini.")}</p>
+        <div className="mt-3 space-y-2 text-xs" aria-live="polite" aria-busy={!data && !error}>
+          {!data && !error && <p role="status">{tr("Memuat GeoIP…")}</p>}
+          {error && <p role="alert" className="text-crit">{trf("Gagal memuat detail IP: {0}", error)}</p>}
+          {data && <GeoIPFields data={data.data} />}
+        </div>
+        <Button asChild variant="outline" size="sm" className="mt-3"><Link to={riwayatIP(jail, ip)}><History aria-hidden={true} className="size-3.5" />{tr("Riwayat")}</Link></Button>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button ref={closeRef} variant="outline" size="sm" onClick={tutup}>{tr("Tutup")}</Button>
+          <Button size="sm" disabled={busy} onClick={unban}><Unlock className="mr-1 size-3" />{tr("Lepas blokir")}</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function GeoIPTable({ jail, ips, items, buka }: { jail: string; ips: string[]; items: Record<string, GeoIP>; buka: (ip: string) => void }) {
+  const tr = useTr()
+  usePrefs(s => s.timezone)
+  const labels = ["IP", tr("Lokasi"), "ISP / ASN", tr("Cache GeoIP")]
+  const seen = new Set<string>()
+  const unique = ips.filter(ip => { const key = kunciGeoIP(ip); if (seen.has(key)) return false; seen.add(key); return true })
+  return <div className="mt-3 overflow-x-auto rounded-lg border border-border">
+    <table className="tabel-kartu w-full text-left text-xs" aria-label={`${jail} · ${tr("Detail IP diblokir")}`}>
+      <thead><tr className="border-b border-border bg-secondary/30 text-muted-foreground">{labels.map(label => <th key={label} scope="col" className="p-2.5 font-medium">{label}</th>)}</tr></thead>
+      <tbody>{unique.map(ip => {
+        const item = items[kunciGeoIP(ip)]
+        return <tr key={ip} className="transition-colors hover:bg-secondary/40">
+          <td data-label={labels[0]} className="p-2.5"><button type="button" className="num break-all text-signal underline underline-offset-2" onClick={() => buka(ip)}>{ip}</button></td>
+          <td data-label={labels[1]} className="p-2.5 break-words">{lokasiGeoIP(item)}</td>
+          <td data-label={labels[2]} className="p-2.5 break-words">{item?.isp || item?.org || "—"}{item?.asn ? ` · AS${item.asn}` : ""}</td>
+          <td data-label={labels[3]} className="p-2.5"><p>{statusGeoIP(item?.status)}{item && item.source !== "none" ? ` · ${item.source}` : ""}</p>{item?.fetched_at && formatWaktu(item.fetched_at) !== "—" && <p className="num text-muted-foreground" title={tr("Terakhir diperbarui")}>{formatWaktu(item.fetched_at)}</p>}</td>
+        </tr>
+      })}{ips.length === 0 && <tr><td colSpan={4} data-label="" className="p-6 text-center text-muted-foreground">{tr("Belum ada IP diblokir.")}</td></tr>}</tbody>
+    </table>
+  </div>
+}
+
+const FORM_KOSONG = { name: "", enabled: true, maxretry: 5, bantime: "1h", findtime: "10m", port: "", adopt: false }
 
 export function Fail2banView() {
   const tr = useTr()
   const [jails, setJails] = useState<Jail[]>([])
   const [loading, setLoading] = useState(false)
   const [modal, setModal] = useState(false)
+  const [detail, setDetail] = useState<{ jail: string; ip: string } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [form, setForm] = useState(FORM_KOSONG)
 
+  const [geo, setGeo] = useState<Record<string, GeoIP>>({})
+  const [geoError, setGeoError] = useState("")
+  const loadSeq = useRef(0)
+  const request = useRef<AbortController>()
+
   const load = async () => {
+    request.current?.abort()
+    const controller = new AbortController()
+    request.current = controller
+    const seq = ++loadSeq.current
+    const current = () => seq === loadSeq.current && !controller.signal.aborted
     setLoading(true)
+    setGeoError("")
     try {
-      setJails((await apiGet<Jail[]>("/api/security/fail2ban")) || [])
-    } catch (e: any) {
-      notify.err(trf("Gagal memuat jail: {0}", pesanError(e)))
-    } finally {
+      const list = (await apiGet<Jail[]>("/api/security/fail2ban", controller.signal)) || []
+      if (!current()) return
+      setJails(list)
       setLoading(false)
+      const ips = new Set(list.flatMap(j => j.banned_ips || []).map(kunciGeoIP))
+      setGeo(previous => Object.fromEntries(Object.entries(previous).filter(([ip]) => ips.has(ip))))
+      if (ips.size) void pollGeoIP(controller.signal, current, items => {
+        setGeo(previous => ({ ...previous, ...Object.fromEntries(Object.entries(items).filter(([ip]) => ips.has(ip))) }))
+      }).then(exhausted => {
+        if (current() && exhausted) setGeoError("Polling GeoIP berhenti; muat ulang untuk mencoba lagi.")
+      }).catch(e => {
+        if (current()) {
+          setGeoError(pesanError(e))
+          setGeo(previous => Object.fromEntries([...ips].map(ip => [ip, previous[ip] || { ip, country: "", country_code: "", region: "", city: "", isp: "", org: "", asn: 0, timezone: "", status: "error", source: "none", fetched_at: "" }])))
+        }
+      })
+    } catch (e: any) {
+      if (current()) notify.err(trf("Gagal memuat jail: {0}", pesanError(e)))
+    } finally {
+      if (current()) setLoading(false)
     }
   }
 
   useEffect(() => {
     load()
+    return () => { ++loadSeq.current; request.current?.abort() }
   }, [])
 
   const openTambah = () => {
@@ -59,7 +221,7 @@ export function Fail2banView() {
     setModal(true)
   }
 
-  const openEdit = (j: Jail) => {
+  const openEdit = (j: Jail, adopt = false) => {
     setEditing(j.name)
     setForm({
       name: j.name,
@@ -68,6 +230,7 @@ export function Fail2banView() {
       bantime: j.bantime || "1h",
       findtime: j.findtime || "10m",
       port: j.port || "",
+      adopt,
     })
     setModal(true)
   }
@@ -181,6 +344,7 @@ export function Fail2banView() {
         },
       )
       load()
+      return true
     } catch {
       // Pesan gagalnya sudah ditampilkan notify.tugas.
     }
@@ -209,6 +373,8 @@ export function Fail2banView() {
         </div>
       }
     >
+      <p className="mb-3 text-xs text-muted-foreground">{tr(GEOIP_HINT)}</p>
+      {geoError && <p role="status" className="mb-3 text-xs text-warn">{tr("Gagal memuat GeoIP")}: {tr(geoError)}</p>}
       <div className="space-y-3">
         {jails.map((j) => (
           <div key={j.name} className="rounded-md border border-border p-3">
@@ -264,7 +430,7 @@ export function Fail2banView() {
                     variant="outline"
                     size="sm"
                     className="h-7 text-xs"
-                    onClick={() => openEdit({ ...j, external: false })}
+                    onClick={() => openEdit(j, true)}
                   >
                     <Download className="mr-1 size-3" /> {tr("Kelola di panel")}
                   </Button>
@@ -297,22 +463,7 @@ export function Fail2banView() {
               </div>
             </div>
 
-            {j.banned_ips && j.banned_ips.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-2">
-                {j.banned_ips.map((ip) => (
-                  <Button
-                    key={ip}
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => lepasBlokir(j.name, ip)}
-                  >
-                    <Unlock className="mr-1 size-3" />
-                    <span className="num">{ip}</span>
-                  </Button>
-                ))}
-              </div>
-            )}
+            <GeoIPTable jail={j.name} ips={j.banned_ips || []} items={geo} buka={ip => setDetail({ jail: j.name, ip })} />
           </div>
         ))}
         {jails.length === 0 && !loading && (
@@ -322,6 +473,9 @@ export function Fail2banView() {
         )}
       </div>
     </Panel>
+
+    {detail && <DetailIPModal key={`${detail.jail}/${detail.ip}`} jail={detail.jail} ip={detail.ip}
+      tutup={() => setDetail(null)} lepas={() => lepasBlokir(detail.jail, detail.ip)} />}
 
     {modal && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

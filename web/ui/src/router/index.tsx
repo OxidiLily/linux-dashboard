@@ -33,6 +33,7 @@ const SambaView = rute("/files/samba", "SambaView")
 const MergerfsView = rute("/files/pool", "MergerfsView")
 const NFSView = rute("/files/nfs", "NFSView")
 const Fail2banView = rute("/settings/fail2ban", "Fail2banView")
+const Fail2banHistoryView = rute("/settings/fail2ban/history", "Fail2banHistoryView")
 const BookmarksView = rute("/files/bookmarks", "BookmarksView")
 const LogsView = rute("/logs/alerts", "LogsView")
 const FileOperationsView = rute("/logs/file-operations", "FileOperationsView")
@@ -70,6 +71,8 @@ function Lazy({ children }: { children: ReactNode }) {
 // "exec: docker: executable file not found in $PATH" tetap muncul sebagai
 // toast sebelum penjaganya sempat menampilkan apa pun.
 function Dijaga({ name, label, children }: { name: string; label: string; children: ReactNode }) {
+  const sudo = useAuth(s => s.user?.sudo)
+  if (name === "fail2ban" && !sudo) return <Navigate to="/" replace />
   return (
     <ComponentGuard name={name} label={label}>
       <Lazy>{children}</Lazy>
@@ -133,6 +136,7 @@ export const router = createBrowserRouter([
       { path: "settings/network", element: <Lazy><NetworkView /></Lazy> },
       { path: "settings/firewall", element: <Lazy><FirewallView /></Lazy> },
       { path: "settings/fail2ban", element: <Dijaga name="fail2ban" label="fail2ban"><Fail2banView /></Dijaga> },
+      { path: "settings/fail2ban/history", element: <Dijaga name="fail2ban" label="fail2ban"><Fail2banHistoryView /></Dijaga> },
       { path: "settings/alerts", element: <Lazy><AlertThresholdsView /></Lazy> },
       { path: "settings/components", element: <Lazy><ComponentsView /></Lazy> },
       // Halaman Pembaruan dibuka dari ikon notifikasi topbar; tidak ada entri

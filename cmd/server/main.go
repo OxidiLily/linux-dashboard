@@ -92,7 +92,13 @@ func main() {
 	log.Println("shutdown…")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	_ = httpSrv.Shutdown(shutdownCtx)
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP shutdown: %v", err)
+		_ = httpSrv.Close()
+	}
+	if err := srv.Close(); err != nil {
+		log.Printf("GeoIP shutdown: %v", err)
+	}
 }
 
 // bindLoopback melaporkan apakah alamat bind hanya menerima koneksi dari mesin
