@@ -14,3 +14,7 @@ jalankan() { # $1 = nama berkas entry di scripts/
 
 jalankan cek-runtime.ts
 jalankan cek-files-context.ts
+jalankan cek-fail2ban.ts
+jalankan cek-fail2ban-adopt.ts
+jalankan cek-fail2ban-geoip.ts
+jalankan cek-fail2ban-full.ts
