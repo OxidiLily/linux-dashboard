@@ -48,6 +48,11 @@ func buatServerTTL(t *testing.T, tiruan *helperTiruan, jam int) (http.Handler, *
 	}
 	cfg := config.Config{Listen: "127.0.0.1:0", SocketPath: sock, SecretPath: filepath.Join(dir, "x.key"), SessionTTLHours: jam}
 	srv := New(cfg, st, hc, metrics.NewCollector(), http.NotFoundHandler())
+	t.Cleanup(func() {
+		if err := srv.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return srv.Routes(), st
 }
 

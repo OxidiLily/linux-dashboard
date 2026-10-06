@@ -686,6 +686,12 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 			return nil, err
 		}
 		return nil, fail2banDelete(args.Path)
+	case helperproto.CmdFail2banDetail:
+		args, err := decodeArgs[helperproto.Fail2banUnbanArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(fail2banDetail(args.Jail, args.IP))
 	case helperproto.CmdFail2banUnban:
 		args, err := decodeArgs[helperproto.Fail2banUnbanArgs](req)
 		if err != nil {

@@ -4,6 +4,16 @@ import { daftarkanTerjemahan } from "@/stores/i18n"
 // Kunci = kalimat aslinya, jadi menambah teks baru di view tidak pernah
 // membuat UI rusak: yang belum ada di sini tampil apa adanya.
 daftarkanTerjemahan({
+  "Detail IP diblokir": "Banned IP details",
+  "Zona waktu": "Time zone",
+  "Lokasi tidak tersedia dari log.": "Location unavailable from logs.",
+  "Tanggal dan waktu": "Date and time",
+  "Memuat riwayat percobaan…": "Loading attempt history…",
+  "Gagal memuat detail IP: {0}": "Failed to load IP details: {0}",
+  "Tidak ada riwayat percobaan dalam log yang tersedia.": "No attempt history in the available logs.",
+  "Hanya 200 peristiwa pertama ditampilkan.": "Only the first 200 events are shown.",
+  "Waktu tidak tersedia": "Time unavailable",
+  "Lepas blokir": "Unban",
   "Pilih semua pada halaman ini": "Select all on this page",
   "Pilihan": "Selection",
   "Pilih record": "Select record",

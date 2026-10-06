@@ -4,9 +4,25 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestCSPTrustedFlagHost(t *testing.T) {
+	w := httptest.NewRecorder()
+	securityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	policy := w.Header().Get("Content-Security-Policy")
+	for _, directive := range strings.Split(policy, ";") {
+		if strings.HasPrefix(strings.TrimSpace(directive), "img-src ") {
+			if got := strings.TrimSpace(directive); got != "img-src 'self' data: blob: https://cdn.ipwhois.io" {
+				t.Fatalf("unexpected image policy: %s", got)
+			}
+			return
+		}
+	}
+	t.Fatal("missing img-src")
+}
 
 // X-Forwarded-For / X-Real-IP bisa ditulis siapa saja yang bisa menjangkau
 // port panel. Kalau nilainya dijadikan identitas atau key pembatas login,

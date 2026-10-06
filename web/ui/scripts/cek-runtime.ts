@@ -615,7 +615,7 @@ for (const jalur of semuaSumber) {
   const potongan = jalur.endsWith("app-shell.tsx") ? 0 : isi.split("bg-black/60").length - 1
   jumlahLapisan += potongan
 }
-cek(String(jumlahLapisan), "27", "escape/jumlah-lapisan")
+cek(String(jumlahLapisan), "28", "escape/jumlah-lapisan")
 
 // notify.tugas mencatat detail di dalam callback success/error, yang baru
 // berjalan setelah promise pekerjaannya settle. Jadi jalur gagal (detailGagal)

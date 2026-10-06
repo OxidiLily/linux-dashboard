@@ -261,7 +261,7 @@ func fail2banSave(j helperproto.Fail2banJail) error {
 	}
 	lama := bacaJailLocal()
 	for _, x := range lama {
-		if x.Name == j.Name && x.External {
+		if x.Name == j.Name && x.External && !j.Adopt {
 			return errInvalid("jail %q didefinisikan di luar panel — ubah filenya sendiri", j.Name)
 		}
 	}
@@ -413,12 +413,28 @@ func tulisJailLocal(nama, isi string) error {
 	var keluar []string
 	ketemu := false
 	lewati := false
+	managed := false
+	indent := -1
 	for i := 0; i < len(baris); i++ {
 		t := strings.TrimSpace(baris[i])
 		if m := sectionRe.FindStringSubmatch(t); m != nil {
+			// The preceding marker belongs to the next jail, not the removed body.
+			if lewati && m[1] != nama {
+				for k := i - 1; k >= 0; k-- {
+					prev := strings.TrimSpace(baris[k])
+					if prev == "" {
+						continue
+					}
+					if prev == f2bTanda {
+						keluar = append(keluar, baris[k])
+					}
+					break
+				}
+			}
 			lewati = m[1] == nama
 			if lewati {
 				ketemu = true
+				managed, indent = false, -1
 				// Penanda panel berada tepat sebelum header section.
 				for len(keluar) > 0 && strings.TrimSpace(keluar[len(keluar)-1]) == f2bTanda {
 					keluar = keluar[:len(keluar)-1]
@@ -430,7 +446,30 @@ func tulisJailLocal(nama, isi string) error {
 			}
 		}
 		if lewati {
-			continue
+			if isi == "" || t == f2bTanda {
+				continue
+			}
+			// Preserve custom options verbatim; continuation lines belong to
+			// the preceding option, even when they contain '='.
+			if t != "" && !strings.HasPrefix(t, "#") && !strings.HasPrefix(t, ";") {
+				depth := len(baris[i]) - len(strings.TrimLeft(baris[i], " 	"))
+				if indent < 0 || depth <= indent {
+					if key, _, ok := strings.Cut(t, "="); ok {
+						indent = depth
+						switch strings.ToLower(strings.TrimSpace(key)) {
+						case "enabled", "maxretry", "bantime", "findtime", "port":
+							managed = true
+						default:
+							managed = false
+						}
+					} else {
+						managed = false
+					}
+				}
+				if managed {
+					continue
+				}
+			}
 		}
 		keluar = append(keluar, baris[i])
 	}

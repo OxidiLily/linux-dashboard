@@ -22,6 +22,13 @@ type Store struct {
 }
 
 const schema = `
+CREATE TABLE IF NOT EXISTS geoip_cache (
+ ip TEXT PRIMARY KEY,
+ country TEXT NOT NULL, country_code TEXT NOT NULL, region TEXT NOT NULL,
+ city TEXT NOT NULL, isp TEXT NOT NULL, org TEXT NOT NULL, asn INTEGER NOT NULL,
+ timezone TEXT NOT NULL, fetched_at TEXT NOT NULL, status TEXT NOT NULL,
+ error TEXT NOT NULL, retry_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS activity_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL,
@@ -152,6 +159,7 @@ func Open(path string) (*Store, error) {
 		// itu akan ditolak helper sebagai sesi tidak sah, dan user diminta
 		// login ulang — bukan diperlakukan sebagai user mana pun.
 		`ALTER TABLE sessions ADD COLUMN helper_token TEXT`,
+		`ALTER TABLE geoip_cache ADD COLUMN data TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(kolom); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrasi kolom preferensi: %w", err)

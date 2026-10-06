@@ -32,6 +32,7 @@ type Server struct {
 	throttle  *throttle
 	static    http.Handler
 	usage     *usageCache
+	geoip     *geoIPWorker
 
 	// Tantangan faktor kedua hanya hidup di memori. Token helper tidak pernah
 	// dikirim ke browser atau ditulis ke SQLite sebelum TOTP berhasil.
@@ -62,6 +63,7 @@ func New(cfg config.Config, st *store.Store, hc *helperclient.Client, col *metri
 		terminals:      terminal.NewRegistry(),
 		throttle:       newThrottle(),
 		usage:          newUsageCache(),
+		geoip:          newGeoIPWorker(st),
 		static:         static,
 		totpChallenges: map[string]totpChallenge{},
 		wsIntervals:    map[int64]time.Duration{},
@@ -69,6 +71,15 @@ func New(cfg config.Config, st *store.Store, hc *helperclient.Client, col *metri
 	}
 	go s.gcThrottle()
 	return s
+}
+
+// Close stops background GeoIP work before the caller closes SQLite.
+// Call after HTTP shutdown; the store remains owned by the caller.
+func (s *Server) Close() error {
+	if s.geoip == nil {
+		return nil
+	}
+	return s.geoip.close()
 }
 
 // gcThrottle menyapu catatan percobaan login yang sudah lewat jendelanya, plus
@@ -157,10 +168,13 @@ func (s *Server) Routes() http.Handler {
 			r.Delete("/storage/nfs/mounts", s.handleNFSMountDelete)
 
 			r.Get("/security/fail2ban", s.handleFail2banList)
+			r.Get("/security/fail2ban/geoip", s.handleFail2banGeoIP)
+			r.Get("/security/fail2ban/{jail}/geoip", s.handleFail2banGeoIPDetail)
 			r.Post("/security/fail2ban", s.handleFail2banSave)
 			r.Put("/security/fail2ban/{jail}", s.handleFail2banSave)
 			r.Delete("/security/fail2ban/{jail}", s.handleFail2banDelete)
 			r.Post("/security/fail2ban/{jail}/unban", s.handleFail2banUnban)
+			r.Get("/security/fail2ban/{jail}/detail", s.handleFail2banDetail)
 
 			r.Post("/storage/disks/prepare", s.handleDiskPrepare)
 			r.Post("/storage/disks/unmount", s.handleDiskUnmount)

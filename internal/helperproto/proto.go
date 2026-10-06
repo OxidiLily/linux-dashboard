@@ -86,6 +86,7 @@ const (
 	CmdFail2banSave   = "fail2ban.save"
 	CmdFail2banDelete = "fail2ban.delete"
 	CmdFail2banUnban  = "fail2ban.unban"
+	CmdFail2banDetail = "fail2ban.detail"
 
 	CmdNFSList   = "nfs.list"
 	CmdNFSSave   = "nfs.save"
@@ -597,6 +598,8 @@ type Fail2banJail struct {
 	BanTime  string `json:"bantime,omitempty"`
 	FindTime string `json:"findtime,omitempty"`
 	Port     string `json:"port,omitempty"`
+	// Adopt is explicit request intent to take ownership of an external jail.
+	Adopt bool `json:"adopt,omitempty"`
 	// Running = jail benar-benar dimuat fail2ban, bukan sekadar enabled di file.
 	Running         bool     `json:"running"`
 	CurrentlyBanned int      `json:"currently_banned"`
@@ -605,6 +608,21 @@ type Fail2banJail struct {
 	TotalFailed     int      `json:"total_failed"`
 	BannedIPs       []string `json:"banned_ips,omitempty"`
 	External        bool     `json:"external,omitempty"`
+}
+
+type Fail2banEvent struct {
+	Time    string `json:"time"`
+	Source  string `json:"source"`
+	Action  string `json:"action"`
+	Message string `json:"message"`
+}
+
+type Fail2banDetail struct {
+	Jail     string          `json:"jail"`
+	IP       string          `json:"ip"`
+	Events   []Fail2banEvent `json:"events"`
+	Warnings []string        `json:"warnings"`
+	Location string          `json:"location"`
 }
 
 type Fail2banUnbanArgs struct {

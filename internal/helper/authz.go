@@ -121,6 +121,7 @@ var sudoRequired = map[string]bool{
 	helperproto.CmdFail2banSave:     true,
 	helperproto.CmdFail2banDelete:   true,
 	helperproto.CmdFail2banUnban:    true,
+	helperproto.CmdFail2banDetail:   true,
 	// Format disk menghapus data dan menulis /etc/fstab — jelas sudo.
 	helperproto.CmdDiskPrepare:                 true,
 	helperproto.CmdDiskUnmount:                 true,

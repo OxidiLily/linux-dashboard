@@ -28,6 +28,7 @@ const kamus: Kamus = {
   "nav.network": { id: "Network", en: "Network" },
   "nav.firewall": { id: "Firewall", en: "Firewall" },
   "nav.fail2ban": { id: "Fail2ban", en: "Fail2ban" },
+  "nav.fail2banHistory": { id: "Riwayat Fail2ban", en: "Fail2ban history" },
   "nav.alerts": { id: "Alert Thresholds", en: "Alert Thresholds" },
   "nav.components": { id: "Components", en: "Components" },
   "nav.proxy": { id: "Proxy manager", en: "Proxy manager" },

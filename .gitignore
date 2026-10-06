@@ -115,3 +115,13 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 # AI agent writer security: descriptor-pinned writes, SecretRef, seed installer.
 !internal/helper/ai9router_secret_test.go
 web/dist.bak/
+!internal/helper/fail2ban_detail_test.go
+!internal/api/fail2ban_detail_test.go
+!internal/helper/fail2ban_ownership_test.go
+!internal/helper/fail2ban_adopt_test.go
+!internal/api/fail2ban_geoip_test.go
+!internal/api/fail2ban_geoip_live_test.go
+!internal/api/fail2ban_geoip_shutdown_test.go
+!internal/store/geoip_test.go
+!internal/store/geoip_payload_test.go
+!internal/api/fail2ban_geoip_payload_test.go
