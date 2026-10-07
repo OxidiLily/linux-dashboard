@@ -26,11 +26,16 @@ ui:
 		echo "[vuln] Jalankan 'cd web/ui && npm audit fix' (atau --force untuk major bump)."; \
 	fi
 
+# ponytail: anggaran per proses, bukan batas RSS; build lebih lambat demi VPS 1 GB.
+# Paket SQLite generated besar; batasi compiler tanpa mematikan optimasi runtime.
+GO_BUILD := env GOMAXPROCS=1 GOGC=20 GOMEMLIMIT=256MiB go build -p=1 -gcflags='modernc.org/sqlite/lib=-c=1'
+.NOTPARALLEL: build server helper release-server
+
 server:
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server ./cmd/server
+	CGO_ENABLED=0 $(GO_BUILD) -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server ./cmd/server
 
 helper: internal/helper/embed/9router.service internal/helper/embed/headroom.service
-	CGO_ENABLED=1 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-helper ./cmd/helper
+	CGO_ENABLED=1 $(GO_BUILD) -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-helper ./cmd/helper
 
 # Salin unit 9router ke lokasi //go:embed kalau berubah — sumber kebenaran
 # tetap deploy/9router.service, salinannya di-include ke binary helper
@@ -47,6 +52,7 @@ internal/helper/embed/headroom.service: deploy/headroom.service
 build: ui server helper
 
 test:
+	python3 -B -m unittest deploy/test_build_memory.py
 	go test ./...
 	python3 -B -m unittest discover -s internal/helper -p 'test_grounded_search.py'
 	cd $(UI) && npm run test --if-present
@@ -56,9 +62,9 @@ lint:
 
 # Cross-compile web app untuk semua arsitektur target sekaligus.
 release-server: ui
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server-linux-amd64 ./cmd/server
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server-linux-arm64 ./cmd/server
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server-linux-armhf ./cmd/server
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO_BUILD) -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server-linux-amd64 ./cmd/server
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO_BUILD) -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server-linux-arm64 ./cmd/server
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 $(GO_BUILD) -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/linux-dashboard-server-linux-armhf ./cmd/server
 
 dev:
 	@echo "Jalankan di tiga terminal:"
