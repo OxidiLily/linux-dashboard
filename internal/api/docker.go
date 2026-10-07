@@ -230,7 +230,10 @@ func proyekBerjalan(rows []composeLsRow) map[string]string {
 // setelah sekali `down` — saat itu tidak ada lagi project yang memegangnya.
 func argsCompose(st store.Stack, pemegang map[string]string) []string {
 	proyek := slugProyek(st.Name)
-	if lama := pemegang[filepath.Clean(st.ComposePath)]; lama != "" {
+	if filepath.Clean(st.ComposePath) == "/opt/mailcow-dockerized/docker-compose.yml" {
+		// Vendor volume names must survive down and user renames.
+		proyek = "mailcowdockerized"
+	} else if lama := pemegang[filepath.Clean(st.ComposePath)]; lama != "" {
 		proyek = lama
 	}
 	args := []string{"compose"}
@@ -298,6 +301,7 @@ type stackView struct {
 // menunggu user menekan Daftarkan: panel sendiri yang membuat berkas
 // compose-nya, jadi panel juga yang tahu di mana ia berada.
 var stackKomponen = []struct{ nama, compose, ket string }{
+	{"mailcow", "/opt/mailcow-dockerized/docker-compose.yml", "Dipasang dari Settings → Components."},
 	{
 		"supabase",
 		"/opt/supabase/supabase-project/docker-compose.yml",
@@ -316,7 +320,7 @@ var stackKomponen = []struct{ nama, compose, ket string }{
 // tanpa satu pun tombol di panel yang bisa membereskannya. Operasinya
 // idempoten dan dikunci pada path berkas compose, bukan nama — stack yang
 // sudah diganti namanya user tetap dikenali sebagai stack yang sama.
-func (s *Server) sinkronStackKomponen(stacks []store.Stack) []store.Stack {
+func (s *Server) sinkronStackKomponen(stacks []store.Stack, token string) []store.Stack {
 	berubah := false
 	for _, k := range stackKomponen {
 		compose := filepath.Clean(k.compose)
@@ -328,6 +332,13 @@ func (s *Server) sinkronStackKomponen(stacks []store.Stack) []store.Stack {
 			}
 		}
 		ada := berkasAda(compose)
+		if k.nama == "mailcow" {
+			// Only helper can validate root-owned install state. No secret reads,
+			// marker-size guesses, or full catalog/version probes on this list path.
+			var status helperproto.ComponentStatus
+			err := s.helper.Call(helperproto.CmdMailcowStatus, token, nil, &status)
+			ada = err == nil && status.Name == "mailcow" && status.Installed
+		}
 		switch {
 		case ada && terdaftar == nil:
 			if _, err := s.store.AddStack(k.nama, compose, k.ket); err != nil {
@@ -360,6 +371,36 @@ func (s *Server) sinkronStackKomponen(stacks []store.Stack) []store.Stack {
 	return baru
 }
 
+// mailcowCheckoutPath also follows existing ancestors of missing compose files.
+// This API guard prevents accidental ownership changes; helper enforces write safety.
+func mailcowCheckoutPath(path string) bool {
+	path = filepath.Clean(path)
+	for hops := 0; hops < 40; hops++ {
+		if path == "/opt/mailcow-dockerized" || strings.HasPrefix(path, "/opt/mailcow-dockerized/") {
+			return true
+		}
+		changed := false
+		for parent := path; ; parent = filepath.Dir(parent) {
+			if target, err := os.Readlink(parent); err == nil {
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(parent), target)
+				}
+				suffix, _ := filepath.Rel(parent, path)
+				path = filepath.Join(target, suffix)
+				changed = true
+				break
+			}
+			if filepath.Dir(parent) == parent {
+				break
+			}
+		}
+		if !changed {
+			return false
+		}
+	}
+	return true // Fail closed for symlink loops.
+}
+
 // berkasAda menjawab apakah path menunjuk berkas biasa yang ada.
 func berkasAda(path string) bool {
 	fi, err := os.Stat(path)
@@ -376,7 +417,7 @@ func (s *Server) handleStackList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	stacks = s.sinkronStackKomponen(stacks)
+	stacks = s.sinkronStackKomponen(stacks, sess.HelperToken)
 	// Satu kali `compose ls` untuk seluruh daftar: dipakai menentukan project
 	// tiap stack terdaftar DAN menemukan stack yang belum terdaftar.
 	lsRows := s.daftarComposeLs(sess.HelperToken)
@@ -890,6 +931,12 @@ func (s *Server) stackFromURL(w http.ResponseWriter, r *http.Request) (stackReco
 	st, err := s.store.Stack(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "stack tidak ditemukan")
+		return stackRecord{}, false
+	}
+	if mailcowCheckoutPath(st.ComposePath) || mailcowCheckoutPath(filepath.Join(filepath.Dir(st.ComposePath), ".env")) {
+		// Generic file workers run as the login user; chown breaks helper trust
+		// and atomic .env replacement destroys the vendor mailcow.conf symlink.
+		writeErr(w, http.StatusForbidden, "Editor konfigurasi mailcow dinonaktifkan. Gunakan sudoedit /opt/mailcow-dockerized/mailcow.conf atau sudoedit /opt/mailcow-dockerized/docker-compose.yml; pertahankan root ownership, mailcow.conf mode 0600 dan symlink .env ke mailcow.conf. Terapkan melalui kontrol lifecycle Docker.")
 		return stackRecord{}, false
 	}
 	return stackRecord{ID: st.ID, Name: st.Name, ComposePath: st.ComposePath}, true

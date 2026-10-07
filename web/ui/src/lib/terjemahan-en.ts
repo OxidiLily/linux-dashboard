@@ -145,8 +145,13 @@ daftarkanTerjemahan({
     "WireGuard-based mesh VPN, remote access without opening ports.",
   "Cloudflare Tunnel — ekspos service tanpa port forwarding.":
     "Cloudflare Tunnel — expose services without port forwarding.",
-  "Server email all-in-one (SMTP, IMAP, POP3, JMAP, CalDAV/CardDAV, WebDAV) dengan WebUI sendiri — dipasang lewat skrip resmi get.stalw.art, config di /etc/stalwart.":
-    "All-in-one mail server (SMTP, IMAP, POP3, JMAP, CalDAV/CardDAV, WebDAV) with its own WebUI — installed through the official get.stalw.art script, config in /etc/stalwart.",
+  "Hostname mailcow": "mailcow hostname",
+  "FQDN publik tanpa protokol atau port": "Public FQDN without protocol or port",
+  "Hostname mailcow harus FQDN publik, tanpa protokol atau port.": "mailcow hostname must be a public FQDN, without protocol or port.",
+  "URL mailcow belum dikonfigurasi.": "mailcow URL is not configured yet.",
+  "Dokumentasi resmi mailcow": "Official mailcow documentation",
+  "Minimum 6 GiB RAM + 1 GiB swap, disk 20 GiB tanpa email. LXC/OpenVZ tidak didukung. Siapkan DNS/PTR, port email, dan TLS; instalasi bukan jaminan email siap pakai.": "Minimum 6 GiB RAM + 1 GiB swap, 20 GiB disk excluding emails. LXC/OpenVZ are unsupported. Configure DNS/PTR, mail ports, and TLS; installation does not guarantee mail readiness.",
+  "mailcow membutuhkan Docker >=24, Compose >=2.18, RAM 6 GiB, swap 1 GiB, disk 20 GiB; LXC/OpenVZ tidak didukung. Web instalasi baru terbuka pada semua interface (HTTP 8080 dan HTTPS 8443); HTTP tidak terenkripsi, HTTPS awal self-signed, akun admin bawaan dapat dijangkau jaringan. Batasi akses ke perangkat tepercaya, segera ganti password admin dan aktifkan 2FA sebelum membuka internet. Binding instalasi existing dipertahankan. Installer tidak mengubah daemon Docker; IPv6 yang belum sesuai harus disiapkan manual. DNS, PTR, port email, TLS dan firewall Docker disiapkan terpisah. Instalasi bukan jaminan email siap kirim/terima.": "mailcow requires Docker >=24, Compose >=2.18, 6 GiB RAM, 1 GiB swap, 20 GiB disk; LXC/OpenVZ are unsupported. New installations expose web access on all interfaces (HTTP 8080 and HTTPS 8443); HTTP is unencrypted, initial HTTPS is self-signed, and the default admin account is reachable from the network. Restrict access to trusted devices, change the admin password immediately and enable 2FA before opening Internet access. Existing installation bindings are preserved. The installer does not modify the Docker daemon; configure incompatible IPv6 manually. DNS, PTR, mail ports, TLS and Docker firewall need separate setup. Installation does not guarantee mail delivery.",
   "Dijalankan dari {0}": "Started from {0}",
   "Gateway API AI lokal (butuh Node.js).": "Local AI API gateway (requires Node.js).",
   "Backend self-hosted lengkap (Postgres, Auth, Storage, Realtime, Edge Functions, Studio) di atas Docker Compose, dipasang lewat setup.sh resmi Supabase ke /opt/supabase.":

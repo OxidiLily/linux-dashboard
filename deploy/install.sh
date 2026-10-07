@@ -810,7 +810,11 @@ cek_komponen docker      docker          "System → Docker"
 cek_komponen nodejs      node            "Components → 9Router"
 cek_komponen tailscale   tailscale       "Settings → Network (Tailscale)"
 cek_komponen cloudflared cloudflared     "Settings → Network (Cloudflare Tunnel)"
-cek_komponen stalwart    stalwart        "Components → Stalwart (server email)"
+if [[ -f /opt/mailcow-dockerized/mailcow.conf && -f /opt/mailcow-dockerized/docker-compose.yml ]]; then
+  ok "  mailcow sudah dikonfigurasi — kelola stack di System → Docker"
+else
+  echo "[i]   mailcow belum dikonfigurasi — pasang di Components (butuh hostname email, bukan LXC)"
+fi
 
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 if [[ "$plaintext_dipilih" == true && -z "$tls_cert" && -z "$tls_key" ]]; then

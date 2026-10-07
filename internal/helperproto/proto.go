@@ -146,6 +146,7 @@ const (
 	CmdUserModify = "user.modify"
 	CmdUserDelete = "user.delete"
 
+	CmdMailcowStatus      = "mailcow.status" // fast trusted install state; no runtime probes
 	CmdComponentStatusAll = "component.status.all"
 	CmdComponentUpdates   = "component.updates"
 	CmdComponentInstall   = "component.install"
@@ -931,8 +932,9 @@ type UserDeleteArgs struct {
 }
 
 type ComponentArgs struct {
-	Name   string `json:"name"`
-	Action string `json:"action,omitempty"` // untuk component.service
+	MailcowHostname string `json:"mailcow_hostname,omitempty"`
+	Name            string `json:"name"`
+	Action          string `json:"action,omitempty"` // untuk component.service
 	// Fresh meminta helper membuang cache status sebelum memeriksa ulang.
 	// Dipakai tombol Refresh manual — pemuatan biasa tetap boleh memakai
 	// cache supaya membuka halaman tidak memicu ~30 probe proses.
@@ -973,6 +975,7 @@ type ComponentActionResult struct {
 }
 
 type ComponentStatus struct {
+	WebURL    string `json:"web_url,omitempty"`
 	Name      string `json:"name"`
 	Installed bool   `json:"installed"`
 	Version   string `json:"version,omitempty"`

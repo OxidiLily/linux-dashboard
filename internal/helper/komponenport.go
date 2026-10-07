@@ -354,7 +354,7 @@ func cabutPortKomponen(c *component, label string, p portKomponen, kandidat []he
 	//     ditulis panel; rule yang dibatasi ke alamat lain milik user;
 	//   - portnya tidak sedang dipublikasikan container yang jalan. Port yang
 	//     dideklarasikan komponen bisa juga dipakai container (443 milik
-	//     Stalwart vs reverse proxy di container), dan mencabutnya berarti
+	//     mailcow vs reverse proxy di container), dan mencabutnya berarti
 	//     menutup layanan yang justru sedang melayani.
 	dariLokal := subnetLokal()
 	for _, r := range kandidat {

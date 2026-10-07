@@ -4,7 +4,9 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -209,6 +211,77 @@ func dockerExec(args helperproto.DockerExecArgs) (helperproto.ExecResult, error)
 		return helperproto.ExecResult{}, errKode(helperproto.ErrBelumTerpasang,
 			"Docker belum terpasang — pasang dulu lewat Settings → Components")
 	}
+	mailcowTarget := filepath.Clean(args.Dir) == filepath.Clean(mailcowDir)
+	if canonical, err := filepath.EvalSymlinks(args.Dir); err == nil && canonical == filepath.Clean(mailcowDir) {
+		mailcowTarget = true
+	}
+	for i, arg := range args.Args[1:] {
+		if arg == mailcowProject || strings.HasPrefix(filepath.Clean(arg), filepath.Clean(mailcowDir)+"/") {
+			mailcowTarget = true
+		}
+		if sub == "compose" && (arg == "-f" || arg == "--file" || arg == "--env-file") && i+2 < len(args.Args) {
+			path := args.Args[i+2]
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(args.Dir, path)
+			}
+			if canonical, err := filepath.EvalSymlinks(path); err == nil && strings.HasPrefix(canonical, filepath.Clean(mailcowDir)+"/") {
+				mailcowTarget = true
+			}
+		}
+	}
+	// Tombol panel start/restart mengirim ID hex, bukan nama — kepemilikan
+	// dicek lewat label compose project docker, bukan tebakan nama/ID, supaya
+	// instalasi mailcow manual (unmanaged) tidak memblokir start/restart
+	// container lain (DoS) dan mailcow tetap tidak bisa dinyalakan saat
+	// konfigurasi pending.
+	if !mailcowTarget && (sub == "start" || sub == "restart") && containerMilikMailcow(args.Args[1:]) {
+		mailcowTarget = true
+	}
+	// volume/network/image rm|prune bisa menyentuh sumber daya mailcow
+	// (nama volume mailcowdockerized_*, image bersama) tanpa argumen yang
+	// menyebut mailcow — ikut kunci lifecycle yang sama dengan install/purge.
+	dayaRusak := (sub == "volume" || sub == "network" || sub == "image") &&
+		len(args.Args) > 1 && (args.Args[1] == "rm" || args.Args[1] == "prune")
+	if mailcowTarget || dayaRusak || dockerUbahKeadaan(sub, args.Args[1:]) {
+		// Unrelated Compose reads need no Mailcow lock. Keep mutation safety:
+		// Docker IDs and Compose project names can target existing Mailcow services.
+		mailcowLifecycle.Lock()
+		defer mailcowLifecycle.Unlock()
+		if mailcowTarget {
+			if _, e := os.Lstat(filepath.Join(mailcowDir, ".linux-dashboard-config-pending")); e == nil {
+				return helperproto.ExecResult{}, errInvalid("konfigurasi mailcow pending; lanjutkan installer Components")
+			} else if !os.IsNotExist(e) {
+				return helperproto.ExecResult{}, e
+			}
+		}
+		if mailcowTarget && (sub == "start" || sub == "restart") {
+			if _, err := os.Lstat(mailcowDir); err == nil {
+				if err := mailcowManaged(); err != nil {
+					return helperproto.ExecResult{}, err
+				}
+			} else if !os.IsNotExist(err) {
+				return helperproto.ExecResult{}, err
+			}
+		}
+		if mailcowTarget && sub == "compose" {
+			if err := mailcowManaged(); err != nil {
+				return helperproto.ExecResult{}, err
+			}
+			operation, err := composeSub(args.Args[1:])
+			if err != nil {
+				return helperproto.ExecResult{}, err
+			}
+			for i, arg := range args.Args[1:] {
+				if arg == operation {
+					res, err := mailcowCompose(args.Args[i+1:]...)
+					if err == nil && dockerUbahKeadaan(sub, args.Args[1:]) {
+						picuSinkronPortDocker()
+					}
+					return res, err
+				}
+			}
+		}
+	}
 	res, err := runIn(args.Dir, nil, "docker", args.Args...)
 	if err != nil {
 		return res, err
@@ -221,6 +294,25 @@ func dockerExec(args helperproto.DockerExecArgs) (helperproto.ExecResult, error)
 		picuSinkronPortDocker()
 	}
 	return res, nil
+}
+
+// containerMilikMailcow mengecek kepemilikan container lewat label compose
+// project `docker inspect`: tombol panel memakai ID hex, jadi pencocokan
+// nama/ID tidak bisa membedakan milik siapa. Inspect yang gagal dianggap
+// bukan mailcow — docker sendiri akan menolak target yang tidak dikenal,
+// jadi tidak ada state yang berubah.
+func containerMilikMailcow(rest []string) bool {
+	for _, a := range rest {
+		if a == "" || strings.HasPrefix(a, "-") {
+			continue
+		}
+		res, err := runIn("", nil, "docker", "inspect",
+			"--format", `{{index .Config.Labels "com.docker.compose.project"}}`, a)
+		if err == nil && strings.TrimSpace(res.Stdout) == mailcowProject {
+			return true
+		}
+	}
+	return false
 }
 
 // dockerUbahKeadaan menandai subcommand docker yang bisa membuat daftar port
@@ -286,7 +378,9 @@ func composeSub(rest []string) (string, error) {
 			}
 			i++
 		case strings.HasPrefix(a, "-"):
-			// Flag lain (mis. -d, --remove-orphans) tidak membawa path, aman dilewati.
+			// Only separated panel globals are supported; unknown/combined options
+			// can redirect paths or hide the real operation from the Mailcow guard.
+			return "", errInvalid("opsi global compose %q tidak diizinkan", a)
 		default:
 			return a, nil
 		}

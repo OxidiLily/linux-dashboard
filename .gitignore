@@ -1,4 +1,6 @@
 bin/
+# Artefak `go build ./cmd/helper` di root — binari build, bukan sumber.
+/helper
 node_modules/
 web/dist/
 *.tsbuildinfo
@@ -47,7 +49,8 @@ terpasang di mesin masing-masing, bukan bagian dari sumber project.
 !internal/helper/cloudflare_manage_test.go
 !internal/api/proxy_api_test.go
 !internal/api/cloudflare_manage_test.go
-!internal/helper/stalwart_test.go
+!internal/helper/mailcow_test.go
+!internal/api/mailcow_stack_test.go
 !internal/helper/update_test.go
 !internal/helper/agent_update_test.go
 !internal/helper/component_updates_test.go

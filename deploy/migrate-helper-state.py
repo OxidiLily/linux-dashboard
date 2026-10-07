@@ -59,7 +59,7 @@ try:
     parent = os.fstat(old)
     if parent.st_uid != 0 or parent.st_mode & 0o022:
         sys.exit(0)
-    for name in ("9router-password", "stalwart-password", "tailscale-authkey.mask", "ponytail.terpasang"):
+    for name in ("9router-password", "tailscale-authkey.mask", "ponytail.terpasang"):
         move(old, new, name, name == "ponytail.terpasang")
 finally:
     os.close(old)

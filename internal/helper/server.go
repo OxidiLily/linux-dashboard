@@ -793,6 +793,9 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		s.cabutTokenUser(args.Username)
 		return nil, nil
 
+	case helperproto.CmdMailcowStatus:
+		// Disk-only trusted state; do not wait on lifecycle jobs or Docker/network.
+		return jsonOf(helperproto.ComponentStatus{Name: "mailcow", Installed: mailcowTerpasang()}, nil)
 	case helperproto.CmdComponentStatusAll:
 		// Tombol Refresh di halaman Components harus benar-benar memeriksa
 		// ulang. Tanpa ini permintaannya dijawab dari cache 30 detik: user
@@ -809,7 +812,7 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		return jsonOf(installComponent(args.Name, u))
+		return jsonOf(installComponent(args.Name, u, args.MailcowHostname))
 	case helperproto.CmdComponentUninstall:
 		args, err := decodeArgs[helperproto.ComponentArgs](req)
 		if err != nil {

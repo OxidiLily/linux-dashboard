@@ -84,7 +84,7 @@ ikon notifikasi di topbar.
 | AI & Agent | 9router · hermes · claude-code · codex · opencode · openclaw · rtk · graphify · ponytail · browser-use |
 | Database & backend | supabase |
 | Berbagi file & jaringan | samba · nfs-server · nfs-client · cifs-utils · avahi · technitium-dns · print-server · mergerfs |
-| Email & kolaborasi | stalwart |
+| Email & kolaborasi | mailcow |
 | Keamanan | ufw · fail2ban |
 | Monitoring & disk | lm-sensors · smartmontools · nvme-cli · qemu-guest-agent |
 | Utilitas | htop · ncdu · fastfetch · restic |
@@ -112,8 +112,8 @@ ikon notifikasi di topbar.
   mengarahkan `SUPABASE_PUBLIC_URL`/`API_EXTERNAL_URL` ke IP LAN, menjalankan
   `sh run.sh start --wait-timeout 600`, lalu **mendaftarkan stack sendiri**
   ke System → Docker (idempoten, dikunci path compose).
-- Nama stack **wajib** `supabase`. Port **8000/5432/6543 TCP** didaftarkan
-  ke ufw (gateway, Postgres, pooler Supavisor). Tombol **Buka** →
+- Nama stack **wajib** `supabase`. Hanya port **8000** yang didaftarkan ke
+  ufw (5432/6543 urusan admin di Settings → Firewall). Tombol **Buka** →
   basic auth gateway; kredensial di `/opt/supabase/supabase-project/.env`
   (DASHBOARD_USERNAME/PASSWORD), tidak pernah dicetak di kartu.
 - Folder proyek diserahkan ke user panel **kecuali `volumes/`** (milik
@@ -127,35 +127,32 @@ ikon notifikasi di topbar.
   `/opt/supabase/bekas-<tanggal>-<jam>`; "hapus data juga" membuang
   `/opt/supabase` seluruhnya.
 
-### Stalwart (server email)
+### mailcow (server email)
 
-Komponen `stalwart` memasang Stalwart — server email all-in-one (SMTP, IMAP,
-POP3, JMAP, CalDAV/CardDAV, WebDAV) — lewat skrip resmi vendor
-`get.stalw.art/install.sh`, karena tidak ada paket .deb-nya. Skrip itu yang
-menaruh binernya di `/usr/local/bin/stalwart`, membuat akun service
-`stalwart`, menulis unit `stalwart.service`, lalu menyalakannya dalam **mode
-bootstrap** dengan WebUI di `http://<ip-mesin>:8080/admin`.
-
-Password bootstrap itu dicetak sekali ke log lalu hilang, jadi panel memaku
-kredensialnya sendiri lewat `STALWART_RECOVERY_ADMIN` di
-`/etc/stalwart/stalwart.env` dan menampilkannya di kartu komponen — sama
-seperti password awal 9router. Begitu wizard selesai (Stalwart menulis
-`config.json`), kredensial bootstrap tidak berlaku lagi, dan **panel menutup
-jalur itu sendiri** dengan mengomentari baris `STALWART_RECOVERY_ADMIN`:
-dokumentasi Stalwart memperingatkan variabel itu tetap berlaku saat server
-berjalan normal, jadi membiarkannya sama dengan meninggalkan pintu belakang
-dengan password yang pernah tampil di layar. Panel hanya menyentuh berkas env
-yang benar-benar memuat password buatannya sendiri.
-
-Semua port bawaan Stalwart didaftarkan ke firewall saat komponennya dipasang:
-`8080` (WebUI & wizard), `443` (WebUI/JMAP setelah setup), `25` (SMTP), `465`
-(submissions TLS), `993` (IMAPS), `995` (POP3S), dan `4190` (ManageSieve) —
-daftarnya diambil dari registry bawaan Stalwart sendiri, bukan tebakan.
-
-Uninstall mencopot service, unit, dan binernya; `data`/`config` hanya hilang
-lewat "hapus data juga", yang sekaligus menghapus akun sistem `stalwart` —
-dengan pagar UID < 1000 dan shell nologin, supaya akun manusia bernama sama
-tidak pernah ikut terhapus.
+- Stack Docker Compose resmi: https://docs.mailcow.email/getstarted/install/.
+- Hostname email FQDN wajib; DNS A/AAAA, MX, PTR, SPF, DKIM, DMARC
+  dikonfigurasi sesuai https://docs.mailcow.email/getstarted/prerequisite-dns/.
+- Minimum 6 GiB RAM + 1 GiB swap, disk 20 GiB; amd64/arm64.
+  LXC/OpenVZ tidak didukung upstream; gunakan mesin fisik atau VM penuh.
+- Membutuhkan Docker >= 24 dan Compose >= 2.18. Konfigurasi/data berada di
+  `/opt/mailcow-dockerized` serta volume Docker; bukan daemon email host.
+- Instalasi baru bind HTTP `0.0.0.0:8080` dan HTTPS `0.0.0.0:8443`, tidak
+  mengambil port 80/443 milik Proxy manager. Buka `https://<IP-server>:8443/admin/`
+  dari perangkat lain; `0.0.0.0` adalah binding, bukan alamat browser. HTTP tidak
+  terenkripsi; HTTPS awal self-signed. Akun admin bawaan dapat dijangkau jaringan:
+  batasi akses ke perangkat tepercaya, segera ganti password dan aktifkan 2FA
+  sebelum membuka internet. Binding instalasi existing tidak diubah. Installer
+  menolak perubahan daemon/restart Docker; siapkan IPv6 manual bila diperlukan.
+  Sertifikat email tetap harus disiapkan
+  untuk SMTP/IMAP, bukan hanya sertifikat reverse proxy web.
+- Docker published ports tidak dibatasi oleh rule INPUT UFW. Jangan
+  menonaktifkan firewall otomatis; periksa FORWARD/DOCKER-USER dan firewall luar.
+- Stack otomatis terdaftar di System → Docker; project `mailcowdockerized`
+  tetap sama setelah Down/Up. Editor konfigurasi generik dinonaktifkan untuk
+  menjaga root ownership dan symlink `.env`; gunakan
+  `sudoedit /opt/mailcow-dockerized/mailcow.conf`, pertahankan mode 0600.
+- Penggantian komponen panel tidak memigrasikan mailbox atau menghapus
+  instalasi email lama. Cadangkan email sebelum migrasi terpisah.
 
 ### Alat wajib AI Agent
 
@@ -276,7 +273,7 @@ komponen** dan didaftarkan saat komponen dipasang:
 | print-server | 631/tcp |
 | 9router | 20128/tcp |
 | supabase | 8000/tcp · 5432/tcp · 6543/tcp |
-| stalwart | 8080/tcp · 443/tcp · 25/tcp · 465/tcp · 993/tcp · 995/tcp · 4190/tcp |
+| mailcow | 25/tcp · 465/tcp · 587/tcp · 110/tcp · 143/tcp · 993/tcp · 995/tcp · 4190/tcp · 8443/tcp |
 | tailscale | 41641/udp |
 
 - Setiap rule panel membawa **label pemilik** (`ufw allow 445/tcp comment
@@ -396,7 +393,7 @@ versi yang dipipe dari `curl` tetap harus `| sudo bash`.
 - **Runtime opsional** (kelola dari Components, halaman tampil "Belum
   Terpasang" selama belum ada): nginx, certbot, samba, mergerfs,
   nfs-kernel-server, cups+gutenprint, ufw, fail2ban, docker-ce, tailscale,
-  cloudflared, stalwart (skrip resmi get.stalw.art), nodejs.
+  cloudflared, mailcow (Docker Compose), nodejs.
 - **Library Go**: `chi/v5`, `coder/websocket`, `creack/pty`,
   `msteinert/pam/v2`, `gopsutil/v4`, `modernc.org/sqlite`.
 - **Frontend**: React 18 + Vite 6 + TS 5.7, Tailwind v4, Radix Slot,
