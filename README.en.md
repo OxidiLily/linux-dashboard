@@ -28,6 +28,14 @@ available; browsers will warn until a trusted certificate is installed. The
 installer enables UFW/fail2ban without resetting, deleting, or changing existing
 firewall defaults/rules. Running it again upgrades to the latest `main`.
 
+Go builds run serially (`-p=1`, `GOMAXPROCS=1`) with more aggressive GC
+(`GOGC=20`, `GOMEMLIMIT=256MiB`); the SQLite compiler also runs serially.
+This is a soft per-process memory budget, not a guarantee that installation
+fits in 1 GB RAM without swap. Builds take longer; runtime service settings
+are unchanged. On constrained VPS instances, supply binaries built on a
+compatible machine through `BIN_SRC` instead of building on the VPS.
+The installer does not create swap automatically.
+
 The installer **detects first, then installs**: dependencies that are already
 present are skipped, and a Go installed outside apt (official tarball, asdf,
 snap) is not replaced by the `golang-go` package. At the end it reports which

@@ -25,6 +25,12 @@ cd / && curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/m
   dari tarball/asdf/snap tidak diganti paket `golang-go`.
 - UFW/fail2ban diaktifkan tanpa reset atau menghapus rule yang sudah ada.
 - Perintah sama lagi = upgrade ke `main` terbaru.
+- Build Go dijalankan serial (`-p=1`, `GOMAXPROCS=1`), GC lebih agresif
+  (`GOGC=20`, `GOMEMLIMIT=256MiB`); compiler SQLite juga serial. Batas memori
+  ini lunak per proses, bukan jaminan instalasi muat di RAM 1 GB tanpa swap.
+  Build lebih lambat; tidak mengubah konfigurasi service runtime. Untuk VPS
+  sempit, gunakan binary dari mesin kompatibel lewat `BIN_SRC` daripada build
+  di VPS. Installer tidak membuat swap otomatis.
 - Butuh akun bergrup `sudo` untuk menu Docker, Firewall, Fail2ban, Samba,
   Disk Pool, NFS, dan Components.
 
