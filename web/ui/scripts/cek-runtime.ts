@@ -42,6 +42,18 @@ const cek = (dapat: string, harap: string, nama: string) => {
   if (dapat !== harap) gagal.push(`${nama}: dapat ${JSON.stringify(dapat)}, harap ${JSON.stringify(harap)}`)
 }
 
+import * as componentsModule from "@/views/components"
+const mailcowURL = (componentsModule as unknown as { tautanMailcow?: (url?: string) => string }).tautanMailcow
+cek(mailcowURL?.("https://mail.example.org:8443/admin") ?? "missing", "https://mail.example.org:8443/admin", "mailcow/configured-https")
+for (const url of [undefined, "", "http://mail.example.org:8080/admin", "https://localhost:8443/admin", "https://user:secret@mail.example.org:8443/admin"]) {
+  cek(mailcowURL?.(url) ?? "missing", "", `mailcow/no-unsafe-url-${url}`)
+}
+const hostnameValid = (componentsModule as unknown as { mailcowHostnameValid?: (hostname: string) => boolean }).mailcowHostnameValid
+cek(String(hostnameValid?.("mail.example.org")), "true", "mailcow/public-fqdn")
+for (const host of ["", "localhost", "127.0.0.1", "mail.local", "example.org", "mail.example.lan", "mail.example.org:8443", "https://mail.example.org"]) {
+  cek(String(hostnameValid?.(host)), "false", `mailcow/reject-host-${host}`)
+}
+
 // Select UI component: render trigger markup dengan benar di SSR
 const selectHtml = renderToStaticMarkup(createElement(Select, { value: "opt1", options: [{ value: "opt1", label: "Option 1" }] }))
 cek(String(selectHtml.includes("Option 1")), "true", "select/render-static")

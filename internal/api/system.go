@@ -3,6 +3,7 @@ package api
 import (
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -31,6 +32,34 @@ type systemInfo struct {
 // handleHostname adalah satu-satunya endpoint sistem yang tidak butuh sesi:
 // halaman login menampilkan nama mesin supaya user tahu server mana yang
 // sedang ia masuki.
+func mailcowHostnameValid(host string) bool {
+	if len(host) > 253 || net.ParseIP(host) != nil {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	if len(labels) < 3 {
+		return false
+	}
+	tld := strings.ToLower(labels[len(labels)-1])
+	if !mailcowTLDRe.MatchString(tld) || tld == "local" || tld == "localhost" || tld == "internal" || tld == "lan" || tld == "test" || tld == "invalid" {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 || !mailcowLabelRe.MatchString(label) {
+			return false
+		}
+	}
+	return true
+}
+
+// Dipaketkan sebagai var, bukan regexp.MustCompile di dalam fungsi: validator
+// ini dipanggil per-request (install + open-url) dan compile ulang tiap request
+// hanya membuang CPU.
+var (
+	mailcowTLDRe   = regexp.MustCompile(`^[a-zA-Z]{2,}$`)
+	mailcowLabelRe = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
+)
+
 func (s *Server) handleHostname(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	writeJSON(w, http.StatusOK, map[string]string{"hostname": host})
@@ -39,15 +68,12 @@ func (s *Server) handleHostname(w http.ResponseWriter, r *http.Request) {
 // handleOpenURL adalah endpoint diagnostik yang mengembalikan URL absolut
 // untuk komponen yang punya antarmuka web sendiri — 9router (:20128),
 // Technitium DNS (:5380), Supabase Studio (:8000), dan
-// WebUI Stalwart (:8080/admin). Dipakai tombol "Buka"
+// WebUI mailcow (URL HTTPS dari konfigurasi helper). Dipakai tombol "Buka"
 // di halaman Components — tanpa ini user harus mengingat port dan mengetik
 // manual, yang sering salah di WSL/lxc yang tidak punya hostname tetap.
 func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	component := chi.URLParam(r, "name")
 	var port int
-	// jalur diisi kalau antarmuka komponennya TIDAK duduk di akar — WebUI
-	// Stalwart ada di /admin, dan membuka akarnya cuma memperlihatkan 404.
-	var jalur string
 	switch component {
 	case "9router":
 		port = 20128
@@ -60,14 +86,36 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 		// dibangkitkan setup.sh dan bisa dibaca di penyunting .env stack pada
 		// halaman System → Docker.
 		port = 8000
-	case "stalwart":
-		// 8080 = listener HTTP bawaan Stalwart, satu-satunya tempat wizard
-		// penyiapan bisa diselesaikan. Setelah wizard, WebUI-nya pindah ke
-		// https://<server hostname>/admin di port 443 — hostname itu justru
-		// biasanya belum resolve dari perangkat yang membuka panel, jadi yang
-		// ditautkan tetap 8080 sampai setup-nya selesai.
-		port = 8080
-		jalur = "/admin"
+	case "mailcow":
+		// Existing static links remain public; configured Mailcow state requires a session.
+		sess, ok := s.sessionFromRequest(r)
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "sesi tidak valid atau sudah berakhir")
+			return
+		}
+		var statuses []helperproto.ComponentStatus
+		if err := s.helper.Call(helperproto.CmdComponentStatusAll, sess.HelperToken,
+			helperproto.ComponentArgs{Name: "all"}, &statuses); err != nil {
+			writeHelperErr(w, err)
+			return
+		}
+		for _, status := range statuses {
+			u, err := url.Parse(status.WebURL)
+			if err != nil {
+				continue
+			}
+			port, portErr := strconv.Atoi(u.Port())
+			if status.Name != "mailcow" || !status.Installed || u.Scheme != "https" ||
+				!mailcowHostnameValid(u.Hostname()) || (u.Port() != "" && (portErr != nil || port < 1 || port > 65535)) ||
+				strings.HasSuffix(u.Host, ":") || u.User != nil || u.RawQuery != "" || u.ForceQuery ||
+				strings.Contains(status.WebURL, "#") || u.EscapedPath() != "/admin" {
+				continue
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"url": status.WebURL, "scheme": "https", "host": u.Hostname(), "port": u.Port()})
+			return
+		}
+		writeErr(w, http.StatusNotFound, "URL mailcow belum dikonfigurasi.")
+		return
 	default:
 		writeErr(w, http.StatusNotFound, "tidak ada URL langsung untuk komponen "+component)
 		return
@@ -105,7 +153,7 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	scheme := "http"
 	portStr := strconv.Itoa(port)
 	writeJSON(w, http.StatusOK, map[string]string{
-		"url":    scheme + "://" + host + ":" + portStr + jalur,
+		"url":    scheme + "://" + host + ":" + portStr,
 		"scheme": scheme,
 		"host":   host,
 		"port":   portStr,

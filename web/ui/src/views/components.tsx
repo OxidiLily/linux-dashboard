@@ -3,6 +3,7 @@ import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
 import { confirmDialog } from "@/components/ui/confirm"
+import { promptDialog } from "@/components/ui/prompt"
 import { Panel } from "@/components/ui/panel"
 import { trf, useTr } from "@/stores/i18n"
 import { Button } from "@/components/ui/button"
@@ -30,6 +31,7 @@ type ComponentStatus = {
   managed_in?: string
   /** Versi lebih baru yang tersedia di registry — kartu menampilkan tombol Perbarui. */
   latest_version?: string
+  web_url?: string
 }
 
 // Fase apt dari helper ditulis sebagai kalimat, bukan satu kata teknis:
@@ -54,6 +56,23 @@ type Progres = {
   fase?: string
   pesan?: string
   aktif: boolean
+}
+
+export function mailcowHostnameValid(host: string) {
+  const labels = host.split(".")
+  return host.length <= 253 && labels.length >= 3 && /^[a-zA-Z]{2,}$/.test(labels.at(-1) ?? "") &&
+    !["local", "localhost", "internal", "lan", "test", "invalid"].includes((labels.at(-1) ?? "").toLowerCase()) &&
+    labels.every((label) => label.length <= 63 && /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(label))
+}
+
+export function tautanMailcow(value?: string) {
+  if (!value) return ""
+  try {
+    const url = new URL(value)
+    return url.protocol === "https:" && mailcowHostnameValid(url.hostname) &&
+      ["", "443", "8443"].includes(url.port) && !url.username && !url.password && !url.search && !url.hash &&
+      url.pathname === "/admin" ? value : ""
+  } catch { return "" }
 }
 
 export function ComponentsView() {
@@ -169,9 +188,25 @@ export function ComponentsView() {
   }, [])
 
   const handleInstall = async (name: string) => {
+    let body: { mailcow_hostname: string } | undefined
+    if (name === "mailcow") {
+      const hostname = await promptDialog({
+        title: tr("Hostname mailcow"),
+        label: tr("FQDN publik tanpa protokol atau port"),
+        confirmLabel: tr("Lanjutkan"),
+      })
+      if (hostname === null) return
+      if (!mailcowHostnameValid(hostname)) {
+        notify.err(tr("Hostname mailcow harus FQDN publik, tanpa protokol atau port."))
+        return
+      }
+      body = { mailcow_hostname: hostname }
+    }
     const ok = await confirmDialog({
       title: trf("Pasang komponen {0}?", name),
-      message: tr("Paket diunduh dan dipasang ke sistem. Bisa berjalan beberapa menit."),
+      message: name === "mailcow"
+        ? tr("mailcow membutuhkan Docker >=24, Compose >=2.18, RAM 6 GiB, swap 1 GiB, disk 20 GiB; LXC/OpenVZ tidak didukung. Web instalasi baru terbuka pada semua interface (HTTP 8080 dan HTTPS 8443); HTTP tidak terenkripsi, HTTPS awal self-signed, akun admin bawaan dapat dijangkau jaringan. Batasi akses ke perangkat tepercaya, segera ganti password admin dan aktifkan 2FA sebelum membuka internet. Binding instalasi existing dipertahankan. Installer tidak mengubah daemon Docker; IPv6 yang belum sesuai harus disiapkan manual. DNS, PTR, port email, TLS dan firewall Docker disiapkan terpisah. Instalasi bukan jaminan email siap kirim/terima.")
+        : tr("Paket diunduh dan dipasang ke sistem. Bisa berjalan beberapa menit."),
       confirmLabel: tr("Pasang"),
     })
     if (!ok) return
@@ -181,7 +216,7 @@ export function ComponentsView() {
     // toast-nya dipasang di app-shell, jadi ia ikut berpindah halaman bersama
     // user dan berubah sendiri jadi berhasil/gagal di mana pun ia berada.
     try {
-      await notify.tugas(apiSend(`/api/components/${name}/install`, "POST"), {
+      await notify.tugas(apiSend(`/api/components/${name}/install`, "POST", body), {
         jalan: trf("Memasang komponen {0}…", name),
         sukses: trf("Komponen {0} berhasil dipasang.", name),
         gagal: (e) => trf("Gagal memasang {0}: {1}", name, pesanError(e)),
@@ -287,7 +322,7 @@ export function ComponentsView() {
   // Komponen yang punya antarmuka web sendiri — tombol "Buka" muncul di
   // kartunya. Portnya ada di backend (handleOpenURL), bukan di sini: yang
   // perlu diketahui halaman ini cuma komponen mana yang punya halaman.
-  const punyaUIWeb = ["9router", "technitium-dns", "supabase", "stalwart"]
+  const punyaUIWeb = ["9router", "technitium-dns", "supabase"]
 
   // bukaUIWeb membuka tab baru ke URL yang dikembalikan server. Pakai
   // endpoint (bukan hard-code "http://localhost:20128") supaya WSL/lxc
@@ -297,7 +332,9 @@ export function ComponentsView() {
   const bukaUIWeb = async (name: string) => {
     try {
       const r = await apiGet<{ url: string }>(`/api/open-url/${name}`)
-      window.open(r.url, "_blank", "noopener,noreferrer")
+      const url = name === "mailcow" ? tautanMailcow(r.url) : r.url
+      if (!url) throw new Error(tr("URL mailcow belum dikonfigurasi."))
+      window.open(url, "_blank", "noopener,noreferrer")
     } catch (e: any) {
       notify.err(trf("Tidak bisa membuka {0}: {1}", name, pesanError(e)))
     }
@@ -406,6 +443,12 @@ export function ComponentsView() {
                         <div className="absolute inset-x-0 top-0 h-0.5 bg-signal" aria-hidden="true" />
                       )}
                       <div className="min-w-0">
+                        {c.name === "mailcow" && (
+                          <p className="mb-2 max-w-2xl text-xs text-muted-foreground">
+                            {tr("Minimum 6 GiB RAM + 1 GiB swap, disk 20 GiB tanpa email. LXC/OpenVZ tidak didukung. Siapkan DNS/PTR, port email, dan TLS; instalasi bukan jaminan email siap pakai.")}{" "}
+                            <a className="underline" href="https://docs.mailcow.email/" target="_blank" rel="noopener noreferrer">{tr("Dokumentasi resmi mailcow")}</a>
+                          </p>
+                        )}
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="num text-sm font-semibold">{c.name}</p>
                           {/* Selama aksinya berjalan, status lama tidak
@@ -523,7 +566,7 @@ export function ComponentsView() {
                                 {trf("Dijalankan dari {0}", tr(c.managed_in))}
                               </span>
                             )}
-                            {punyaUIWeb.includes(c.name) && (
+                            {(punyaUIWeb.includes(c.name) || (c.name === "mailcow" && !!tautanMailcow(c.web_url))) && (
                               <Button
                                 variant="outline"
                                 size="sm"

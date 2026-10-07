@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -369,38 +368,17 @@ var components = map[string]*component{
 		"mDNS/Bonjour — server dikenali sebagai <hostname>.local di LAN.", "avahi-daemon"), "Avahi (mDNS)"),
 		portKomponen{"5353", "udp", "mDNS"}),
 
-	// Stalwart dipasang lewat skrip resmi vendor (get.stalw.art/install.sh):
-	// tidak ada paket .deb-nya, dan skrip itulah yang menaruh binary di
-	// /usr/local/bin, membuat akun service `stalwart`, menulis unit systemd,
-	// lalu menyalakannya dalam mode bootstrap.
-	//
-	// Semua port bawaan Stalwart didaftarkan ke firewall, bukan hanya port
-	// WebUI-nya. Daftarnya diambil dari registry bawaan Stalwart sendiri
-	// (crates/common/src/manager/defaults.rs, blok NetworkListener), bukan
-	// tebakan: SMTP 25, submissions TLS 465, IMAPS 993, POP3S 995,
-	// ManageSieve 4190, HTTPS 443 (WebUI + JMAP setelah wizard), dan 8080
-	// (WebUI + wizard selama masih bootstrap).
-	//
-	// 443 sengaja ikut meski panel sendiri belum tentu memakainya: setelah
-	// wizard, Stalwart melayani /admin dan discovery OAuth/JMAP di sana, dan
-	// URL itu yang dipakai klien mail. Komponen lain di katalog ini tidak ada
-	// yang memakai 443.
-	"stalwart": denganPort(&component{
-		Name: "stalwart", Binary: "stalwart", Service: "stalwart", Label: "Stalwart",
-		Category:    katEmail,
-		Description: "Server email all-in-one (SMTP, IMAP, POP3, JMAP, CalDAV/CardDAV, WebDAV) dengan WebUI sendiri — dipasang lewat skrip resmi get.stalw.art, config di /etc/stalwart.",
-		install:     installStalwart,
-		uninstall:   uninstallStalwart,
-		purge:       purgeStalwart,
-		version:     func() string { return firstLine(tryRun("stalwart", "--version")) },
-	},
-		portKomponen{"8080", "tcp", "WebUI & wizard penyiapan"},
-		portKomponen{"443", "tcp", "WebUI/HTTPS & JMAP"},
-		portKomponen{"25", "tcp", "SMTP"},
-		portKomponen{"465", "tcp", "submissions (TLS)"},
-		portKomponen{"993", "tcp", "IMAPS"},
-		portKomponen{"995", "tcp", "POP3S"},
-		portKomponen{"4190", "tcp", "ManageSieve"}),
+	// mailcow uses the official Docker Compose stack, not a systemd service.
+	"mailcow": denganPort(&component{
+		Name: "mailcow", Label: "mailcow", Category: katEmail,
+		Description: "Server email mailcow Docker Compose resmi di /opt/mailcow-dockerized. Hostname wajib. HTTPS :8443 dan HTTP :8080 terbuka di semua interface; HTTP tidak terenkripsi. Login awal admin/moohoo: segera ganti password. Docker bypass UFW INPUT; atur firewall forwarding. TLS mail memerlukan DNS dan challenge HTTP port 80 atau sertifikat sendiri.",
+		KelolaDi:    "System → Docker", uninstall: uninstallMailcow, purge: purgeMailcow,
+		terpasang: mailcowTerpasang, version: versiMailcow,
+	}, portKomponen{"8443", "tcp", "HTTPS UI"},
+		portKomponen{"25", "tcp", "SMTP"}, portKomponen{"110", "tcp", "POP3"},
+		portKomponen{"143", "tcp", "IMAP"}, portKomponen{"465", "tcp", "SMTPS"},
+		portKomponen{"587", "tcp", "Submission"}, portKomponen{"993", "tcp", "IMAPS"},
+		portKomponen{"995", "tcp", "POP3S"}, portKomponen{"4190", "tcp", "ManageSieve"}),
 
 	// Technitium dipasang lewat skrip resmi vendor: tidak ada paket .deb-nya,
 	// dan yang diunduh skrip itu bukan cuma servernya — runtime ASP.NET Core
@@ -482,7 +460,7 @@ func ComponentNames() []string {
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
 		"rtk", "graphify", "ponytail", "browser-use",
 		"supabase",
-		"samba", "nfs-server", "nfs-client", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs", "stalwart",
+		"samba", "nfs-server", "nfs-client", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs", "mailcow",
 		"ufw", "fail2ban",
 		"lm-sensors", "smartmontools", "nvme-cli", "qemu-guest-agent",
 		"htop", "ncdu", "fastfetch", "restic",
@@ -530,15 +508,10 @@ func componentStatus(name string) helperproto.ComponentStatus {
 	if st.Installed && name == "supabase" {
 		st.Note = catatanSupabase
 	}
-	if st.Installed && name == "stalwart" {
-		// Berkas env diselaraskan TANPA me-restart service: inilah jalur yang
-		// pasti dilewati lagi setelah user memasang komponennya, jadi kalau
-		// baris kredensialnya hilang karena sebab apa pun, halaman Components
-		// mengembalikannya sendiri. Saat wizard sudah selesai, pemanggilan ini
-		// justru yang menutup kredensial bootstrap — lihat
-		// padukanKredensialStalwart.
-		padukanKredensialStalwart(jalurStalwartAsli, false)
-		st.Note = catatanStalwart()
+	if st.Installed && name == "mailcow" {
+		st.Running = mailcowRunning()
+		st.WebURL = mailcowWebURL()
+		st.Note = catatanMailcow
 	}
 	return st
 }
@@ -820,7 +793,16 @@ func lupakanCacheUpdates() {
 // tombolnya. Identitas itu bukan sekadar untuk log: CLI agent AI dipasang KE
 // DALAM home user tersebut (lihat aiagent.go), dan keanggotaan grup docker
 // juga diberikan ke akun itu, bukan ke root.
-func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, error) {
+func installComponent(name string, u *userInfo, hostname ...string) (helperproto.ComponentStatus, error) {
+	mailHost := ""
+	if len(hostname) > 0 {
+		mailHost = hostname[0]
+	}
+	if name == "mailcow" {
+		if err := validMailcowHostname(mailHost); err != nil {
+			return helperproto.ComponentStatus{}, err
+		}
+	}
 	username := ""
 	if u != nil {
 		username = u.Name
@@ -894,8 +876,14 @@ func installComponent(name string, u *userInfo) (helperproto.ComponentStatus, er
 			return helperproto.ComponentStatus{}, err
 		}
 	}
-	if err := jalankanInstall(c, u); err != nil {
-		return helperproto.ComponentStatus{}, err
+	var installErr error
+	if name == "mailcow" {
+		installErr = installMailcow(mailHost)
+	} else {
+		installErr = jalankanInstall(c, u)
+	}
+	if installErr != nil {
+		return helperproto.ComponentStatus{}, installErr
 	}
 	// Port didaftarkan ke firewall begitu komponennya ada, bukan menunggu
 	// firewall dinyalakan — lihat portkomponen.go. Untuk ufw sendiri kebalikannya:
@@ -969,6 +957,20 @@ func uninstallComponent(name string, purge bool) (helperproto.ComponentStatus, e
 		bersihkanDockerLengkap()
 	}
 
+	// Mailcow purge must fail closed; never delete data after compose down failed.
+	if name == "mailcow" {
+		var err error
+		if purge {
+			err = purgeMailcow()
+		} else {
+			err = uninstallMailcow()
+		}
+		if err != nil {
+			return helperproto.ComponentStatus{}, err
+		}
+		hapusPortKomponen(c)
+		return componentStatus(name), nil
+	}
 	var uninstErr error
 	if c.uninstall != nil {
 		uninstErr = c.uninstall()
@@ -1149,13 +1151,7 @@ func componentService(name, action string, u *userInfo) (*helperproto.ComponentA
 					"qemu-guest-agent tidak bisa dijalankan. Agent ini hanya "+
 					"berguna di VM Proxmox/QEMU", portVirtioQEMU)
 		}
-		// Stalwart yang dipasang di luar panel (atau sebelum rilis ini) belum
-		// punya kredensial bootstrap yang tercatat: tanpa ini password acaknya
-		// hanya ada di log yang sudah bergulir, dan user tidak punya jalan
-		// masuk ke WebUI-nya setelah menekan Jalankan.
-		if name == "stalwart" {
-			pastikanKredensialStalwart()
-		}
+
 	}
 	if name == "9router" && action == "stop" {
 		if _, err := run("systemctl", "stop", "9router.service", "headroom.service"); err != nil {
@@ -2715,594 +2711,4 @@ func purgeTechnitium() error {
 	}
 	_, _ = run("userdel", "dns-server")
 	return nil
-}
-
-// ---- Stalwart -------------------------------------------------------------
-//
-// Stalwart dipasang lewat skrip resmi vendor (get.stalw.art/install.sh) dan
-// skrip itu TIDAK punya mode uninstall, jadi daftar berkas yang dibuatnya
-// dipelihara di sini: uninstall membuang biner beserta unitnya, purge membuang
-// sisanya. Path-nya mengikuti dokumentasi resmi (install/platform/linux) dan
-// skrip installer itu sendiri — bukan tebakan.
-
-const (
-	stalwartBin     = "/usr/local/bin/stalwart"
-	stalwartUnit    = "/etc/systemd/system/stalwart.service"
-	stalwartConfDir = "/etc/stalwart"
-	stalwartEnv     = stalwartConfDir + "/stalwart.env"
-	// stalwartConfig hanya ada SETELAH wizard selesai. Keberadaannya yang
-	// membedakan "masih bootstrap" dari "sudah jalan normal", dan itu yang
-	// menentukan kredensial bootstrap masih berlaku atau justru harus ditutup.
-	stalwartConfig  = stalwartConfDir + "/config.json"
-	stalwartDataDir = "/var/lib/stalwart"
-	stalwartLogDir  = "/var/log/stalwart"
-	// stalwartAkun adalah akun service yang dibuat skrip vendor
-	// (`useradd stalwart -s /usr/sbin/nologin -M -r -U`), bukan akun manusia.
-	stalwartAkun = "stalwart"
-	// stalwartAkunAdmin adalah nama akun sementara yang dipakai Stalwart
-	// selama mode bootstrap. Wizard membuat akun admin permanen tersendiri.
-	stalwartAkunAdmin = "admin"
-	// passFileStalwart menyimpan password bootstrap yang dibuat panel supaya
-	// bisa ditampilkan lagi di halaman Components — tanpa ini password acak
-	// hanya ada di satu baris log yang tercetak sekali lalu hilang. Pola yang
-	// sama dipakai 9router (passFile9Router).
-	passFileStalwart = "/var/lib/linux-dashboard-helper/stalwart-password"
-	// kunciRecoveryStalwart adalah variabel yang dipakai Stalwart untuk memaku
-	// kredensial bootstrap/recovery (docs: configuration/bootstrap-mode dan
-	// configuration/recovery-mode), bentuknya `user:password`.
-	kunciRecoveryStalwart = "STALWART_RECOVERY_ADMIN"
-)
-
-// installStalwart menjalankan skrip resmi Stalwart.
-func installStalwart() error {
-	// Skrip vendor menulis unit systemd dan menyalakannya. Di mesin tanpa
-	// systemd komponennya akan terpasang tanpa satu pun tombol yang bekerja —
-	// tolak di sini daripada berakhir dengan kartu yang membingungkan.
-	if hasNoSystemd() {
-		return errInvalid(
-			"mesin ini tidak menjalankan systemd — Stalwart dikendalikan lewat " +
-				"unit systemd (WSL: `wsl --update` lalu restart dengan init)")
-	}
-	script, bersihkan, err := unduhSkrip("https://get.stalw.art/install.sh", "stalwart-install.sh")
-	if err != nil {
-		return err
-	}
-	defer bersihkan()
-	// Skripnya mengunduh rilis terbaru dari GitHub (arsip ~100 MB) lalu
-	// memanggil systemctl; tidak ada persen yang bisa dibaca panel, jadi yang
-	// dilaporkan cuma tahapnya — sama seperti Tailscale.
-	tahapBaru("mengunduh rilis Stalwart & menjalankan skrip resminya")
-	if err := skripDenganProgres("/bin/sh", script, 2, batasPasang); err != nil {
-		return errInvalid("skrip resmi Stalwart gagal: %v", err)
-	}
-	// Dipanggil SETELAH skrip selesai: berkas env baru ada saat itu, dan
-	// service yang dinyalakan skrip membaca env pada start berikutnya —
-	// pastikanKredensialStalwart yang me-restart-nya.
-	pastikanKredensialStalwart()
-	return nil
-}
-
-// uninstallStalwart mencopot yang dipasang skrip vendor: service, unit
-// systemd, dan binernya.
-//
-// Data (/var/lib/stalwart) dan config (/etc/stalwart) sengaja tidak ikut —
-// sama seperti komponen lain di panel ini, dan justru itu yang membuat
-// pemasangan ulang tidak mulai dari nol. Keduanya hanya hilang lewat purge.
-func uninstallStalwart() error {
-	_, _ = run("systemctl", "disable", "--now", "stalwart.service")
-	_ = os.Remove(stalwartUnit)
-	_, _ = run("systemctl", "daemon-reload")
-	_ = os.Remove(stalwartBin)
-	return nil
-}
-
-// purgeStalwart menghapus data, config, log, dan akun service buatan skrip
-// vendor. Hanya berjalan kalau user memintanya: isinya mailbox, riwayat, dan
-// kunci DKIM yang tidak bisa dibuat ulang.
-func purgeStalwart() error {
-	for _, p := range []string{stalwartConfDir, stalwartDataDir, stalwartLogDir} {
-		if err := os.RemoveAll(p); err != nil {
-			return err
-		}
-	}
-	_ = os.Remove(stalwartBin)
-	_ = os.Remove(stalwartUnit)
-	_, _ = run("systemctl", "daemon-reload")
-	_ = os.Remove(passFileStalwart)
-	hapusAkunSystem(stalwartAkun)
-	return nil
-}
-
-// hapusAkunSystem hanya menghapus akun yang benar-benar akun sistem buatan
-// installer: UID < 1000, bukan root, dan shell-nya nologin/false.
-//
-// Pagar yang sama dipakai uninstall.sh untuk akun panel, dan alasannya sama:
-// kalau di mesin ini namanya ternyata dipakai akun manusia, uninstall panel
-// tidak berhak menghapusnya — akun yang sudah dihapus tidak bisa
-// dikembalikan. userdel dipanggil tanpa -r, jadi home tidak pernah ikut.
-func hapusAkunSystem(nama string) {
-	res, err := run("id", "-u", nama)
-	if err != nil {
-		return
-	}
-	uid, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
-	if err != nil || uid == 0 || uid >= 1000 {
-		return
-	}
-	pw, err := run("getent", "passwd", nama)
-	if err != nil {
-		return
-	}
-	f := strings.Split(strings.TrimSpace(pw.Stdout), ":")
-	if len(f) < 7 {
-		return
-	}
-	if shell := f[6]; !strings.HasSuffix(shell, "nologin") && !strings.HasSuffix(shell, "false") {
-		return
-	}
-	_, _ = run("userdel", nama)
-}
-
-// jalurKredensialStalwart mengelompokkan berkas yang dipakai alur kredensial
-// bootstrap. Ketiganya parameter, bukan konstanta yang dibaca langsung, supaya
-// seluruh alur bisa diuji di direktori sementara — pola yang sama dipakai
-// homeUser9Router. Path sungguhan hanya ada di satu tempat: jalurStalwartAsli.
-type jalurKredensialStalwart struct {
-	Env    string
-	Pass   string
-	Config string
-}
-
-var jalurStalwartAsli = jalurKredensialStalwart{
-	Env: stalwartEnv, Pass: passFileStalwart, Config: stalwartConfig,
-}
-
-// komentarTutupStalwart adalah baris pengganti STALWART_RECOVERY_ADMIN saat
-// panel mematikannya. Ditulis tanpa nilainya — berkas itu 0640 dan dibaca grup
-// akun service, jadi password yang tidak berlaku lagi tidak perlu tertinggal.
-const komentarTutupStalwart = "# " + kunciRecoveryStalwart +
-	" dikomentari panel: kredensial bootstrap tidak berlaku lagi setelah wizard selesai"
-
-// passwordTersimpanStalwart membaca password bootstrap yang pernah dibuat
-// panel. Kosong berarti panel belum pernah membuatnya — mis. Stalwart dipasang
-// manual dari terminal, dan itu bukan urusan panel untuk ditebak-tebak.
-func passwordTersimpanStalwart() string { return passwordTersimpanDi(jalurStalwartAsli.Pass) }
-
-func passwordTersimpanDi(path string) string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(b))
-}
-
-func simpanPasswordStalwart(pass string) { simpanPasswordDi(jalurStalwartAsli.Pass, pass) }
-
-func simpanPasswordDi(path, pass string) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		log.Printf("stalwart: %s gagal dibuat: %v", filepath.Dir(path), err)
-		return
-	}
-	// 0600 milik root: password ini hanya dibaca daemon helper (root) untuk
-	// ditampilkan ke admin yang sudah login ke panel.
-	if err := os.WriteFile(path, []byte(pass+"\n"), 0o600); err != nil {
-		log.Printf("stalwart: password bootstrap gagal disimpan: %v", err)
-	}
-}
-
-// pastikanKredensialStalwart memaku kredensial admin bootstrap ke berkas env
-// Stalwart (dan melepasnya lagi begitu wizard selesai). Dipakai jalur yang
-// memang boleh me-restart service: pemasangan dan tombol Jalankan.
-func pastikanKredensialStalwart() { padukanKredensialStalwart(jalurStalwartAsli, true) }
-
-// padukanKredensialStalwart menyelaraskan berkas env dengan keadaan Stalwart,
-// dan itulah satu-satunya tempat kredensial bootstrap ditulis.
-//
-// Kenapa dipaku: selama belum ada config.json, Stalwart hidup dalam mode
-// bootstrap dengan password acak yang dicetak SEKALI ke log. Halaman Components
-// tidak bisa menampilkan sesuatu yang tidak pernah disimpan, dan satu-satunya
-// petunjuk yang tersisa untuk user adalah membaca journal. STALWART_RECOVERY_ADMIN
-// adalah jalur yang dokumentasi Stalwart sendiri sebutkan untuk keadaan ini
-// ("pin a credential instead"), jadi panel memakai itu alih-alih menebak isi
-// log — persis seperti INITIAL_PASSWORD di 9router.
-//
-// Dua mode pemanggilan, dan bedanya penting:
-//
-//   - restart=true (pemasangan, tombol Jalankan): service di-restart supaya
-//     proses yang berjalan benar-benar memakai kredensial yang dipaku.
-//   - restart=false (pembacaan status): berkasnya diselaraskan tanpa menyentuh
-//     proses. Dipakai justru karena inilah jalur yang pasti dilewati lagi
-//     setelah user memasang komponennya — kalau barisnya hilang karena sebab
-//     apa pun, halaman Components mengembalikannya sendiri, dan selama masih
-//     bootstrap me-restart server dari sebuah pembacaan status berarti
-//     menginterupsi wizard yang sedang dikerjakan user di browser.
-//
-// Kegagalan di sini tidak membatalkan apa pun: server tetap terpasang dan
-// berjalan; yang hilang cuma jalan pintas lewat panel.
-func padukanKredensialStalwart(j jalurKredensialStalwart, restart bool) {
-	// Wizard sudah selesai → yang berlaku akun admin permanen buatan wizard,
-	// dan kredensial bootstrap justru harus ditutup.
-	if _, err := os.Stat(j.Config); err == nil {
-		pastikanBindStalwartSemuaInterface(j)
-		tutupKredensialBootstrapStalwartDi(j)
-		return
-	}
-	isi, err := os.ReadFile(j.Env)
-	if err != nil {
-		return
-	}
-	pass := passwordTersimpanDi(j.Pass)
-	if pass == "" {
-		if pass, err = sandiAcak(20); err != nil {
-			log.Printf("stalwart: gagal membuat password bootstrap: %v", err)
-			return
-		}
-	}
-	inginkan := kunciRecoveryStalwart + "=" + stalwartAkunAdmin + ":" + pass
-	baru := setBarisEnv(string(isi), kunciRecoveryStalwart, inginkan)
-	if baru != string(isi) {
-		// 0640 root:<akun> — izin yang sama dengan yang dipasang skrip vendor,
-		// dan grupnya dipertahankan supaya service tetap bisa membacanya.
-		if err := os.WriteFile(j.Env, []byte(baru), 0o640); err != nil {
-			log.Printf("stalwart: gagal menulis %s: %v", j.Env, err)
-			return
-		}
-		if j == jalurStalwartAsli {
-			_, _ = run("chown", "root:"+stalwartAkun, j.Env)
-		}
-		if restart {
-			jalankanUlangStalwart()
-		}
-	}
-	simpanPasswordDi(j.Pass, pass)
-}
-
-// tutupKredensialBootstrapStalwart mengomentari baris STALWART_RECOVERY_ADMIN —
-// dan hanya boleh dipanggil setelah wizard selesai.
-func tutupKredensialBootstrapStalwart() { tutupKredensialBootstrapStalwartDi(jalurStalwartAsli) }
-
-// tutupKredensialBootstrapStalwartDi mengomentari baris STALWART_RECOVERY_ADMIN
-// begitu wizard selesai.
-//
-// Dokumentasi Stalwart memperingatkan bahwa variabel ini berlaku JUGA saat
-// server berjalan normal: dibiarkan terpasang, ia menjadi pintu belakang
-// permanen dengan password yang sudah pernah tampil di halaman panel. Panel
-// yang memakunya saat bootstrap, jadi panel yang melepasnya saat fungsinya
-// habis. Tidak ada restart di sini: yang perlu tahu perubahan ini adalah start
-// berikutnya, dan me-restart server mail dari sebuah pembacaan status berarti
-// memutus sesi IMAP/SMTP orang tanpa diminta.
-//
-// WAJIB dijaga keberadaan config.json — dan itu sempat tidak dilakukan:
-// halaman Components memanggil fungsi ini setiap kali status dibaca, sehingga
-// baris yang baru dipaku saat pemasangan langsung dikomentari lagi di
-// pembacaan status pertama. Akibatnya password bootstrap yang benar-benar
-// berlaku (dan sudah dicetak server ke log) tidak pernah muncul di kartu
-// komponen, dan satu-satunya jalan masuk ke WebUI tinggal membaca journal.
-// Selama config.json belum ada, server masih bootstrap: baris itu adalah
-// satu-satunya jalan masuk, jadi tidak boleh disentuh.
-//
-// Pagar kedua: hanya berkas env yang benar-benar memuat password BUATAN PANEL
-// yang diubah — password itu dibaca dari berkas password panel, dan tidak ada
-// kalau pemasangannya tidak lewat panel. Kredensial recovery milik admin
-// sendiri tidak pernah ikut dimatikan.
-func tutupKredensialBootstrapStalwartDi(j jalurKredensialStalwart) {
-	if _, err := os.Stat(j.Config); err != nil {
-		return
-	}
-	pass := passwordTersimpanDi(j.Pass)
-	if pass == "" {
-		return
-	}
-	isi, err := os.ReadFile(j.Env)
-	if err != nil {
-		return
-	}
-	if !strings.Contains(string(isi), kunciRecoveryStalwart+"="+stalwartAkunAdmin+":"+pass) {
-		return
-	}
-	if err := os.WriteFile(j.Env, []byte(setBarisEnv(string(isi), kunciRecoveryStalwart, "")), 0o640); err != nil {
-		log.Printf("stalwart: gagal menutup kredensial bootstrap: %v", err)
-		return
-	}
-	if j == jalurStalwartAsli {
-		_, _ = run("chown", "root:"+stalwartAkun, j.Env)
-	}
-}
-
-// jalankanUlangStalwart me-restart service-nya hanya kalau sedang berjalan:
-// env baru dibaca proses saat start, jadi kredensial yang baru dipaku tidak
-// berlaku sebelum itu. Service yang sedang mati cukup dibiarkan — systemd
-// membaca berkas env itu saat start berikutnya.
-func jalankanUlangStalwart() {
-	if _, err := run("systemctl", "is-active", "--quiet", "stalwart.service"); err != nil {
-		return
-	}
-	if _, err := run("systemctl", "restart", "stalwart.service"); err != nil {
-		log.Printf("stalwart: restart setelah kredensial berubah gagal: %v", err)
-	}
-}
-
-// pastikanBindStalwartSemuaInterface mengubah bind address listener
-// dari 127.0.0.1 ke 0.0.0.0 supaya Stalwart bisa diakses dari jaringan luar.
-// Dipanggil dari padukanKredensialStalwart saat wizard sudah selesai.
-// Idempoten: pakai marker file supaya cuma jalan sekali (kecuali gagal).
-func pastikanBindStalwartSemuaInterface(j jalurKredensialStalwart) {
-	if _, err := os.Stat(j.Config); err != nil {
-		return
-	}
-	marker := j.Config + ".bind-external"
-	if _, err := os.Stat(marker); err == nil {
-		return
-	}
-	pass := passwordTersimpanDi(j.Pass)
-	if pass == "" {
-		return
-	}
-	if err := patchBindStalwart(stalwartAkunAdmin, pass); err != nil {
-		log.Printf("stalwart: patch bind address gagal (akan dicoba lagi): %v", err)
-		return
-	}
-	// Tulis marker hanya jika berhasil supaya percobaan ulang terjadi
-	// pada pembacaan status berikutnya.
-	if err := os.WriteFile(marker, []byte("ok\n"), 0o644); err != nil {
-		log.Printf("stalwart: gagal menulis marker bind: %v", err)
-	}
-}
-
-// patchBindStalwart menghubungi JMAP management API untuk mengganti
-// bind address listener dari 127.0.0.1:PORT ke 0.0.0.0:PORT.
-// Coba HTTPS:443 (normal mode) lalu HTTP:8080 (recovery/bootstrap).
-func patchBindStalwart(user, pass string) error {
-	client := &http.Client{Timeout: 10 * time.Second}
-	var apiBase string
-	// Coba HTTPS dulu (normal mode), lalu HTTP (recovery/bootstrap).
-	for _, base := range []string{"https://127.0.0.1", "http://127.0.0.1:8080"} {
-		if strings.HasPrefix(base, "https") {
-			client.Transport = &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			}
-		} else {
-			client.Transport = &http.Transport{}
-		}
-		if err := jmapCall(client, base, user, pass, "x:NetworkListener/query", map[string]any{"filter": map[string]any{}}, "c1"); err == nil {
-			apiBase = base
-			break
-		}
-	}
-	if apiBase == "" {
-		return fmt.Errorf("management API tidak terjangkau (HTTPS:443 dan HTTP:8080)")
-	}
-
-	// 1. Query semua listener ID.
-	queryRaw, err := jmapCallRaw(client, apiBase, user, pass, "x:NetworkListener/query", map[string]any{"filter": map[string]any{}}, "c1")
-	if err != nil {
-		return fmt.Errorf("query listener: %w", err)
-	}
-	var ids []string
-	if err := extractQueryIDs(queryRaw, &ids); err != nil {
-		return fmt.Errorf("parse query response: %w", err)
-	}
-	if len(ids) == 0 {
-		return nil // tidak ada listener
-	}
-
-	// 2. Get detail semua listener.
-	getRaw, err := jmapCallRaw(client, apiBase, user, pass, "x:NetworkListener/get", map[string]any{"ids": ids}, "c2")
-	if err != nil {
-		return fmt.Errorf("get listener: %w", err)
-	}
-	listeners, err := extractGetList(getRaw)
-	if err != nil {
-		return fmt.Errorf("parse get response: %w", err)
-	}
-
-	// 3. Kumpulkan update yang diperlukan.
-	updates := map[string]any{}
-	for _, obj := range listeners {
-		id, _ := obj["id"].(string)
-		bindRaw, ok := obj["bind"]
-		if id == "" || !ok {
-			continue
-		}
-		bindMap, ok := bindRaw.(map[string]any)
-		if !ok {
-			continue
-		}
-		newBind := map[string]any{}
-		changed := false
-		for addr, val := range bindMap {
-			if strings.HasPrefix(addr, "127.0.0.1:") {
-				newAddr := "0.0.0.0:" + addr[len("127.0.0.1:"):]
-				newBind[newAddr] = val
-				changed = true
-			} else {
-				newBind[addr] = val
-			}
-		}
-		if changed {
-			updates[id] = map[string]any{"bind": newBind}
-		}
-	}
-	if len(updates) == 0 {
-		return nil // sudah 0.0.0.0 semua
-	}
-
-	// 4. Terapkan update.
-	if err := jmapCall(client, apiBase, user, pass, "x:NetworkListener/set", map[string]any{"update": updates}, "c3"); err != nil {
-		return fmt.Errorf("set listener: %w", err)
-	}
-	log.Printf("stalwart: bind address %d listener berhasil diubah ke 0.0.0.0", len(updates))
-	return nil
-}
-
-func jmapCall(client *http.Client, base, user, pass, method string, args any, cid string) error {
-	_, err := jmapCallRaw(client, base, user, pass, method, args, cid)
-	return err
-}
-
-func jmapCallRaw(client *http.Client, base, user, pass, method string, args any, cid string) (json.RawMessage, error) {
-	body := map[string]any{
-		"methodCalls": []any{[]any{method, args, cid}},
-		"using":       []string{"urn:ietf:params:jmap:core", "urn:stalwart:jmap"},
-	}
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest("POST", base+"/api", bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth(user, pass)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody[:min(len(respBody), 200)]))
-	}
-	var raw json.RawMessage
-	if err := json.Unmarshal(respBody, &raw); err != nil {
-		return nil, err
-	}
-	return raw, nil
-}
-
-// extractQueryIDs mengekstrak array ID dari response x:NetworkListener/query.
-// Response: {"methodResponses":[["x:NetworkListener/query",{"ids":[...],...},"c1"]]}
-func extractQueryIDs(raw json.RawMessage, ids *[]string) error {
-	var envelope struct {
-		MethodResponses []any `json:"methodResponses"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return err
-	}
-	for _, resp := range envelope.MethodResponses {
-		arr, ok := resp.([]any)
-		if !ok || len(arr) < 2 {
-			continue
-		}
-		args, ok := arr[1].(map[string]any)
-		if !ok {
-			continue
-		}
-		idList, ok := args["ids"].([]any)
-		if !ok {
-			continue
-		}
-		for _, v := range idList {
-			if s, ok := v.(string); ok {
-				*ids = append(*ids, s)
-			}
-		}
-	}
-	return nil
-}
-
-// extractGetList mengekstrak array objek dari response x:NetworkListener/get.
-// Response: {"methodResponses":[["x:NetworkListener/get",{"list":[{...},...],...},"c1"]]}
-func extractGetList(raw json.RawMessage) ([]map[string]any, error) {
-	var envelope struct {
-		MethodResponses []any `json:"methodResponses"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, err
-	}
-	for _, resp := range envelope.MethodResponses {
-		arr, ok := resp.([]any)
-		if !ok || len(arr) < 2 {
-			continue
-		}
-		args, ok := arr[1].(map[string]any)
-		if !ok {
-			continue
-		}
-		list, ok := args["list"].([]any)
-		if !ok {
-			continue
-		}
-		var result []map[string]any
-		for _, v := range list {
-			if obj, ok := v.(map[string]any); ok {
-				result = append(result, obj)
-			}
-		}
-		return result, nil
-	}
-	return nil, nil
-}
-
-// setBarisEnv menimpa baris `KUNCI=...` yang AKTIF di berkas env gaya shell.
-//
-// `nilai` kosong berarti baris itu dimatikan, dan isinya diganti komentar
-// TANPA nilainya: berkas ini 0640 dan bisa dibaca grup akun service, jadi
-// password yang sudah tidak berlaku tidak perlu tertinggal di sana.
-// Komentar milik admin (termasuk contoh `#STALWART_RECOVERY_ADMIN=...` tulisan
-// skrip installer) tidak pernah disentuh — hanya baris aktif yang cocok.
-//
-// Komentar penutup BUATAN PANEL (komentarTutupStalwart) dibuang saat barisnya
-// dipaku lagi: tanpa itu berkas berakhir dengan satu baris aktif dan satu
-// komentar yang saling bertentangan tentang kredensial yang sama.
-func setBarisEnv(isi, kunci, nilai string) string {
-	baris := strings.Split(strings.TrimRight(isi, "\n"), "\n")
-	ketemu := false
-	for i, b := range baris {
-		if nilai != "" && b == komentarTutupStalwart {
-			baris[i] = ""
-			continue
-		}
-		if !strings.HasPrefix(b, kunci+"=") {
-			continue
-		}
-		if ketemu {
-			// Duplikat dari baris yang baru saja diganti: dibuang, bukan
-			// dibiarkan menang di urutan berikutnya.
-			baris[i] = ""
-			continue
-		}
-		if nilai == "" {
-			baris[i] = komentarTutupStalwart
-		} else {
-			baris[i] = nilai
-		}
-		ketemu = true
-	}
-	if !ketemu {
-		if nilai == "" {
-			return isi
-		}
-		baris = append(baris, nilai)
-	}
-	return strings.Join(baris, "\n") + "\n"
-}
-
-// catatanStalwart mengembalikan kredensial bootstrap untuk ditampilkan di
-// halaman Components — bentuknya sengaja sama dengan catatan 9router. Kosong
-// begitu wizard selesai: sejak itu kredensial bootstrap tidak berlaku lagi,
-// dan menampilkannya hanya menyesatkan.
-func catatanStalwart() string { return catatanStalwartDi(jalurStalwartAsli) }
-
-func catatanStalwartDi(j jalurKredensialStalwart) string {
-	if _, err := os.Stat(j.Config); err == nil {
-		return ""
-	}
-	pass := passwordTersimpanDi(j.Pass)
-	if pass == "" {
-		return ""
-	}
-	// Password hanya berlaku kalau berkas env-nya masih memuat nilai itu —
-	// admin yang mengganti kredensialnya sendiri tidak boleh ditampilkan
-	// password lama yang sudah tidak dipakai.
-	isi, err := os.ReadFile(j.Env)
-	if err != nil || !strings.Contains(string(isi), kunciRecoveryStalwart+"="+stalwartAkunAdmin+":"+pass) {
-		return ""
-	}
-	return "Login awal: user `" + stalwartAkunAdmin + "`, password `" + pass +
-		"`. Buka http://<ip-mesin>:8080/admin untuk menyelesaikan wizard — setelah wizard selesai, kredensial ini tidak berlaku lagi."
 }

@@ -58,15 +58,15 @@ func TestKonflikPortMenolakPemilikLainDenganAlasan(t *testing.T) {
 		{Port: "443", Proto: "tcp"},
 	}}
 	terpakai := []portTerpakai{
-		{Port: "443", Proto: "tcp", Proses: "stalwart", PID: 321},
+		{Port: "443", Proto: "tcp", Proses: "nginx-mailcow", PID: 321},
 	}
 
 	err := cekKonflikPort(c, terpakai)
 	if err == nil {
-		t.Fatal("port 443 yang dipakai Stalwart seharusnya ditolak")
+		t.Fatal("port 443 yang dipakai mailcow seharusnya ditolak")
 	}
 	pesan := err.Error()
-	for _, fragmen := range []string{"nginx", "443/tcp", "stalwart", "321"} {
+	for _, fragmen := range []string{"nginx", "443/tcp", "nginx-mailcow", "321"} {
 		if !strings.Contains(strings.ToLower(pesan), strings.ToLower(fragmen)) {
 			t.Errorf("pesan konflik %q tidak memuat %q", pesan, fragmen)
 		}
@@ -85,7 +85,7 @@ func TestKonflikPortMengabaikanProtokolBerbeda(t *testing.T) {
 }
 
 func TestParsePortTerpakaiDariSS(t *testing.T) {
-	keluaran := `tcp LISTEN 0 4096 0.0.0.0:443 0.0.0.0:* users:(("stalwart",pid=321,fd=9))
+	keluaran := `tcp LISTEN 0 4096 0.0.0.0:443 0.0.0.0:* users:(("nginx-mailcow",pid=321,fd=9))
 ` +
 		`tcp LISTEN 0 4096 [::]:80 [::]:* users:(("nginx",pid=654,fd=7))
 ` +
@@ -95,7 +95,7 @@ func TestParsePortTerpakaiDariSS(t *testing.T) {
 	if len(dapat) != 3 {
 		t.Fatalf("jumlah listener = %d, harap 3: %#v", len(dapat), dapat)
 	}
-	if dapat[0] != (portTerpakai{Port: "443", Proto: "tcp", Proses: "stalwart", PID: 321}) {
+	if dapat[0] != (portTerpakai{Port: "443", Proto: "tcp", Proses: "nginx-mailcow", PID: 321}) {
 		t.Fatalf("listener pertama salah: %#v", dapat[0])
 	}
 	if dapat[1].Port != "80" || dapat[1].Proses != "nginx" {

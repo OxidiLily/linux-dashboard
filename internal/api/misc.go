@@ -752,6 +752,16 @@ func (s *Server) componentAction(w http.ResponseWriter, r *http.Request, cmd, la
 	name := chi.URLParam(r, "name")
 	var st helperproto.ComponentStatus
 	args := helperproto.ComponentArgs{Name: name, Purge: purge}
+	if name == "mailcow" && cmd == helperproto.CmdComponentInstall {
+		var body struct {
+			MailcowHostname string `json:"mailcow_hostname"`
+		}
+		if decodeBody(r, &body) != nil || !mailcowHostnameValid(body.MailcowHostname) {
+			writeErr(w, http.StatusBadRequest, "Hostname mailcow harus FQDN publik, tanpa protokol atau port.")
+			return
+		}
+		args.MailcowHostname = body.MailcowHostname
+	}
 	if err := s.helper.Call(cmd, sess.HelperToken, args, &st); err != nil {
 		writeHelperErr(w, err)
 		return

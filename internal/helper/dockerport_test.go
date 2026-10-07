@@ -450,7 +450,7 @@ func TestComposeSub(t *testing.T) {
 		{[]string{"up", "-d"}, "up"},
 		{[]string{"-f", "/a/b.yml", "down"}, "down"},
 		{[]string{"--file", "/a/b.yml", "--env-file", "/a/.env", "ps"}, "ps"},
-		{[]string{"-d", "up"}, "up"},
+		{[]string{"-p", "example", "up", "-d"}, "up"},
 		{[]string{"-f", "/a/b.yml"}, ""},
 	}
 	for _, k := range kasus {

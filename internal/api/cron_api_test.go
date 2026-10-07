@@ -56,6 +56,80 @@ func buatServerTTL(t *testing.T, tiruan *helperTiruan, jam int) (http.Handler, *
 	return srv.Routes(), st
 }
 
+func TestMailcowInstallHostname(t *testing.T) {
+	for _, hostname := range []string{"mail.example.org", "", "localhost", "127.0.0.1", "https://mail.example.org", "mail.example.org:8443", "mail.local", "example.org", "mail.example.lan"} {
+		t.Run(hostname, func(t *testing.T) {
+			h := &helperTiruan{balas: helperproto.ComponentStatus{Name: "mailcow", Installed: true}}
+			r, st := buatServerCron(t, h)
+			sess := buatSesi(t, st, "ani", true)
+			body, _ := json.Marshal(map[string]string{"mailcow_hostname": hostname})
+			req := httptest.NewRequest(http.MethodPost, "/api/components/mailcow/install", strings.NewReader(string(body)))
+			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: sess})
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if hostname != "mail.example.org" {
+				if w.Code != http.StatusBadRequest || len(h.riwayatOperasi()) != 0 {
+					t.Fatalf("invalid hostname: status %d, operations %v", w.Code, h.riwayatOperasi())
+				}
+				return
+			}
+			var args map[string]any
+			_ = json.Unmarshal(h.args, &args)
+			if w.Code != http.StatusOK || args["mailcow_hostname"] != hostname {
+				t.Fatalf("hostname not forwarded: status %d args %v", w.Code, args)
+			}
+		})
+	}
+}
+
+func TestMailcowOpenURL(t *testing.T) {
+	for _, webURL := range []string{"https://mail.example.org:8443/admin", "https://mail.example.org:9443/admin", "https://mail.example.org:1/admin", "https://mail.example.org:65535/admin", "https://mail.example.org/admin", "", "https://mail.example.org:0/admin", "https://mail.example.org:65536/admin", "https://mail.example.org:/admin", "http://mail.example.org:8080/admin", "https://localhost:8443/admin", "https://user:secret@mail.example.org:8443/admin", "https://mail.example.org:8443/admin?secret=x", "https://mail.example.org/admin?", "https://mail.example.org/admin#", "https://mail.example.org/admin#x", "https://mail.example.org/admin/"} {
+		t.Run(webURL, func(t *testing.T) {
+			h := &helperTiruan{balas: []map[string]any{{"name": "mailcow", "installed": true, "web_url": webURL}}, periksaToken: true, tokenSah: map[string]bool{"tok-ani": true}}
+			r, st := buatServerCron(t, h)
+			req := httptest.NewRequest(http.MethodGet, "/api/open-url/mailcow", nil)
+			req.Host = "panel.example.org:1122"
+			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: buatSesi(t, st, "ani", true)})
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if webURL == "https://mail.example.org:8443/admin" || webURL == "https://mail.example.org:9443/admin" || webURL == "https://mail.example.org:1/admin" || webURL == "https://mail.example.org:65535/admin" || webURL == "https://mail.example.org/admin" {
+				var out map[string]string
+				_ = json.Unmarshal(w.Body.Bytes(), &out)
+				if w.Code != 200 || out["url"] != webURL {
+					t.Fatalf("configured URL not returned: %d %s", w.Code, w.Body.String())
+				}
+			} else if w.Code != 404 {
+				t.Fatalf("unsafe/unconfigured URL returned: %d", w.Code)
+			}
+		})
+	}
+}
+
+func TestMailcowOpenURLSessionBoundary(t *testing.T) {
+	for _, cookie := range []string{"", "invalid"} {
+		h := &helperTiruan{}
+		router, _ := buatServerCron(t, h)
+		req := httptest.NewRequest(http.MethodGet, "/api/open-url/mailcow", nil)
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized || len(h.riwayatOperasi()) != 0 {
+			t.Fatalf("invalid session reached helper: %d %v", w.Code, h.riwayatOperasi())
+		}
+	}
+	h := &helperTiruan{}
+	router, _ := buatServerCron(t, h)
+	for _, name := range []string{"9router", "technitium-dns", "supabase"} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/open-url/"+name, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("public link compatibility %s: %d", name, w.Code)
+		}
+	}
+}
+
 func TestCronAPIButuhSesi(t *testing.T) {
 	r, _ := buatServerCron(t, &helperTiruan{})
 	// Tanpa cookie sesi: harus 401, dan helper tidak boleh dipanggil sama sekali.

@@ -50,24 +50,27 @@ class MigrationTest(unittest.TestCase):
 
     def test_trusted_files_moved_without_overwriting_target(self):
         self.file("9router-password")
-        self.file("stalwart-password")
+        self.file("retired-password")
         self.file("tailscale-authkey.mask")
         self.file("ponytail.terpasang", mode=0o644)
-        (self.new / "stalwart-password").write_bytes(b"newer")
+        (self.new / "9router-password").write_bytes(b"newer")
         self.migrate()
-        for name in ("9router-password", "tailscale-authkey.mask", "ponytail.terpasang"):
+        for name in ("tailscale-authkey.mask", "ponytail.terpasang"):
             self.assertFalse((self.old / name).exists(), name)
             self.assertEqual((self.new / name).read_bytes(), b"synthetic")
             self.assertEqual(stat.S_IMODE((self.new / name).stat().st_mode), 0o600)
-        self.assertEqual((self.new / "stalwart-password").read_bytes(), b"newer")
-        self.assertTrue((self.old / "stalwart-password").exists())
+        self.assertEqual((self.new / "9router-password").read_bytes(), b"newer")
+        self.assertTrue((self.old / "9router-password").exists())
+        self.assertFalse((self.new / "retired-password").exists())
+        self.assertTrue((self.old / "retired-password").exists())
+        self.assertEqual((self.old / "retired-password").read_bytes(), b"synthetic")
         self.migrate()  # idempotent
 
     def test_rejects_web_owned_loose_symlink_hardlink_and_untrusted_directory(self):
         owner = self.file("9router-password")
-        loose = self.file("stalwart-password", mode=0o666)
+        loose = self.file("ponytail.terpasang", mode=0o666)
         hard = self.file("tailscale-authkey.mask")
-        os.symlink("stalwart-password", self.old / "ponytail.terpasang")
+        os.symlink("retired-password", self.old / "decoy-symlink")
         os.link(hard, self.old / "decoy-hardlink")  # nlink=2 pada entri daftar-migrasi
         self.migrate((owner.stat().st_ino,))
         self.assertFalse((self.new / owner.name).exists())

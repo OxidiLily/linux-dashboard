@@ -258,7 +258,7 @@ func TestSinkronKomponenMencabutRuleLamaTanpaLabel(t *testing.T) {
 
 // ...tapi TIDAK kalau portnya sedang dipublikasikan container yang jalan: port
 // yang dideklarasikan komponen bisa juga dipakai layanan lain (443 milik
-// Stalwart vs reverse proxy di container), dan mencabutnya berarti menutup
+// mailcow vs reverse proxy di container), dan mencabutnya berarti menutup
 // layanan yang justru sedang melayani.
 func TestSinkronKomponenTidakMencabutRuleYangDipakaiContainer(t *testing.T) {
 	u := siapkanUjiKomponenPort(t)
