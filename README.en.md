@@ -1,9 +1,39 @@
+# Linux Server Dashboard
+
 [Bahasa Indonesia](README.md) · **English**
 
-# Linux Server Dashboard
-A Go + React panel for one Ubuntu/Debian server: homelab, NAS, or small server.
+## Tech Stack
 
-## Panel features
+- Backend: Go, chi, WebSocket, PAM (cgo), gopsutil, SQLite.
+- Frontend: React 18, TypeScript, Vite, Tailwind CSS, Zustand, xterm.js.
+- System: systemd; separate root helper and non-root web process over Unix socket + HMAC.
+
+## Requirements
+
+- Ubuntu/Debian with systemd; targets amd64/arm64/armhf.
+- Installation requires root/sudo and network access for dependencies; admin actions require root or `sudo`/`admin` membership.
+- Build: Go 1.26.6+, Node.js 24.15+ or >=26, `make`, a C compiler, `libpam0g-dev`.
+- Server-side builds can be memory-intensive; optional services have separate resource/hardware requirements. No guarantee of fitting in 1 GB RAM.
+
+## Description
+
+A browser panel for **one server**: homelab, NAS, or small server.
+Existing Linux accounts, responsive ID/EN UI, components installed as needed.
+Terminal/AI sessions survive page changes, not browser reloads.
+Under development; not a multi-server manager or backup replacement.
+
+## Installation
+
+The installer adds dependencies/systemd units and enables UFW/fail2ban without resetting existing rules.
+
+```bash
+cd / && curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
+```
+
+Open `http://<server-IP>:1122`, use a Linux account. Repeat the command to upgrade to `main`.
+New installations use HTTP; enable HTTPS before public access. Existing configuration is preserved.
+
+## Features
 
 | Page | Capabilities |
 |---|---|
@@ -22,44 +52,59 @@ A Go + React panel for one Ubuntu/Debian server: homelab, NAS, or small server.
 | Account | Account/password settings, TOTP/recovery codes, language/time zone. |
 | Components/Updates | Software installation/removal, job progress, panel/AI tool updates; official Supabase/mailcow stacks. |
 
-## Strengths
+Panel updates ignore README/root Markdown and `docs/`; code, dependencies, installer,
+and runtime assets still trigger updates. Fetch/comparison failures retain a conservative status.
 
-- Integrated responsive ID/EN UI; existing Linux accounts through PAM.
-- Files/terminals follow account permissions. Non-root web process, separate root helper over Unix socket + HMAC; admin actions require root or `sudo`/`admin` membership.
-- Install components as needed; existing software is detected, pages guarded when dependencies are missing.
-- Terminal/AI sessions survive page changes, not browser reloads.
+## Configuration
 
-## Weaknesses
-Under development, not multi-server. Depends on Linux tooling/hardware;
-builds and extra services need resources/setup. The panel does not replace backups.
-Default HTTP exposes passwords/OTPs/sessions: enable HTTPS before public access.
-Docker is root-equivalent; formatting/purging destroys data; UFW INPUT does not protect Docker ports.
-GeoIP sends public banned IPs to ipwho.is. New mailcow exposes :8080/:8443;
-initial HTTPS is self-signed: change admin password, enable 2FA, configure firewall/mail TLS.
+Service config: `/etc/default/linux-dashboard`. Units: `linux-dashboard-web.service`, `linux-dashboard-helper.service`.
 
-## Installation
-```bash
-cd / && curl -fsSL https://raw.githubusercontent.com/OxidiLily/linux-dashboard/main/deploy/install.sh | sudo bash
+| Variable | Purpose |
+|---|---|
+| `DASHBOARD_LISTEN` | Application bind; code default `127.0.0.1:8080`, installer `0.0.0.0:1122`. |
+| `DASHBOARD_ALLOW_PLAINTEXT` | Allow non-loopback HTTP; enabled for new installations. |
+| `DASHBOARD_TLS_CERT` / `DASHBOARD_TLS_KEY` | Native TLS pair; still enables TLS when configured even if plaintext is allowed. |
+| `DASHBOARD_SECURE_COOKIE` | Set `true` for HTTPS browser access through a reverse proxy; native TLS forces `true`. |
+| `DASHBOARD_SESSION_TTL_HOURS` | Session lifetime; default 12 hours. |
+
+For an HTTPS reverse proxy, keep an HTTP panel upstream on `http`; clear native cert/key when selecting an HTTP upstream.
+Web state: `/var/lib/linux-dashboard`; helper: `/var/lib/linux-dashboard-helper`;
+per-account AI state: `~/DATA/AppData/linux-dashboard`.
+Supabase: restrict DB ports 5432/6543; applying `.env` changes needs **Up**, not Restart.
+AI requires logins/providers; Hermes/OpenClaw can use 9router when an active key exists.
+
+## Project Structure
+
+```text
+cmd/server/             web entry point
+cmd/helper/             helper entry point
+internal/api/           REST API and WebSocket
+internal/helper/        privileged operations
+internal/helperproto/   RPC contract
+internal/helperclient/  helper client
+internal/config/        environment configuration
+internal/metrics/       system collector
+internal/store/         SQLite
+internal/terminal/      terminal sessions
+internal/totp/          two-factor authentication
+web/ui/                 React frontend
+web/embed.go            embedded UI build
+deploy/                 installer, systemd units, migrations
 ```
-Open `http://<server-IP>:1122`; use a Linux account. Restrict access to trusted networks.
 
-## Operations & development
+Build/check: `make build`, `make test`, `make lint`,
+`python3 -B -m unittest discover -s deploy -p 'test_*.py'`.
+UI changes need rebuilding/deployment to go live; tests may skip without root/packages/hardware.
 
-- Panel updates compare file changes, not only commit SHA: README/root Markdown and `docs/` do not trigger updates; code, dependencies, installer and runtime assets still do. Fetch/comparison failures retain a conservative status.
-- Config: `/etc/default/linux-dashboard`; units `linux-dashboard-web.service` and `linux-dashboard-helper.service`.
-- HTTPS reverse proxy: keep the HTTP panel upstream on `http`; set `DASHBOARD_SECURE_COOKIE=true`. Existing native cert/key pairs still enable TLS.
-- Supabase declares ports 8000/5432/6543 for firewall rules; restrict DB access. Applying `.env` changes needs **Up**, not Restart.
-- mailcow requires a mail FQDN/DNS and resources matching [upstream](https://docs.mailcow.email/getstarted/prerequisite-system/); LXC/OpenVZ are unsupported upstream.
-- AI needs appropriate logins/providers; Hermes/OpenClaw can bootstrap to 9router when an active key exists. Per-account state: `~/DATA/AppData/linux-dashboard`.
-- Build: Go 1.26.6+, Node.js 24.15+ or >=26, a C compiler, `make`, `libpam0g-dev`. Embedded UI changes require rebuilding/deployment to go live.
+## Security
 
-```bash
-make build
-make test
-make lint
-python3 -B -m unittest discover -s deploy -p 'test_*.py'
-```
+- HTTP does not encrypt passwords, OTPs, or sessions. Restrict access to trusted networks; enable HTTPS before public access.
+- Files/terminals follow account permissions; Docker is root-equivalent. Formatting/purging/data uninstall modes can destroy data: back up first.
+- UFW INPUT does not automatically protect Docker published ports; configure forwarding firewall rules.
+- TOTP/recovery codes are available; privilege separation does not guarantee freedom from bugs or attacks.
+- GeoIP sends public banned IPs to `https://ipwho.is/`; flags may load from `https://cdn.ipwhois.io`. Location is an estimate.
+- New mailcow exposes HTTP :8080/HTTPS :8443 on all interfaces, initially using self-signed HTTPS. Change the admin password, enable 2FA, configure firewall/SMTP/IMAP TLS before public access. FQDN/DNS and resources follow [upstream](https://docs.mailcow.email/getstarted/prerequisite-system/); LXC/OpenVZ are unsupported upstream.
 
-Some tests skip without root/packages/hardware; local gates do not prove deployment/E2E.
+## License
 
-[MIT](LICENSE) — `Copyright (c) 2026 OxidiLily`; retain the license notice.
+[MIT](LICENSE) — `Copyright (c) 2026 OxidiLily`; retain attribution and the license notice.
