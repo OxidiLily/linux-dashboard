@@ -2,9 +2,11 @@ package helper
 
 import (
 	_ "embed"
+	"encoding/hex"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"linux-dashboard/OxidiLily/internal/helperproto"
 )
@@ -95,15 +97,55 @@ func updateStatus(args helperproto.UpdateArgs) helperproto.UpdateStatus {
 				// lain lewat `make install`): versi terpasang tidak bisa
 				// dibandingkan, jadi dianggap tertinggal — pembaruan sekali
 				// jalan justru yang membuat checkout-nya ada.
-				st.Tertinggal = lokalSha == "" || !strings.HasPrefix(f[0], lokalSha[:7])
+				st.Tertinggal = lokalSha != f[0]
+				_, shaErr := hex.DecodeString(f[0])
+				if st.Tertinggal && shaErr == nil && (len(f[0]) == 40 || len(f[0]) == 64) {
+					changed, fetched := updateTreeChanged(lokalSha, f[0])
+					st.Tertinggal = changed
+					if fetched {
+						if st.Tertinggal && args.Rinci {
+							st.Perubahan, st.PerubahanPasti = daftarPerubahan(lokalSha, f[0])
+							st.Jarak = len(st.Perubahan)
+						}
+					}
+				}
 			}
-		}
-		if st.Tertinggal && args.Rinci {
-			st.Perubahan, st.PerubahanPasti = daftarPerubahan(lokalSha)
-			st.Jarak = len(st.Perubahan)
 		}
 	}
 	return st
+}
+
+// ponytail: simpan satu pasangan SHA terakhir; perluas hanya jika banyak checkout.
+var updateTreeCache struct {
+	sync.Mutex
+	local, remote string
+	changed       bool
+}
+
+// Serialisasi fetch mencegah bentrok shallow.lock; hanya diff sukses disimpan.
+func updateTreeChanged(local, remote string) (changed, fetched bool) {
+	updateTreeCache.Lock()
+	defer updateTreeCache.Unlock()
+	if local != "" && updateTreeCache.local == local && updateTreeCache.remote == remote {
+		return updateTreeCache.changed, true
+	}
+	if _, err := run("git", "-C", updateSrc, "fetch", "--quiet",
+		"--depth", strconv.Itoa(jendelaPerubahan), updateRepo, remote); err != nil {
+		return true, false
+	}
+	if local == "" {
+		return true, true
+	}
+	// Tree depth=1 lengkap. Hanya Markdown root dan docs/ yang inert.
+	res, err := run("git", "-C", updateSrc, "diff", "--name-only", "-z",
+		"--no-renames", local, remote, "--", ".",
+		":(top,glob,exclude)*.md", ":(top,exclude)docs")
+	if err != nil {
+		return true, true
+	}
+	updateTreeCache.local, updateTreeCache.remote = local, remote
+	updateTreeCache.changed = res.Stdout != ""
+	return updateTreeCache.changed, true
 }
 
 // Jumlah commit remote yang ditarik untuk daftar "apa yang akan dipasang".
@@ -126,13 +168,9 @@ const jendelaPerubahan = 20
 // promisor, dan sejak itu operasi git biasa di checkout produksi bisa diam-diam
 // butuh jaringan. Beberapa ratus KB per pembukaan modal lebih murah daripada
 // checkout yang tidak bisa dipakai saat GitHub tidak terjangkau.
-func daftarPerubahan(lokalSha string) ([]string, bool) {
-	if _, err := run("git", "-C", updateSrc, "fetch", "--quiet",
-		"--depth", strconv.Itoa(jendelaPerubahan), updateRepo, updateCabang); err != nil {
-		return nil, false
-	}
+func daftarPerubahan(lokalSha, remoteSha string) ([]string, bool) {
 	res, err := run("git", "-C", updateSrc, "log",
-		"--format=%h %s", "-n", strconv.Itoa(jendelaPerubahan), "FETCH_HEAD")
+		"--format=%h %s", "-n", strconv.Itoa(jendelaPerubahan), remoteSha, "--")
 	if err != nil {
 		return nil, false
 	}
