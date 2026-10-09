@@ -2,6 +2,8 @@
 
 **Bahasa Indonesia** · [English](README.en.md)
 
+> **Disclaimer:** Proyek ini masih dalam tahap pengembangan. Mohon maaf jika masih terdapat banyak bug pada beberapa perangkat.
+
 ## Tech Stack
 
 - Backend: Go, chi, WebSocket, PAM (cgo), gopsutil, SQLite.
