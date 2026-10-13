@@ -22,6 +22,7 @@ const cspApp = "default-src 'self'; " +
 	"font-src 'self' data:; " +
 	"connect-src 'self' ws: wss:; " +
 	"media-src 'self' blob:; " +
+	"frame-src 'self' http://100.89.81.126:20128; " +
 	"object-src 'none'; " +
 	"base-uri 'none'; " +
 	"form-action 'none'; " +

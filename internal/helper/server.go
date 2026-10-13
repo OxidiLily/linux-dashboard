@@ -829,6 +829,14 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 
 	case helperproto.CmdProxyList:
 		return jsonOf(proxyPanelList())
+	case helperproto.CmdPostfixRead:
+		return jsonOf(postfixRead())
+	case helperproto.CmdPostfixSave:
+		args, err := decodeArgs[helperproto.PostfixConfig](req)
+		if err != nil {
+			return nil, err
+		}
+		return jsonOf(postfixSave(args))
 	case helperproto.CmdProxySave:
 		args, err := decodeArgs[helperproto.ProxyHost](req)
 		if err != nil {

@@ -154,13 +154,16 @@ install_build_deps() {
   # npm 9 yang kena bug optional dependency npm (npm/cli#4828) sehingga binding
   # native @tailwindcss/oxide tidak ikut terpasang dan `vite build` gagal.
   # Paket `npm` distro juga menyeret ~200 paket node-* yang tidak terpakai.
-  local node_major
-  node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-  if (( node_major < 20 )); then
-    log "Node ${node_major} terlalu lawas → memasang Node ${NODE_MAJOR} dari NodeSource…"
+  # npm 12 memerlukan Node ^22.22.2 || ^24.15.0 || >=26.0.0.
+  # Gunakan Node 24 LTS minimum; pertahankan Node yang lebih baru.
+  local node_check='const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major >= 26 || (major === 24 && minor >= 15) ? 0 : 1)'
+  if ! node -e "$node_check" 2>/dev/null || ! command -v npm >/dev/null; then
+    [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] && (( NODE_MAJOR >= 24 )) || die "NODE_MAJOR harus >=24 untuk toolchain UI terbaru."
+    log "Memasang Node ${NODE_MAJOR} dari NodeSource (minimum 24.15.0)…"
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
     apt-get install -y -qq nodejs
   fi
+  node -e "$node_check" || die "Node yang aktif belum memenuhi minimum 24.15.0 atau >=26; periksa PATH."
 }
 
 if [[ -z "$REPO_ROOT" ]]; then
@@ -213,7 +216,7 @@ done
 # BIN_SRC yang diberikan user sengaja dikecualikan: itu berarti binary-nya
 # dibangun di tempat lain, dan sumber di sini tidak menggambarkannya.
 if (( ! need_build )) && [[ -z "$BIN_SRC_DIBERIKAN" ]]; then
-  if [[ -n "$(find cmd internal web/ui/src go.mod go.sum Makefile \
+  if [[ -n "$(find cmd internal web/ui/src web/ui/package.json web/ui/package-lock.json web/ui/vite.config.ts go.mod go.sum Makefile \
       -newer "${BIN_SRC}/linux-dashboard-helper" -print -quit 2>/dev/null)" ]]; then
     log "Sumber lebih baru daripada binary di ${BIN_SRC}/ — build ulang"
     need_build=1
@@ -251,7 +254,7 @@ pastikan_npm() {
   if npm install -g "npm@${terbaru}" >/dev/null 2>&1; then
     ok "npm diperbarui ke $(npm --version)"
   else
-    echo "[⚠] Gagal memperbarui npm — build tetap dilanjutkan dengan ${sekarang}." >&2
+    die "Gagal memperbarui npm ${sekarang} ke ${terbaru}; periksa kompatibilitas Node dan akses registry."
   fi
 }
 
@@ -261,9 +264,7 @@ if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" && -d web/ui/node_modules 
   chown -R "${SUDO_USER}" web/ui/node_modules
 fi
 if (( need_build )); then
-  if ! command -v go >/dev/null || ! command -v npm >/dev/null; then
-    install_build_deps
-  fi
+  install_build_deps
   pastikan_npm
   log "Build UI + dua binary (beberapa menit di mesin kecil)…"
   export GOTOOLCHAIN=auto

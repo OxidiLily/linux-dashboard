@@ -12,6 +12,9 @@ jalankan() { # $1 = nama berkas entry di scripts/
   node "node_modules/.cek-$nama/$nama.js"
 }
 
+python3 scripts/cek-sidebar.py
+jalankan cek-nine-router.ts
+jalankan cek-postfix.ts
 jalankan cek-runtime.ts
 jalankan cek-files-context.ts
 jalankan cek-fail2ban.ts

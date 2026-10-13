@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "bash scripts/cek-runtime.sh",
-    "audit": "npm audit --omit=dev --audit-level=high || true",
+    "audit": "npm audit --audit-level=high",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -35,10 +35,10 @@
     "@types/node": "^22.13.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.1.2",
     "tailwindcss": "^4.0.0",
     "typescript": "~5.7.2",
-    "vite": "^6.0.11"
+    "vite": "^8.3.3"
   },
   "allowScripts": {
     "esbuild@0.25.12": true
