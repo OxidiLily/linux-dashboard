@@ -36,10 +36,12 @@ export function ComponentGuard({
   name,
   label,
   children,
+  strict = false,
 }: {
   name: string
   label: string
   children: React.ReactNode
+  strict?: boolean
 }) {
   const tr = useTr()
   const [status, setStatus] = useState<ComponentStatus | null>(null)
@@ -55,7 +57,7 @@ export function ComponentGuard({
   }, [name])
 
   if (!siap) return null
-  if (status && !status.installed) {
+  if ((status && !status.installed) || (strict && !status?.installed)) {
     const nama = tr(label)
     return (
       <Panel title={nama} hint={tr("Belum Terpasang")}>
@@ -66,7 +68,7 @@ export function ComponentGuard({
           <div>
             <p className="text-sm font-semibold">{trf("{0} belum terpasang", nama)}</p>
             <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-              {status.description ?? trf("Halaman ini butuh {0} terpasang di sistem.", name)}
+              {status?.description ?? trf("Halaman ini butuh {0} terpasang di sistem.", name)}
             </p>
           </div>
           <Button asChild size="sm">

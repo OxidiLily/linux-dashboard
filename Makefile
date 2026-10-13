@@ -16,15 +16,7 @@ all: build
 # (pastikan_npm di deploy/install.sh), bukan oleh pesan di log.
 ui: export NPM_CONFIG_UPDATE_NOTIFIER=false
 ui:
-	cd $(UI) && npm ci && npm run build
-	@# Audit setelah build: moderate dibiarkan lewat (hanya noise), high/critical
-	@# ditandai [vuln] di log supaya jelas di modal Update tanpa membatalkan build.
-	@audit_log="$$(mktemp)"; trap 'rm -f "$$audit_log"' EXIT; \
-	if cd $(UI) && ! npm audit --omit=dev --audit-level=high >"$$audit_log" 2>&1; then \
-		echo "[vuln] Vulnerability high+ terdeteksi:"; \
-		cat "$$audit_log"; \
-		echo "[vuln] Jalankan 'cd web/ui && npm audit fix' (atau --force untuk major bump)."; \
-	fi
+	cd $(UI) && npm ci && npm run audit && npm run build
 
 # ponytail: anggaran per proses, bukan batas RSS; build lebih lambat demi VPS 1 GB.
 # Paket SQLite generated besar; batasi compiler tanpa mematikan optimasi runtime.
@@ -52,6 +44,7 @@ internal/helper/embed/headroom.service: deploy/headroom.service
 build: ui server helper
 
 test:
+	python3 -B -m unittest deploy/test_postfix.py
 	python3 -B -m unittest deploy/test_build_memory.py
 	go test ./...
 	python3 -B -m unittest discover -s internal/helper -p 'test_grounded_search.py'

@@ -47,6 +47,7 @@ const UpdatesView = rute("/updates", "UpdatesView")
 const ProxyManagerView = rute("/settings/proxy", "ProxyManagerView")
 const PrintServerView = rute("/settings/print", "PrintServerView")
 const AIAgentView = rute("/ai/agent", "AIAgentView")
+const NineRouterView = rute("/ai/9router", "NineRouterView")
 const ProcessesView = rute("/system/processes", "ProcessesView")
 const DockerView = rute("/system/docker", "DockerView")
 const CronView = rute("/system/cron", "CronView")
@@ -146,6 +147,8 @@ export const router = createBrowserRouter([
       { path: "settings/proxy", element: <Dijaga name="nginx" label="Proxy manager"><ProxyManagerView /></Dijaga> },
       { path: "settings/print", element: <Dijaga name="print-server" label="CUPS"><PrintServerView /></Dijaga> },
       { path: "ai/agent", element: <Lazy><AIAgentView /></Lazy> },
+      { path: "ai/9router", element: <Lazy><NineRouterView /></Lazy> },
+      { path: "settings/speedtest", element: null },
       { path: "system/processes", element: <Lazy><ProcessesView /></Lazy> },
       { path: "system/docker", element: <Dijaga name="docker" label="Docker"><DockerView /></Dijaga> },
       // Cronjob TIDAK dijaga ComponentGuard: crontab tetap bisa dibaca dan

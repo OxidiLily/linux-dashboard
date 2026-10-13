@@ -162,6 +162,15 @@ const (
 )
 
 var components = map[string]*component{
+	"postfix": {
+		Name: "postfix", Label: "Postfix", Binary: "postfix", Service: "postfix", Category: katEmail,
+		RequiredFor: "Settings → Proxy manager (Proxy Mail)", KelolaDi: "Settings → Proxy manager (Proxy Mail)",
+		Description: "Proxy Mail memakai Postfix untuk meneruskan email ke server tujuan. Port SMTP 25 harus tersedia; transport map dikelola di luar panel.",
+		install:     func() error { return aptInstall("postfix") },
+		uninstall:   func() error { return aptRemove("postfix") },
+		version:     func() string { return strings.TrimSpace(tryRun("postconf", "-h", "mail_version")) },
+		ports:       []portKomponen{{"25", "tcp", "SMTP"}},
+	},
 	"nginx": &component{
 		Name: "nginx", Binary: "nginx", Service: "nginx",
 		Category: katRuntime, RequiredFor: "Settings → Proxy manager",
@@ -460,7 +469,7 @@ func ComponentNames() []string {
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
 		"rtk", "graphify", "ponytail", "browser-use",
 		"supabase",
-		"samba", "nfs-server", "nfs-client", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs", "mailcow",
+		"samba", "nfs-server", "nfs-client", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs", "mailcow", "postfix",
 		"ufw", "fail2ban",
 		"lm-sensors", "smartmontools", "nvme-cli", "qemu-guest-agent",
 		"htop", "ncdu", "fastfetch", "restic",
@@ -871,7 +880,7 @@ func installComponent(name string, u *userInfo, hostname ...string) (helperproto
 		return componentStatus(name), nil
 	}
 	// nginx harus menguasai 80/443; tolak konflik sebelum apt mengubah sistem.
-	if name == "nginx" {
+	if name == "nginx" || name == "postfix" {
 		if err := preflightKonflikPort(c); err != nil {
 			return helperproto.ComponentStatus{}, err
 		}

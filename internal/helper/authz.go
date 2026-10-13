@@ -141,6 +141,8 @@ var sudoRequired = map[string]bool{
 	helperproto.CmdComponentService:            true,
 	helperproto.CmdComponentProgress:           true,
 	helperproto.CmdProxyList:                   true,
+	helperproto.CmdPostfixRead:                 true,
+	helperproto.CmdPostfixSave:                 true,
 	helperproto.CmdProxySave:                   true,
 	helperproto.CmdProxyDelete:                 true,
 	helperproto.CmdProxyTest:                   true,

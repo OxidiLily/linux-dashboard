@@ -1,0 +1,248 @@
+package helper
+
+import (
+	"errors"
+	"linux-dashboard/OxidiLily/internal/helperproto"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func postfixDurableValues() map[string]string {
+	v := map[string]string{}
+	for k, s := range postfixDefaults {
+		v[k] = s
+	}
+	return v
+}
+func TestPostfixDurableValidation(t *testing.T) {
+	if e := validatePostfix(postfixDurableValues()); e != nil {
+		t.Fatal(e)
+	}
+	for k, bad := range map[string]string{"myhostname": "x\nrelayhost=evil", "mydestination": "$myhostname", "relay_domains": "-bad.com", "inet_interfaces": "eth0;id", "inet_protocols": "ipv4\n", "mynetworks": "0.0.0.0/0", "transport_maps": "hash:/tmp/evil", "smtpd_relay_restrictions": "permit"} {
+		v := postfixDurableValues()
+		v[k] = bad
+		if validatePostfix(v) == nil {
+			t.Fatalf("accepted %s", k)
+		}
+	}
+	v := postfixDurableValues()
+	v["mynetworks"] = "[[::1]]/128"
+	if validatePostfix(v) == nil {
+		t.Fatal("malformed brackets accepted")
+	}
+	if !sudoRequired[helperproto.CmdPostfixRead] || !sudoRequired[helperproto.CmdPostfixSave] {
+		t.Fatal("missing sudo")
+	}
+}
+func TestPostfixDurableRealPostmap(t *testing.T) {
+	if _, e := exec.LookPath("postmap"); e != nil {
+		t.Skip("postmap unavailable")
+	}
+	path := filepath.Join(t.TempDir(), "transport")
+	b, _, e := renderPostfixRoutes([]helperproto.PostfixRoute{{Domain: "example.com", Host: "fd00::1", Port: 2525}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(path, b, 0600); e != nil {
+		t.Fatal(e)
+	}
+	if out, e := exec.Command("postmap", "hash:"+path).CombinedOutput(); e != nil {
+		t.Fatal(e, string(out))
+	}
+	out, e := exec.Command("postmap", "-q", "example.com", "hash:"+path).CombinedOutput()
+	if e != nil || strings.TrimSpace(string(out)) != "smtp:[ipv6:fd00::1]:2525" {
+		t.Fatal(e, string(out))
+	}
+}
+func TestPostfixDurableRoutes(t *testing.T) {
+	for _, host := range []string{"100.80.10.3", "localhost", "mail.internal", "fd00::1", "::ffff:192.0.2.1"} {
+		r := []helperproto.PostfixRoute{{Domain: "example.com", Host: host, Port: 2525}}
+		b, d, e := renderPostfixRoutes(r)
+		literal := host
+		if strings.Contains(host, ":") {
+			literal = "ipv6:" + host
+		}
+		if e != nil || d != "example.com" || string(b) != "example.com smtp:["+literal+"]:2525\n" {
+			t.Fatal(e, string(b))
+		}
+		out, e := parsePostfixRoutes(b)
+		if e != nil || len(out) != 1 || out[0] != r[0] {
+			t.Fatal(e, out)
+		}
+	}
+	for _, bad := range []string{"ipv6:127.0.0.1", "ipv6:localhost", "ipv6:fd00::xyz", "ipv6:ipv6:fd00::1"} {
+		if _, e := parsePostfixRoutes([]byte("example.com smtp:[" + bad + "]:25\n")); e == nil {
+			t.Fatal("invalid IPv6 accepted", bad)
+		}
+	}
+	for _, host := range []string{"x\nexample.net smtp:[evil]:25", "[::1]", "host:25", "-x", "$host", "a b", "x;id", "https://mail.example.com"} {
+		if _, _, e := renderPostfixRoutes([]helperproto.PostfixRoute{{Domain: "example.com", Host: host, Port: 25}}); e == nil {
+			t.Fatal("accepted", host)
+		}
+	}
+	for _, domain := range []string{"*", ".example.com", "x\nevil.com", "x,$domain"} {
+		if _, _, e := renderPostfixRoutes([]helperproto.PostfixRoute{{Domain: domain, Host: "localhost", Port: 25}}); e == nil {
+			t.Fatal("accepted", domain)
+		}
+	}
+	for _, port := range []int{0, -1, 65536} {
+		if _, _, e := renderPostfixRoutes([]helperproto.PostfixRoute{{Domain: "example.com", Host: "localhost", Port: port}}); e == nil {
+			t.Fatal("accepted", port)
+		}
+	}
+	if _, _, e := renderPostfixRoutes([]helperproto.PostfixRoute{{Domain: "example.com", Host: "localhost", Port: 25}, {Domain: "EXAMPLE.com", Host: "localhost", Port: 25}}); e == nil {
+		t.Fatal("duplicate accepted")
+	}
+}
+func TestPostfixDurablePreservation(t *testing.T) {
+	old := "# keep\nrelayhost = untouched\n  continuation\nmyhostname = old\n  old-continuation\nmyhostname = duplicate\n"
+	got := string(renderPostfix([]byte(old), postfixDurableValues()))
+	if !strings.Contains(got, "# keep\nrelayhost = untouched\n  continuation\n") || strings.Contains(got, "old-continuation") || strings.Count(got, "myhostname =") != 1 {
+		t.Fatal(got)
+	}
+}
+func TestPostfixDurableTransaction(t *testing.T) {
+	for _, failure := range []string{"", "postmap", "query", "mismatch", "missing-db", "symlink-db", "hardlink-db", "check", "restart", "read", "absent-postmap", "absent-check", "absent-restart"} {
+		t.Run(failure, func(t *testing.T) {
+			oldPath, oldTransport, oldRun := postfixPath, postfixTransport, postfixRun
+			defer func() { postfixPath, postfixTransport, postfixRun = oldPath, oldTransport, oldRun }()
+			postfixPath = filepath.Join(t.TempDir(), "main.cf")
+			postfixTransport = filepath.Join(t.TempDir(), "transport")
+			original := []byte("# keep\nrelayhost = untouched\n")
+			if e := os.WriteFile(postfixPath, original, 0640); e != nil {
+				t.Fatal(e)
+			}
+			os.WriteFile(postfixTransport, []byte("old source"), 0640)
+			os.WriteFile(postfixTransport+".db", []byte("old db"), 0600)
+			absent := strings.HasPrefix(failure, "absent-")
+			if absent {
+				os.Remove(postfixTransport)
+				os.Remove(postfixTransport + ".db")
+			}
+			failAt := strings.TrimPrefix(failure, "absent-")
+			files, _ := snapshotPostfixFiles()
+			calls := []string{}
+			failed := false
+			postfixRun = func(name string, args ...string) (helperproto.ExecResult, error) {
+				call := name + " " + strings.Join(args, " ")
+				calls = append(calls, call)
+				if !failed && ((failAt == "postmap" && name == "postmap") || (failAt == "check" && call == "postfix check") || (failAt == "restart" && call == "systemctl restart postfix")) {
+					failed = true
+					return helperproto.ExecResult{}, errors.New("test failure")
+				}
+				if name == "postmap" {
+					source, _ := os.ReadFile(postfixTransport)
+					active, _ := os.ReadFile(postfixTransport + ".db")
+					if !absent && (string(source) != "old source" || string(active) != "old db") {
+						t.Fatal("active map changed before validation")
+					}
+					staged := strings.TrimPrefix(args[len(args)-1], "hash:")
+					if staged == postfixTransport || filepath.Dir(staged) == filepath.Dir(postfixTransport) {
+						t.Fatal("not private staging", staged)
+					}
+					dir, _ := os.Stat(filepath.Dir(staged))
+					if dir.Mode().Perm() != 0700 {
+						t.Fatal("unsafe staging mode")
+					}
+					if len(args) == 1 {
+						switch failAt {
+						case "missing-db":
+							return helperproto.ExecResult{}, nil
+						case "symlink-db":
+							os.Symlink(postfixPath, staged+".db")
+						case "hardlink-db":
+							os.Link(postfixPath, staged+".db")
+						default:
+							os.WriteFile(staged+".db", []byte("new db"), 0600)
+						}
+					} else {
+						if failAt == "query" {
+							return helperproto.ExecResult{}, errors.New("query failure")
+						}
+						if failAt == "mismatch" {
+							return helperproto.ExecResult{Stdout: "wrong"}, nil
+						}
+						return helperproto.ExecResult{Stdout: "smtp:[100.80.10.3]:2525"}, nil
+					}
+				}
+				if name == "postconf" {
+					if failAt == "read" && !failed {
+						failed = true
+						return helperproto.ExecResult{}, errors.New("read failure")
+					}
+					return helperproto.ExecResult{Stdout: postfixDefaults[args[1]]}, nil
+				}
+				return helperproto.ExecResult{}, nil
+			}
+			in := helperproto.PostfixConfig{Values: postfixDurableValues(), Routes: []helperproto.PostfixRoute{{Domain: "example.com", Host: "100.80.10.3", Port: 2525}}, Revision: postfixFilesRevision(files), Restart: true}
+			stale := in
+			stale.Revision = "stale"
+			if _, e := postfixSave(stale); e == nil || len(calls) != 0 {
+				t.Fatal("stale accepted")
+			}
+			unconfirmed := in
+			unconfirmed.Restart = false
+			if _, e := postfixSave(unconfirmed); e == nil {
+				t.Fatal("restart not confirmed")
+			}
+			_, e := postfixSave(in)
+			b, _ := os.ReadFile(postfixPath)
+			if failure != "" {
+				if e == nil || string(b) != string(original) {
+					t.Fatalf("rollback err=%v content=%s", e, b)
+				}
+			} else if e != nil || !strings.Contains(string(b), "relayhost = untouched") {
+				t.Fatal(e, string(b))
+			}
+			backup, _ := os.ReadFile(postfixPath + ".linux-dashboard.bak")
+			published := failAt == "" || failAt == "check" || failAt == "restart" || failAt == "read"
+			if published && string(backup) != string(original) {
+				t.Fatal("backup differs")
+			}
+			source, _ := os.ReadFile(postfixTransport)
+			db, _ := os.ReadFile(postfixTransport + ".db")
+			if failure != "" && !absent && (string(source) != "old source" || string(db) != "old db") {
+				t.Fatal("transport rollback failed")
+			}
+			if absent {
+				if _, e := os.Lstat(postfixTransport); !os.IsNotExist(e) {
+					t.Fatal("source was not removed")
+				}
+				if _, e := os.Lstat(postfixTransport + ".db"); !os.IsNotExist(e) {
+					t.Fatal("db was not removed")
+				}
+			}
+			if failure == "" && string(source) != "example.com smtp:[100.80.10.3]:2525\n" {
+				t.Fatal(string(source))
+			}
+			leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(postfixTransport), ".linux-dashboard-postfix-*"))
+			if len(leftovers) != 0 {
+				t.Fatal("staging leaked", leftovers)
+			}
+			if failAt == "check" && strings.Count(strings.Join(calls, ";"), "systemctl restart postfix") != 1 {
+				t.Fatal("check rollback runtime not restored", calls)
+			}
+			if !published && strings.Contains(strings.Join(calls, ";"), "systemctl") {
+				t.Fatal("runtime touched before publication", calls)
+			}
+			if !absent {
+				for path, mode := range map[string]os.FileMode{postfixTransport: 0640, postfixTransport + ".db": 0600} {
+					info, err := os.Stat(path)
+					if err != nil || info.Mode().Perm() != mode {
+						t.Fatal("map mode lost", path, err)
+					}
+				}
+			}
+			st, _ := os.Stat(postfixPath)
+			if st.Mode().Perm() != 0640 {
+				t.Fatal("mode lost")
+			}
+			if (failAt == "restart" || failAt == "read") && strings.Count(strings.Join(calls, ";"), "systemctl restart postfix") != 2 {
+				t.Fatal("runtime not restored", calls)
+			}
+		})
+	}
+}

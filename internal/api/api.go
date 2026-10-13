@@ -280,6 +280,8 @@ func (s *Server) Routes() http.Handler {
 			r.Delete("/proxy/hosts/{id}", s.handleProxyDelete)
 			r.Post("/proxy/test", s.handleProxyTest)
 			r.Get("/proxy/status", s.handleProxyStatus)
+			r.Get("/proxy/postfix", s.handlePostfixRead)
+			r.Put("/proxy/postfix", s.handlePostfixSave)
 			r.Post("/proxy/hosts/{id}/cert", s.handleProxyCertIssue)
 			r.Post("/proxy/hosts/{id}/disable-tls", s.handleProxyDisableTLS)
 

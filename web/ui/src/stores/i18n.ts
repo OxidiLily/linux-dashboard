@@ -10,35 +10,39 @@ type Kamus = Record<string, { id: string; en: string }>
 
 const kamus: Kamus = {
   // app shell
-  "nav.home": { id: "Home", en: "Home" },
+  "nav.home": { id: "Overview", en: "Overview" },
   "nav.dashboard": { id: "Dashboard", en: "Dashboard" },
-  "nav.fileManagerGroup": { id: "File manager", en: "File manager" },
+  "nav.fileManagerGroup": { id: "Storage & Files", en: "Storage & Files" },
   "nav.fileManager": { id: "File Manager", en: "File Manager" },
   "nav.samba": { id: "Samba", en: "Samba" },
   "nav.diskPool": { id: "Disk Pool", en: "Disk Pool" },
   "nav.nfs": { id: "NFS Exports", en: "NFS Exports" },
   "nav.bookmarks": { id: "Bookmarks", en: "Bookmarks" },
-  "nav.logs": { id: "Logs", en: "Logs" },
+  "nav.logs": { id: "Logs & Monitoring", en: "Logs & Monitoring" },
   "nav.logsAll": { id: "Logs", en: "Logs" },
   "nav.updates": { id: "Pembaruan", en: "Updates" },
-  "nav.fileOperations": { id: "File Operations", en: "File Operations" },
+  "nav.fileOperations": { id: "File Operations Log", en: "File Operations Log" },
   "nav.activityLogs": { id: "Activity Logs", en: "Activity Logs" },
-  "nav.settings": { id: "Settings", en: "Settings" },
+  "nav.networkGroup": { id: "Network", en: "Network" },
+  "nav.security": { id: "Security", en: "Security" },
+  "nav.nineRouter": { id: "9Router", en: "9Router" },
+  "nineRouter.mixedContent": { id: "9Router menggunakan HTTP. Panel HTTPS tidak dapat menampilkan iframe HTTP. Gunakan reverse proxy HTTPS untuk 9Router.", en: "9Router uses HTTP. An HTTPS panel cannot display an HTTP iframe. Use an HTTPS reverse proxy for 9Router." },
+  "nav.speedtest": { id: "Speedtest", en: "Speedtest" },
   "nav.account": { id: "Akun", en: "Account" },
   "nav.network": { id: "Network", en: "Network" },
   "nav.firewall": { id: "Firewall", en: "Firewall" },
-  "nav.fail2ban": { id: "Fail2ban", en: "Fail2ban" },
+  "nav.fail2ban": { id: "Fail2Ban", en: "Fail2Ban" },
   "nav.fail2banHistory": { id: "Riwayat Fail2ban", en: "Fail2ban history" },
   "nav.alerts": { id: "Alert Thresholds", en: "Alert Thresholds" },
   "nav.components": { id: "Components", en: "Components" },
-  "nav.proxy": { id: "Proxy manager", en: "Proxy manager" },
-  "nav.printServer": { id: "Print server", en: "Print server" },
-  "nav.ai": { id: "AI", en: "AI" },
+  "nav.proxy": { id: "Proxy Manager", en: "Proxy Manager" },
+  "nav.printServer": { id: "Print Server", en: "Print Server" },
+  "nav.ai": { id: "AI & Automation", en: "AI & Automation" },
   "nav.aiAgent": { id: "AI Agent", en: "AI Agent" },
-  "nav.system": { id: "System", en: "System" },
+  "nav.system": { id: "System Management", en: "System Management" },
   "nav.processes": { id: "Processes", en: "Processes" },
   "nav.docker": { id: "Docker", en: "Docker" },
-  "nav.cron": { id: "Cronjob", en: "Cronjobs" },
+  "nav.cron": { id: "Cronjob", en: "Cronjob" },
   "nav.terminal": { id: "Terminal", en: "Terminal" },
   "nav.notFound": { id: "Tidak ditemukan", en: "Not found" },
 
@@ -83,7 +87,21 @@ const kamus: Kamus = {
 // Kalimat lengkap sebagai kunci membuat view tetap terbaca saat dibaca
 // manusia, dan string yang belum diterjemahkan otomatis tampil apa adanya
 // (bahasa Indonesia) alih-alih memunculkan kunci teknis di layar.
-const kamusEn: Record<string, string> = {}
+const kamusEn: Record<string, string> = {
+  "Proxy Mail memakai Postfix sebagai SMTP relay untuk meneruskan email ke server tujuan berdasarkan domain dan transport map.": "Proxy Mail uses Postfix as an SMTP relay to forward email to the destination server based on domains and transport maps.",
+  "Domain email": "Email domain",
+  "Host/IP tujuan": "Destination host/IP",
+  "Port SMTP": "SMTP port",
+  "Tambah tujuan SMTP": "Add SMTP destination",
+  "Transport map belum lengkap. Isi domain dan endpoint SMTP tujuan lalu simpan.": "The transport map is incomplete. Enter domains and destination SMTP endpoints, then save.",
+  "Transport map akan diganti dan diindeks, Postfix diperiksa lalu direstart. SMTP terputus sementara; pastikan port 25 tersedia.": "The transport map will be replaced and indexed, Postfix checked then restarted. SMTP is briefly interrupted; ensure port 25 is available.",
+  "Endpoint SMTP tujuan harus reachable dari Postfix. Tailscale: host/IP tujuan. Cloudflare TCP: endpoint konektor lokal atau private route yang sudah tersedia, bukan hostname HTTP publik. mynetworks adalah klien tepercaya, bukan tujuan forwarding.": "The destination SMTP endpoint must be reachable from Postfix. Tailscale: destination host/IP. Cloudflare TCP: an existing local connector endpoint or private route, not a public HTTP hostname. mynetworks identifies trusted clients, not forwarding destinations.",
+  "Simpan dan restart Postfix?": "Save and restart Postfix?",
+  "Simpan dan restart": "Save and restart",
+  "Isi nilai yang disetujui": "Fill approved values",
+  "Konfigurasi Postfix tersimpan; restart berhasil.": "Postfix configuration saved; restart succeeded.",
+  "Port SMTP 25 tidak boleh dipakai layanan lain. Batasi mynetworks ke jaringan tepercaya karena dapat mengirim email tanpa autentikasi.": "SMTP port 25 must not be used by another service. Restrict mynetworks to trusted networks because they can send email without authentication.",
+}
 
 export function daftarkanTerjemahan(entri: Record<string, string>) {
   Object.assign(kamusEn, entri)

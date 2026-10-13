@@ -10,6 +10,8 @@ import { confirmDialog } from "@/components/ui/confirm"
 import { notify } from "@/components/ui/toast"
 import { useTr } from "@/stores/i18n"
 import { CloudflareManager } from "./cloudflare-manager"
+import { ComponentGuard } from "@/components/ui/component-guard"
+import { PostfixTab } from "./postfix"
 
 type ProxyHost = {
   id?: string
@@ -40,7 +42,7 @@ export function tautanProxy(h: Pick<ProxyHost, "domain" | "enabled" | "scheme" |
   return `${h.tls_mode === "certbot" ? "https" : "http"}://${domain}/`
 }
 
-type Tab = "proxy" | "ssl" | "dns"
+type Tab = "proxy" | "ssl" | "dns" | "postfix"
 
 export function ProxyManagerView() {
   const tr = useTr()
@@ -198,6 +200,7 @@ export function ProxyManagerView() {
     { id: "proxy", label: tr("Proxy Manager") },
     { id: "ssl", label: tr("SSL/TLS") },
     { id: "dns", label: tr("DNS Cloudflare") },
+    { id: "postfix", label: "Proxy Mail" },
   ]
 
   return (
@@ -215,7 +218,7 @@ export function ProxyManagerView() {
           </button>
         ))}
       </div>
-    <Panel
+    {tab === "postfix" ? <ComponentGuard name="postfix" label="Postfix" strict><PostfixTab /></ComponentGuard> : <Panel
       title={tab === "proxy" ? tr("Proxy manager") : tab === "ssl" ? tr("SSL/TLS") : tr("DNS Cloudflare")}
       hint={tab === "proxy" ? tr("Kelola nama domain dan teruskan trafiknya ke alamat IP serta port aplikasi.") : undefined}
       actions={tab !== "dns" ? <div className="flex flex-wrap gap-2">{tab === "proxy" && <Button variant="outline" size="sm" onClick={testConfig}><CheckCircle2 className="mr-1 size-3.5" />{tr("Uji config")}</Button>}<Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCw className="mr-1 size-3.5" />{tr("Muat ulang")}</Button></div> : undefined}
@@ -500,7 +503,7 @@ export function ProxyManagerView() {
           <CloudflareManager enabled={cfTokenSaved} />
         </div>
       )}
-    </Panel>
+    </Panel>}
     </div>
   )
 }

@@ -88,6 +88,34 @@ const NAV: NavGroup[] = [
     group: "nav.ai",
     items: [
       { to: "/ai/agent", label: "nav.aiAgent", icon: Bot },
+      { to: "/ai/9router", label: "nav.nineRouter", icon: Route },
+    ],
+  },
+  {
+    group: "nav.networkGroup",
+    items: [
+      { to: "/settings/network", label: "nav.network", icon: Network },
+      { to: "/settings/speedtest", label: "nav.speedtest", icon: Gauge },
+      { to: "/settings/proxy", label: "nav.proxy", icon: Route, sudo: true },
+    ],
+  },
+  {
+    group: "nav.security",
+    items: [
+      { to: "/settings/firewall", label: "nav.firewall", icon: ShieldAlert, sudo: true },
+      { to: "/settings/fail2ban", label: "nav.fail2ban", icon: ShieldBan, sudo: true },
+    ],
+  },
+  {
+    group: "nav.system",
+    items: [
+      { to: "/system/processes", label: "nav.processes", icon: Cpu },
+      { to: "/system/docker", label: "nav.docker", icon: Container, sudo: true },
+      // Cronjob mengelola crontab akun login, bukan crontab sistem.
+      { to: "/system/cron", label: "nav.cron", icon: CalendarClock },
+      { to: "/system/terminal", label: "nav.terminal", icon: SquareTerminal },
+      { to: "/settings/print", label: "nav.printServer", icon: Printer, sudo: true },
+      { to: "/settings/components", label: "nav.components", icon: Package, sudo: true },
     ],
   },
   {
@@ -96,34 +124,10 @@ const NAV: NavGroup[] = [
       { to: "/logs/alerts", label: "nav.logsAll", icon: Bell },
       { to: "/logs/file-operations", label: "nav.fileOperations", icon: FileClock },
       { to: "/logs/activity", label: "nav.activityLogs", icon: LogIn },
-      // Pembaruan tidak punya entri sidebar — pintu masuknya ikon notifikasi
-      // topbar — tapi route-nya tetap terdaftar supaya breadcrumb benar.
-      { to: "/updates", label: "nav.updates", icon: RefreshCw, tersembunyi: true, sudo: true },
-    ],
-  },
-  {
-    group: "nav.settings",
-    items: [
-      { to: "/settings/account", label: "nav.account", icon: UserCog, tersembunyi: true },
-      { to: "/settings/network", label: "nav.network", icon: Network },
-      { to: "/settings/firewall", label: "nav.firewall", icon: ShieldAlert, sudo: true },
-      { to: "/settings/fail2ban", label: "nav.fail2ban", icon: ShieldBan, sudo: true },
       { to: "/settings/alerts", label: "nav.alerts", icon: Gauge },
-      { to: "/settings/print", label: "nav.printServer", icon: Printer, sudo: true },
-      { to: "/settings/proxy", label: "nav.proxy", icon: Route, sudo: true },
-      { to: "/settings/components", label: "nav.components", icon: Package, sudo: true },
-    ],
-  },
-  {
-    group: "nav.system",
-    items: [
-      { to: "/system/processes", label: "nav.processes", icon: Cpu },
-      { to: "/system/docker", label: "nav.docker", icon: Container, sudo: true },
-      // Cronjob tidak bertanda sudo: yang dikelola crontab akun yang login,
-      // bukan crontab sistem. Menandainya sudo akan menyembunyikannya dari
-      // user biasa yang justru berhak mengatur jadwalnya sendiri.
-      { to: "/system/cron", label: "nav.cron", icon: CalendarClock },
-      { to: "/system/terminal", label: "nav.terminal", icon: SquareTerminal },
+      // Entri tersembunyi mempertahankan breadcrumb; akses dari topbar/profil.
+      { to: "/updates", label: "nav.updates", icon: RefreshCw, tersembunyi: true, sudo: true },
+      { to: "/settings/account", label: "nav.account", icon: UserCog, tersembunyi: true },
     ],
   },
 ]
