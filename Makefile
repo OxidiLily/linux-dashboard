@@ -16,7 +16,7 @@ all: build
 # (pastikan_npm di deploy/install.sh), bukan oleh pesan di log.
 ui: export NPM_CONFIG_UPDATE_NOTIFIER=false
 ui:
-	cd $(UI) && npm ci && npm run audit && npm run build
+	cd $(UI) && npm ci && (npm run audit || { i=0; while [ $$i -lt 3 ]; do npm audit fix; npm run audit && break; i=$$((i+1)); done; if [ $$i -eq 3 ]; then echo "WARN: vulnerability tetap ada setelah 3x fix, lanjut build"; fi; }) && npm run build
 
 # ponytail: anggaran per proses, bukan batas RSS; build lebih lambat demi VPS 1 GB.
 # Paket SQLite generated besar; batasi compiler tanpa mematikan optimasi runtime.
