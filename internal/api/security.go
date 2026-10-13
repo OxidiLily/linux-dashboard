@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 	"strings"
 )
@@ -12,10 +13,25 @@ import (
 
 // buildCSP menyusun Content-Security-Policy header. nineRouterURL yang kosong
 // menghilangkan frame-src tambahan; URL yang ada ditambahkan apa adanya.
-func buildCSP(nineRouterURL string) string {
+// requestHost (opsional) menambah frame-src otomatis http://<host>:20128 agar
+// iframe 9Router bekerja tanpa hardcode IP.
+func buildCSP(nineRouterURL, requestHost string) string {
 	frameSrc := "frame-src 'self'"
 	if nineRouterURL != "" {
 		frameSrc += " " + strings.TrimRight(nineRouterURL, "/")
+	}
+	// Otomatis izinkan iframe 9Router ke hostname yang sama dengan panel,
+	// port 20128 — ini membuat iframe dinamis bekerja tanpa perlu menyetel
+	// DASHBOARD_NINE_ROUTER_URL untuk tiap kemungkinan hostname.
+	if requestHost != "" {
+		host, _, _ := net.SplitHostPort(requestHost)
+		if host == "" {
+			host = requestHost
+		}
+		auto := "http://" + host + ":20128"
+		if !strings.Contains(frameSrc, auto) {
+			frameSrc += " " + auto
+		}
 	}
 	// Aset panel berasal dari binary (go:embed); hanya gambar bendera GeoIP
 	// diizinkan dari https://cdn.ipwhois.io. Script/font tetap dikunci ke 'self'.
@@ -36,7 +52,7 @@ func buildCSP(nineRouterURL string) string {
 		"frame-ancestors 'none'"
 }
 
-func securityHeadersWithCSP(csp string) func(http.Handler) http.Handler {
+func securityHeadersWithCSP(nineRouterURL string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
@@ -53,7 +69,7 @@ func securityHeadersWithCSP(csp string) func(http.Handler) http.Handler {
 			// ditimpa, karena isi file milik user tidak boleh dianggap bagian
 			// dari aplikasi.
 			if h.Get("Content-Security-Policy") == "" {
-				h.Set("Content-Security-Policy", csp)
+				h.Set("Content-Security-Policy", buildCSP(nineRouterURL, r.Host))
 			}
 			next.ServeHTTP(w, r)
 		})

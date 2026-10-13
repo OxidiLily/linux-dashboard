@@ -11,7 +11,7 @@ import (
 
 func TestCSPTrustedFlagHost(t *testing.T) {
 	w := httptest.NewRecorder()
-	securityHeadersWithCSP(buildCSP(""))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	securityHeadersWithCSP("")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	policy := w.Header().Get("Content-Security-Policy")
 	for _, directive := range strings.Split(policy, ";") {
 		if strings.HasPrefix(strings.TrimSpace(directive), "img-src ") {
