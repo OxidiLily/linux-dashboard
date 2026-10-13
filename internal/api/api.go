@@ -106,7 +106,7 @@ func (s *Server) Routes() http.Handler {
 	// TCP; di belakang reverse proxy itu alamat proxy, dan itu memang yang
 	// benar untuk dijadikan key pembatas.
 	r.Use(middleware.Recoverer)
-	r.Use(securityHeaders)
+	r.Use(securityHeadersWithCSP(buildCSP(s.cfg.NineRouterURL)))
 	r.Use(sameOriginOnly)
 
 	r.Route("/api", func(r chi.Router) {

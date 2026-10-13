@@ -1,5 +1,8 @@
 import { useT } from "@/stores/i18n"
 
+// ponytail: URL embed 9Router. Sisi server: DASHBOARD_NINE_ROUTER_URL di
+// /etc/default/linux-dashboard mengatur CSP frame-src. Perbarui keduanya
+// saat IP/port berubah.
 const NINE_ROUTER_URL = "http://100.89.81.126:20128/"
 
 export function NineRouterView() {

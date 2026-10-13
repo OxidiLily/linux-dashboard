@@ -26,6 +26,7 @@ export const pemuatRute: Record<string, () => Promise<unknown>> = {
   "/settings/components": () => import("@/views/components"),
   "/updates": () => import("@/views/updates"),
   "/settings/proxy": () => import("@/views/proxy"),
+  "/settings/speedtest": () => import("@/views/speedtest"),
   "/settings/print": () => import("@/views/print-server"),
   "/ai/agent": () => import("@/views/ai-agent"),
   "/ai/9router": () => import("@/views/nine-router"),
