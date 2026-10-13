@@ -10,44 +10,54 @@ import (
 // perilaku aplikasi, hanya menutup kelas serangan yang tidak butuh bug di
 // kode kita untuk berhasil.
 
-// Aset panel berasal dari binary (go:embed); hanya gambar bendera GeoIP
-// diizinkan dari https://cdn.ipwhois.io. Script/font tetap dikunci ke 'self'.
-//
-// 'unsafe-inline' pada style-src disengaja: React/xterm menulis style inline
-// untuk ukuran terminal dan lebar meter. Script tidak pernah inline.
-const cspApp = "default-src 'self'; " +
-	"script-src 'self'; " +
-	"style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob: https://cdn.ipwhois.io; " +
-	"font-src 'self' data:; " +
-	"connect-src 'self' ws: wss:; " +
-	"media-src 'self' blob:; " +
-	"frame-src 'self' http://100.89.81.126:20128; " +
-	"object-src 'none'; " +
-	"base-uri 'none'; " +
-	"form-action 'none'; " +
-	"frame-ancestors 'none'"
+// buildCSP menyusun Content-Security-Policy header. nineRouterURL yang kosong
+// menghilangkan frame-src tambahan; URL yang ada ditambahkan apa adanya.
+func buildCSP(nineRouterURL string) string {
+	frameSrc := "frame-src 'self'"
+	if nineRouterURL != "" {
+		frameSrc += " " + strings.TrimRight(nineRouterURL, "/")
+	}
+	// Aset panel berasal dari binary (go:embed); hanya gambar bendera GeoIP
+	// diizinkan dari https://cdn.ipwhois.io. Script/font tetap dikunci ke 'self'.
+	//
+	// 'unsafe-inline' pada style-src disengaja: React/xterm menulis style inline
+	// untuk ukuran terminal dan lebar meter. Script tidak pernah inline.
+	return "default-src 'self'; " +
+		"script-src 'self'; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob: https://cdn.ipwhois.io; " +
+		"font-src 'self' data:; " +
+		"connect-src 'self' ws: wss:; " +
+		"media-src 'self' blob:; " +
+		frameSrc + "; " +
+		"object-src 'none'; " +
+		"base-uri 'none'; " +
+		"form-action 'none'; " +
+		"frame-ancestors 'none'"
+}
 
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Set("X-Content-Type-Options", "nosniff")
-		// Panel administrasi tidak pernah pantas di-embed: tanpa ini, halaman
-		// lain bisa membingkainya dan menipu admin agar menekan tombol
-		// destruktif (clickjacking).
-		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Cross-Origin-Opener-Policy", "same-origin")
-		h.Set("Cross-Origin-Resource-Policy", "same-origin")
-		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
-		// Endpoint file punya CSP sandbox sendiri (lihat files.go) — jangan
-		// ditimpa, karena isi file milik user tidak boleh dianggap bagian
-		// dari aplikasi.
-		if h.Get("Content-Security-Policy") == "" {
-			h.Set("Content-Security-Policy", cspApp)
-		}
-		next.ServeHTTP(w, r)
-	})
+func securityHeadersWithCSP(csp string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := w.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			// Panel administrasi tidak pernah pantas di-embed: tanpa ini, halaman
+			// lain bisa membingkainya dan menipu admin agar menekan tombol
+			// destruktif (clickjacking).
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("Referrer-Policy", "no-referrer")
+			h.Set("Cross-Origin-Opener-Policy", "same-origin")
+			h.Set("Cross-Origin-Resource-Policy", "same-origin")
+			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+			// Endpoint file punya CSP sandbox sendiri (lihat files.go) — jangan
+			// ditimpa, karena isi file milik user tidak boleh dianggap bagian
+			// dari aplikasi.
+			if h.Get("Content-Security-Policy") == "" {
+				h.Set("Content-Security-Policy", csp)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // sameOriginOnly menolak permintaan yang mengubah keadaan bila datang dari

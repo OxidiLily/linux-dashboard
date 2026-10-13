@@ -48,6 +48,9 @@ type Config struct {
 	// AllowPlaintext mengizinkan bind non-loopback tanpa TLS hanya jika operator
 	// memilihnya secara eksplisit (misalnya terminasi TLS ada di luar proses).
 	AllowPlaintext bool
+	// NineRouterURL: URL embed 9Router di panel. Kosongkan untuk menonaktifkan
+	// frame-src tambahan di CSP.
+	NineRouterURL string
 }
 
 func env(key, def string) string {
@@ -103,6 +106,7 @@ func Load() Config {
 	if b, err := strconv.ParseBool(os.Getenv("DASHBOARD_ALLOW_PLAINTEXT")); err == nil {
 		c.AllowPlaintext = b
 	}
+	c.NineRouterURL = os.Getenv("DASHBOARD_NINE_ROUTER_URL")
 	// Pada TLS native, cookie tanpa Secure tidak pernah benar. Env false tidak
 	// boleh menurunkan perlindungan transport yang sudah aktif.
 	if c.TLSCert != "" && c.TLSKey != "" {

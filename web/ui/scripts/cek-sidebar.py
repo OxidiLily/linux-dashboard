@@ -27,9 +27,8 @@ for group, items in re.findall(r'group: "([^"]+)",\s*items: \[(.*?)\]', nav, re.
 assert actual == expected, actual
 assert len(paths) == len(set(paths)), "Duplikasi menu"
 router = (src / "router/index.tsx").read_text()
-for path in ("settings/speedtest",):
-    assert f'{{ path: "{path}", element: null }}' in router, path
 for path in paths:
     assert path == "/" or f'path: "{path.lstrip(chr(47))}"' in router, path
 assert '{ path: "ai/9router", element: <Lazy><NineRouterView /></Lazy> }' in router
-print("PASS: urutan grup/menu, tanpa duplikasi, Speedtest blank, route menu terdaftar")
+assert '{ path: "settings/speedtest", element: <Lazy><SpeedtestView /></Lazy> }' in router
+print("PASS: urutan grup/menu, tanpa duplikasi, route menu terdaftar")

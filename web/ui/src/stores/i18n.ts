@@ -101,6 +101,8 @@ const kamusEn: Record<string, string> = {
   "Isi nilai yang disetujui": "Fill approved values",
   "Konfigurasi Postfix tersimpan; restart berhasil.": "Postfix configuration saved; restart succeeded.",
   "Port SMTP 25 tidak boleh dipakai layanan lain. Batasi mynetworks ke jaringan tepercaya karena dapat mengirim email tanpa autentikasi.": "SMTP port 25 must not be used by another service. Restrict mynetworks to trusted networks because they can send email without authentication.",
+  "Uji kecepatan jaringan dari panel.": "Test network speed from the panel.",
+  "Fitur speedtest sedang dalam pengembangan.": "The speedtest feature is under development.",
 }
 
 export function daftarkanTerjemahan(entri: Record<string, string>) {

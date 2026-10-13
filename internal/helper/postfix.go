@@ -106,7 +106,13 @@ type postfixFile struct {
 func snapshotPostfixFiles() ([]postfixFile, error) {
 	files := []postfixFile{}
 	for _, path := range []string{postfixPath, postfixTransport, postfixTransport + ".db"} {
-		f := postfixFile{path: path, mode: 0644}
+		// Transport source 0640 (root:root, Postfix baca via postmap),
+		// database 0600 (hanya root perlu akses langsung).
+		defaultMode := os.FileMode(0640)
+		if strings.HasSuffix(path, ".db") {
+			defaultMode = 0600
+		}
+		f := postfixFile{path: path, mode: defaultMode}
 		st, e := os.Lstat(path)
 		if os.IsNotExist(e) && path != postfixPath {
 			files = append(files, f)
