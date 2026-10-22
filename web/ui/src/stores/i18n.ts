@@ -27,6 +27,8 @@ const kamus: Kamus = {
   "nav.security": { id: "Security", en: "Security" },
   "nav.nineRouter": { id: "9Router", en: "9Router" },
   "nineRouter.mixedContent": { id: "9Router menggunakan HTTP. Panel HTTPS tidak dapat menampilkan iframe HTTP. Gunakan reverse proxy HTTPS untuk 9Router.", en: "9Router uses HTTP. An HTTPS panel cannot display an HTTP iframe. Use an HTTPS reverse proxy for 9Router." },
+  "nineRouter.checking": { id: "Memeriksa koneksi 9Router…", en: "Checking 9Router connection…" },
+  "nineRouter.unavailable": { id: "9Router tidak tersedia di alamat ini. Pastikan 9Router sudah terpasang dan servicenya berjalan pada port 20128.", en: "9Router is unavailable at this address. Make sure 9Router is installed and its service is running on port 20128." },
   "nav.speedtest": { id: "Speedtest", en: "Speedtest" },
   "nav.account": { id: "Akun", en: "Account" },
   "nav.network": { id: "Network", en: "Network" },

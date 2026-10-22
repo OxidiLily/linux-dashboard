@@ -916,6 +916,13 @@ func installComponent(name string, u *userInfo, hostname ...string) (helperproto
 	// (lihat pastikanToolchainAI), hanya tercatat di log helper.
 	if komponenAgenAI(name) {
 		pastikanToolchainAI()
+		// 9router menemukan CLI agent lewat `which <biner>` yang membaca PATH
+		// proses-nya sendiri. Agent yang baru dipasang setelah 9router hidup
+		// tidak terlihat sampai 9router di-restart — halaman CLI Tools
+		// melaporkan "Not installed" untuk agent yang jelas-jelas ada.
+		// Restart di sini supaya agent yang baru dipasang langsung muncul
+		// tanpa user harus merestart 9router secara manual.
+		restart9RouterKalauHidup()
 	}
 	if name == "docker" {
 		tambahkanKeGrupDocker(username)
@@ -2323,6 +2330,19 @@ func pastikanUser9Router(u *userInfo) {
 		return
 	}
 	_, _ = run("systemctl", "daemon-reload")
+}
+
+// restart9RouterKalauHidup me-restart service 9router HANYA kalau sedang
+// berjalan. Dipakai setelah agent baru dipasang: 9router menemukan CLI agent
+// dengan `which <biner>` yang membaca PATH proses-nya sendiri — agent yang
+// baru terpasang setelah 9router start tidak terlihat di halaman CLI Tools
+// sampai prosesnya di-restart. Restart yang gagal tidak dilaporkan: agent-nya
+// sudah terpasang, dan 9router cukup direstart manual kalau otomatis tidak
+// berhasil.
+func restart9RouterKalauHidup() {
+	if _, err := run("systemctl", "is-active", "--quiet", "9router.service"); err == nil {
+		_, _ = run("systemctl", "restart", "9router.service")
+	}
 }
 
 // pindahkanData9Router memindahkan ~/.9router milik root ke home user panel.
