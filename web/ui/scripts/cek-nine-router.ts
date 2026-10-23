@@ -10,26 +10,25 @@ for (const bahasa of ["id", "en"] as const) {
   usePrefs.setState({ bahasa })
   usePrefs.getInitialState = usePrefs.getState
 
-  // --- HTTP: SSR tidak menjalankan useEffect, jadi health check belum jalan.
-  // Komponen menampilkan loading state (role="status"), bukan iframe langsung.
+  // --- HTTP: iframe langsung ditampilkan (tanpa health check frontend).
   window.location.protocol = "http:"
   window.location.hostname = "100.89.81.126"
   const html = renderToStaticMarkup(createElement(NineRouterView))
-  // SSR: useEffect tidak jalan → available === null → loading state
-  assert(html.includes('role="status"'), "HTTP SSR harus menampilkan loading state")
-  assert(!html.includes("<iframe"), "HTTP SSR tidak boleh langsung menampilkan iframe (health check belum jalan)")
+  assert(html.includes('<iframe src="http://100.89.81.126:20128/"'))
+  assert(html.includes('title="9Router"'))
+  assert(html.includes('referrerPolicy="no-referrer"'))
+  assert(html.includes('sandbox="allow-scripts allow-same-origin allow-forms allow-downloads"'))
+  assert(!html.includes("allow-top-navigation"))
 
-  // --- HTTPS: mixed content warning langsung, tanpa health check.
+  // --- HTTPS: mixed content warning, tanpa iframe.
   window.location.protocol = "https:"
   const blocked = renderToStaticMarkup(createElement(NineRouterView))
   assert(!blocked.includes("<iframe"))
   assert(blocked.includes('role="alert"'))
-  // SSR memakai snapshot awal Zustand; terjemahan aktif diuji langsung.
   assert(blocked.includes("HTTP"))
   assert(t("nineRouter.mixedContent").includes(bahasa === "id" ? "Panel HTTPS" : "An HTTPS panel"))
 
-  // --- Terjemahan unavailable dan checking tersedia.
+  // --- Terjemahan unavailable tersedia.
   assert(t("nineRouter.unavailable").includes(bahasa === "id" ? "tidak tersedia" : "is unavailable"))
-  assert(t("nineRouter.checking").includes(bahasa === "id" ? "Memeriksa" : "Checking"))
 }
-console.log("PASS: 9Router iframe HTTP loading/HTTPS warning, unavailable/checking translations ID/EN")
+console.log("PASS: 9Router iframe HTTP, sandbox, referrer, HTTPS/unavailable warnings ID/EN")
