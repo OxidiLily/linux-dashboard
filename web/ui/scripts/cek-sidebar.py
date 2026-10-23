@@ -29,6 +29,6 @@ assert len(paths) == len(set(paths)), "Duplikasi menu"
 router = (src / "router/index.tsx").read_text()
 for path in paths:
     assert path == "/" or f'path: "{path.lstrip(chr(47))}"' in router, path
-assert '{ path: "ai/9router", element: <Dijaga name="9router" label="nav.nineRouter"><NineRouterView /></Dijaga> }' in router
+assert '{ path: "ai/9router", element: <Dijaga name="9router" label="9Router"><NineRouterView /></Dijaga> }' in router
 assert '{ path: "settings/speedtest", element: <Lazy><SpeedtestView /></Lazy> }' in router
 print("PASS: urutan grup/menu, tanpa duplikasi, route menu terdaftar")
