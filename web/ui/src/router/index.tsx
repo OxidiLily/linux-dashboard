@@ -148,7 +148,7 @@ export const router = createBrowserRouter([
       { path: "settings/proxy", element: <Dijaga name="nginx" label="Proxy manager"><ProxyManagerView /></Dijaga> },
       { path: "settings/print", element: <Dijaga name="print-server" label="CUPS"><PrintServerView /></Dijaga> },
       { path: "ai/agent", element: <Lazy><AIAgentView /></Lazy> },
-      { path: "ai/9router", element: <Dijaga name="9router" label="nav.nineRouter"><NineRouterView /></Dijaga> },
+      { path: "ai/9router", element: <Dijaga name="9router" label="9Router"><NineRouterView /></Dijaga> },
       { path: "settings/speedtest", element: <Lazy><SpeedtestView /></Lazy> },
       { path: "system/processes", element: <Lazy><ProcessesView /></Lazy> },
       { path: "system/docker", element: <Dijaga name="docker" label="Docker"><DockerView /></Dijaga> },
