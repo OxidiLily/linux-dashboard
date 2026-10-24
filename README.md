@@ -14,7 +14,7 @@
 
 - Ubuntu/Debian dengan systemd; target amd64/arm64/armhf.
 - Instalasi membutuhkan root/sudo, akses jaringan untuk dependency; aksi admin membutuhkan root atau grup `sudo`/`admin`.
-- Build: Go 1.26.6+, Node.js 24.15+ atau >=26, `make`, compiler C, `libpam0g-dev`.
+- Build: Go 1.27.1+, Node.js 24.15+ atau >=26, `make`, compiler C, `libpam0g-dev`.
 - Build di server dapat membutuhkan memori besar; layanan opsional punya kebutuhan resource/perangkat sendiri. Tidak ada jaminan RAM 1 GB cukup.
 
 ## Description

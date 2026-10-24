@@ -144,7 +144,7 @@ install_build_deps() {
   else
     log "Memasang dependency build yang belum ada: ${kurang[*]}"
     apt-get update -qq
-    # golang-go boleh versi lawas: go.mod menuntut Go 1.26.6 dan toolchain itu
+    # golang-go boleh versi lawas: go.mod menuntut Go 1.27.1 dan toolchain itu
     # diunduh sendiri oleh Go (GOTOOLCHAIN=auto, diset sebelum `make build`).
     # libpam0g-dev wajib — helper daemon memakai PAM lewat cgo.
     apt-get install -y -qq --no-install-recommends "${kurang[@]}"
@@ -155,11 +155,11 @@ install_build_deps() {
   # native @tailwindcss/oxide tidak ikut terpasang dan `vite build` gagal.
   # Paket `npm` distro juga menyeret ~200 paket node-* yang tidak terpakai.
   # npm 12 memerlukan Node ^22.22.2 || ^24.15.0 || >=26.0.0.
-  # Gunakan Node 24 LTS minimum; pertahankan Node yang lebih baru.
-  local node_check='const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major >= 26 || (major === 24 && minor >= 15) ? 0 : 1)'
+  # Node 24.22.1 adalah security release terbaru; pertahankan Node >=26.
+  local node_check='const [major, minor, patch] = process.versions.node.split(".").map(Number); process.exit(major >= 26 || (major === 24 && (minor > 22 || (minor === 22 && patch >= 1))) ? 0 : 1)'
   if ! node -e "$node_check" 2>/dev/null || ! command -v npm >/dev/null; then
     [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] && (( NODE_MAJOR >= 24 )) || die "NODE_MAJOR harus >=24 untuk toolchain UI terbaru."
-    log "Memasang Node ${NODE_MAJOR} dari NodeSource (minimum 24.15.0)…"
+    log "Memasang Node ${NODE_MAJOR} dari NodeSource (minimum 24.22.1)…"
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
     apt-get install -y -qq nodejs
   fi
