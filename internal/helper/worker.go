@@ -320,6 +320,10 @@ func jalankanOp(r resolusiPath, op workerOp, res *os.File) (json.RawMessage, err
 		// Kernel yang menegakkan "hanya boleh proses sendiri" — worker sudah
 		// berjalan sebagai user yang login, jadi tidak ada cek manual di sini.
 		return nil, syscall.Kill(op.PID, syscall.Signal(op.Signal))
+	case "extract":
+		return nil, ekstrakArsip(r, op.Path, op.Dest)
+	case "compress":
+		return nil, buatArsip(r, op.Path, op.Dest)
 	}
 	return nil, fmt.Errorf("op tidak dikenal: %s", op.Op)
 }

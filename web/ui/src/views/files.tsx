@@ -37,6 +37,9 @@ import {
   Clipboard,
   ClipboardCopy,
   Edit3,
+  FileArchive,
+  FolderArchive,
+  Archive,
   Search,
   X,
 } from "lucide-react"
@@ -82,6 +85,27 @@ function bisaDicetak(e: FileEntry): boolean {
   if (e.is_dir) return false
   const ext = e.name.split(".").pop()?.toLowerCase()
   return !!ext && ext !== e.name.toLowerCase() && EKSTENSI_CETAK.includes(ext)
+}
+
+// Ekstensi arsip yang bisa diekstrak lewat menu konteks. Backend mengenali
+// formatnya dari magic bytes, tapi menu hanya ditawarkan untuk yang benar-benar
+// punya jalur ekstrak — .tar.xz sengaja tidak ada karena dekompresi xz butuh
+// pustaka Go tambahan.
+const EKSTENSI_ARSIP = ["tar.gz", "tar.bz2", "tgz", "tbz2", "zip", "rar", "tar"]
+
+function akhiranArsip(name: string): string | null {
+  const n = name.toLowerCase()
+  return EKSTENSI_ARSIP.find((e) => n.endsWith("." + e)) ?? null
+}
+
+function bisaDiekstrak(e: FileEntry): boolean {
+  return !e.is_dir && akhiranArsip(e.name) !== null
+}
+
+// Nama folder tujuan "Ekstrak ke …": basename tanpa akhiran arsipnya.
+function namaTanpaArsip(name: string): string {
+  const e = akhiranArsip(name)
+  return e ? name.slice(0, -(e.length + 1)) : name
 }
 
 // Ekstensi yang dibuka dengan pemutar, bukan dibaca sebagai teks. Sebelumnya
@@ -275,6 +299,8 @@ export function FileManagerView() {
   const [printForm, setPrintForm] = useState({ printer: "", copies: 1, media: "", sides: "" })
   const [mencetak, setMencetak] = useState(false)
   const [clipboard, setClipboard] = useState<ClipboardOp>({ kind: "none" })
+  // Format arsip yang bisa dibuat di mesin ini (dari /api/files/formats).
+  const [formatArsip, setFormatArsip] = useState<{ zip: boolean; rar: boolean } | null>(null)
   // Seleksi disimpan sebagai path, bukan indeks: isi direktori bisa berubah
   // di antara refresh, dan indeks lama akan menunjuk berkas yang salah.
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -331,6 +357,11 @@ export function FileManagerView() {
     try {
       const data = await apiGet<FileRoot[]>("/api/files/roots")
       setRoots(data)
+    } catch {}
+    // Format arsip yang bisa DIBUAT di mesin ini: .rar butuh program `rar`
+    // yang tidak selalu terpasang, dan menu yang selalu gagal bukan fitur.
+    try {
+      setFormatArsip(await apiGet<{ zip: boolean; rar: boolean }>("/api/files/formats"))
     } catch {}
   }
 
@@ -940,6 +971,47 @@ export function FileManagerView() {
   const handleCut = (entry: FileEntry) => {
     setClipboard({ kind: "cut", items: [{ path: entry.path, name: entry.name }] })
     setContextMenu(null)
+  }
+
+  // Ekstrak arsip ke folder induk ("di sini") atau ke subfolder bernama arsip.
+  // Berkas yang sudah ada akan ditimpa — perilaku yang sama dengan unzip/tar.
+  const handleEkstrak = async (entry: FileEntry, keFolder: boolean) => {
+    const induk = entry.path.slice(0, entry.path.lastIndexOf("/")) || "/"
+    const namaFolder = namaTanpaArsip(entry.name)
+    const dest = keFolder ? `${induk}/${namaFolder}`.replace(/\/+/g, "/") : induk
+    try {
+      await notify.tugas(apiSend("/api/files/extract", "POST", { source: entry.path, dest }), {
+        jalan: trf("Mengekstrak {0}…", entry.name),
+        sukses: keFolder
+          ? trf("{0} diekstrak ke folder {1}.", entry.name, namaFolder)
+          : trf("{0} diekstrak.", entry.name),
+        gagal: (e) => trf("Gagal mengekstrak: {0}", pesanError(e)),
+        detail: () => dest,
+        detailGagal: () => dest,
+      })
+      loadDir(currentPath)
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
+    }
+  }
+
+  // Membuat arsip baru di sebelah sumbernya. Tujuan yang sudah ada DITOLAK
+  // server: `rar a` akan menggabung ke arsip lama alih-alih membuat baru.
+  const handleArsipkan = async (entry: FileEntry, ekstensi: "zip" | "rar") => {
+    const induk = entry.path.slice(0, entry.path.lastIndexOf("/")) || "/"
+    const dest = `${induk}/${entry.name}.${ekstensi}`.replace(/\/+/g, "/")
+    try {
+      await notify.tugas(apiSend("/api/files/compress", "POST", { source: entry.path, dest }), {
+        jalan: trf("Membuat arsip {0}…", entry.name),
+        sukses: trf("Arsip {0} dibuat.", `${entry.name}.${ekstensi}`),
+        gagal: (e) => trf("Gagal membuat arsip: {0}", pesanError(e)),
+        detail: () => dest,
+        detailGagal: () => dest,
+      })
+      loadDir(currentPath)
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
+    }
   }
   const handlePaste = async () => {
     if (clipboard.kind === "none") return
@@ -1681,13 +1753,13 @@ export function FileManagerView() {
           kolom Aksi di tabel dihapus supaya list view lebih bersih. */}
       {contextMenu && (
         <div
-          className="fixed z-50 min-w-[200px] rounded-md border border-border bg-surface p-1 shadow-xl"
+          className="fixed z-50 max-h-[calc(100dvh-16px)] min-w-[200px] overflow-y-auto rounded-md border border-border bg-surface p-1 shadow-xl"
           // Posisi dijepit ke dalam layar: di HP menu 200px yang dibuka dekat
           // tepi kanan atau bawah akan setengahnya berada di luar viewport dan
           // aksi terakhirnya tidak pernah bisa disentuh.
           style={{
             left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 216)),
-            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 320)),
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 440)),
           }}
           onClick={(ev) => ev.stopPropagation()}
         >
@@ -1722,6 +1794,38 @@ export function FileManagerView() {
           >
             <Download className="size-3.5" /> {contextMenu.entry.is_dir ? tr("Download (.zip)") : tr("Download")}
           </a>
+          {bisaDiekstrak(contextMenu.entry) && (
+            <>
+              <button
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
+                onClick={() => { const e = contextMenu.entry; setContextMenu(null); handleEkstrak(e, false) }}
+              >
+                <FileArchive className="size-3.5" /> {tr("Ekstrak di sini")}
+              </button>
+              <button
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
+                onClick={() => { const e = contextMenu.entry; setContextMenu(null); handleEkstrak(e, true) }}
+              >
+                <FolderArchive className="size-3.5" /> {trf("Ekstrak ke {0}/", namaTanpaArsip(contextMenu.entry.name))}
+              </button>
+            </>
+          )}
+          <button
+            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
+            onClick={() => { const e = contextMenu.entry; setContextMenu(null); handleArsipkan(e, "zip") }}
+          >
+            <Archive className="size-3.5" /> {tr("Arsipkan (.zip)")}
+          </button>
+          {/* Menu .rar hanya muncul kalau program `rar` benar-benar terpasang
+              di server — tombol yang selalu gagal bukan fitur. */}
+          {formatArsip?.rar && (
+            <button
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
+              onClick={() => { const e = contextMenu.entry; setContextMenu(null); handleArsipkan(e, "rar") }}
+            >
+              <Archive className="size-3.5" /> {tr("Arsipkan (.rar)")}
+            </button>
+          )}
           {!contextMenu.entry.is_dir && (
             <button
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"

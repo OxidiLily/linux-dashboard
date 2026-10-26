@@ -148,6 +148,9 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/files/delete", s.handleDelete)
 			r.Post("/files/copy", s.handleCopy)
 			r.Post("/files/move", s.handleMove)
+			r.Post("/files/extract", s.handleExtract)
+			r.Post("/files/compress", s.handleCompress)
+			r.Get("/files/formats", s.handleArsipFormats)
 			r.Get("/files/roots", s.handleFileRoots)
 
 			r.Get("/bookmarks", s.handleBookmarks)

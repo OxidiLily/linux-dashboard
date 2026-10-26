@@ -73,6 +73,10 @@ const (
 	CmdFileChown  = "file.chown"
 	CmdFileRead   = "file.read"  // stream: helper → client
 	CmdFileWrite  = "file.write" // stream: client → helper
+	// Ekstrak arsip (zip/rar/tar) ke folder tujuan; compress membuat arsip
+	// baru (zip di proses helper, .rar lewat program `rar`).
+	CmdFileExtract  = "file.extract"
+	CmdFileCompress = "file.compress"
 
 	CmdSambaList   = "samba.list"
 	CmdSambaSave   = "samba.save"

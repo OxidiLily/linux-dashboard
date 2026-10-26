@@ -264,6 +264,24 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 	s.twoPathOp(w, r, helperproto.CmdFileMove, "move")
 }
 
+// handleExtract mengeluarkan isi arsip (zip/rar/tar) ke folder tujuan;
+// handleCompress membuat arsip baru. Keduanya berjalan sebagai user login
+// lewat helper — kernel yang menegakkan izin per berkas.
+func (s *Server) handleExtract(w http.ResponseWriter, r *http.Request) {
+	s.twoPathOp(w, r, helperproto.CmdFileExtract, "extract")
+}
+
+func (s *Server) handleCompress(w http.ResponseWriter, r *http.Request) {
+	s.twoPathOp(w, r, helperproto.CmdFileCompress, "compress")
+}
+
+// handleArsipFormats melaporkan format arsip yang benar-benar bisa dibuat di
+// mesin ini. Menu .rar disembunyikan di UI kalau programnya tidak terpasang —
+// tombol yang selalu gagal bukan fitur.
+func (s *Server) handleArsipFormats(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"zip": true, "rar": helperproto.BinRar() != ""})
+}
+
 func (s *Server) twoPathOp(w http.ResponseWriter, r *http.Request, cmd, opName string) {
 	sess := sessionFrom(r)
 	var body twoPathBody

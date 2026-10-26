@@ -542,7 +542,8 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 
 	case helperproto.CmdFileList, helperproto.CmdFileSearch, helperproto.CmdFileUsage, helperproto.CmdFileMkdir,
 		helperproto.CmdFileRemove, helperproto.CmdFileRename, helperproto.CmdFileCopy,
-		helperproto.CmdFileMove, helperproto.CmdFileChmod, helperproto.CmdFileChown:
+		helperproto.CmdFileMove, helperproto.CmdFileChmod, helperproto.CmdFileChown,
+		helperproto.CmdFileExtract, helperproto.CmdFileCompress:
 		return s.fileOp(u, req)
 
 	case helperproto.CmdSambaList:

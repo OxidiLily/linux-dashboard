@@ -7,6 +7,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/msteinert/pam/v2 v2.1.0
+	github.com/nwaples/rardecode v1.1.3
 	github.com/shirou/gopsutil/v4 v4.26.7
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.56.0

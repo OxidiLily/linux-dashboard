@@ -104,6 +104,25 @@ func (s *Server) fileOp(u *userInfo, req helperproto.Request) (json.RawMessage, 
 		}
 		return runAsUser(u, workerOp{Op: op, Path: src, Dest: dst}, nil, nil)
 
+	case helperproto.CmdFileExtract, helperproto.CmdFileCompress:
+		args, err := decodeArgs[helperproto.TwoPathArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		src, err := s.checkPath(u, args.Source)
+		if err != nil {
+			return nil, err
+		}
+		dst, err := s.checkPath(u, args.Dest)
+		if err != nil {
+			return nil, err
+		}
+		op := "extract"
+		if req.Cmd == helperproto.CmdFileCompress {
+			op = "compress"
+		}
+		return runAsUser(u, workerOp{Op: op, Path: src, Dest: dst}, nil, nil)
+
 	case helperproto.CmdFileChmod:
 		args, err := decodeArgs[helperproto.ChmodArgs](req)
 		if err != nil {
