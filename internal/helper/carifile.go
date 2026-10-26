@@ -153,6 +153,11 @@ func dirSistem(path string, ents []os.DirEntry) bool {
 		if e.Type()&os.ModeDevice != 0 {
 			return true
 		}
+		// DirEntry.Type() tidak selalu membawa device bit dari semua
+		// filesystem/container; Info().Mode() membaca metadata aktual.
+		if info, err := e.Info(); err == nil && info.Mode()&os.ModeDevice != 0 {
+			return true
+		}
 	}
 	return false
 }

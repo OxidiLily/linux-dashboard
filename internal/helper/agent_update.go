@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,7 +19,6 @@ import (
 
 // Update hanya menyentuh binary yang berada di HOME peminta. Instalasi
 // system-wide, channel khusus, dan pemilik paket yang tak dikenal dibiarkan.
-var versiAgenRE = regexp.MustCompile(`\b[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?\b`)
 
 func versiSemver(s string) string { return versiAgenRE.FindString(s) }
 
@@ -205,17 +203,109 @@ func pesanUpdateHermes(out string) string {
 	return ""
 }
 
+// batasUmurCacheHermes meniru TTL cache `check_for_updates` milik CLI hermes.
+// Lewat dari ini verdict dianggap basi dan pemanggil menyegarkannya lewat probe.
+const batasUmurCacheHermes = 6 * time.Hour
+
+// statusCacheHermes adalah verdict cache `check_for_updates` milik CLI hermes.
+type statusCacheHermes struct {
+	updateAvailable bool
+	// versi adalah sourceVersion: versi rilis target kanal — kolom
+	// "Versi tersedia". Kosong untuk kanal branch yang targetnya bukan rilis.
+	versi string
+}
+
+// parseStatusHermes membaca satu berkas cache source-checks milik CLI hermes.
+// Hanya dipakai kalau identity.head cocok dengan HEAD checkout sekarang (cache
+// lama = sebelum `hermes update`) dan masih dalam umur TTL-nya; selain itu
+// dianggap tidak ada dan pemanggil jatuh ke probe CLI.
+func parseStatusHermes(b []byte, head string, now time.Time) *statusCacheHermes {
+	var c struct {
+		Identity struct {
+			Head string `json:"head"`
+		} `json:"identity"`
+		TS     float64 `json:"ts"`
+		Status struct {
+			Supported       bool   `json:"supported"`
+			UpdateAvailable bool   `json:"updateAvailable"`
+			SourceVersion   string `json:"sourceVersion"`
+		} `json:"status"`
+	}
+	if json.Unmarshal(b, &c) != nil || !c.Status.Supported {
+		return nil
+	}
+	if head == "" || c.Identity.Head != head {
+		return nil
+	}
+	if c.TS <= 0 || now.Sub(time.Unix(int64(c.TS), 0)) > batasUmurCacheHermes {
+		return nil
+	}
+	return &statusCacheHermes{updateAvailable: c.Status.UpdateAvailable, versi: c.Status.SourceVersion}
+}
+
+// bacaStatusHermes mencari cache check_for_updates milik user
+// ($HOME/.hermes/source-checks/*.json): verdict kanal rilis + versi target
+// tanpa menjalankan proses Python berat (`hermes --version` butuh ~9 detik).
+func bacaStatusHermes(u *userInfo, hermesDir string) *statusCacheHermes {
+	headOut, err := jalankanAgen(u, 4*time.Second, "git", "-C", hermesDir, "rev-parse", "HEAD")
+	if err != nil {
+		return nil
+	}
+	head := strings.TrimSpace(headOut)
+	berkas, _ := filepath.Glob(filepath.Join(u.Home, ".hermes", "source-checks", "*.json"))
+	now := time.Now()
+	for _, p := range berkas {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if st := parseStatusHermes(b, head, now); st != nil {
+			return st
+		}
+	}
+	return nil
+}
+
 func cekUpdateAgenLangsung(name string, u *userInfo, path string) (bool, string, error) {
 	switch name {
 	case "hermes":
-		// Cek repository langsung.
 		hermesDir := filepath.Join(u.Home, ".hermes", "hermes-agent")
+
+		// Verdict CLI hermes yang menentukan apa yang benar-benar akan
+		// dilakukan `hermes update` (kanal rilis, bukan branch main yang
+		// maju terus). Sumber utamanya cache check_for_updates milik CLI
+		// sendiri: murah dan memuat sourceVersion untuk kolom
+		// "Versi tersedia".
+		if st := bacaStatusHermes(u, hermesDir); st != nil {
+			if !st.updateAvailable {
+				return false, "", nil
+			}
+			if st.versi != "" {
+				return true, st.versi, nil
+			}
+		}
+
+		// Cache tidak ada/basi atau targetnya bukan rilis: tanya CLI —
+		// sekaligus menyegarkan cache untuk scan berikutnya. Batasnya
+		// longgar — cek pertama butuh network dan bisa ~10 dtk.
+		if out, err := jalankanAgen(u, 15*time.Second, path, "--version"); err == nil {
+			if pesan := pesanUpdateHermes(out); pesan != "" {
+				return true, pesan, nil
+			}
+			// CLI menyatakan rilis terpasang sudah yang terbaru — jangan
+			// diboongi perbandingan branch main yang maju terus.
+			if strings.Contains(out, "Up to date") {
+				return false, "", nil
+			}
+		}
+
+		// Cek repository langsung (fallback: CLI tidak bisa ditanya).
 		if fi, err := os.Stat(filepath.Join(hermesDir, ".git")); err == nil && fi.IsDir() {
 			localShaOut, _ := jalankanAgen(u, 4*time.Second, "git", "-C", hermesDir, "rev-parse", "HEAD")
 			headSha := strings.TrimSpace(localShaOut)
 
 			// Cek remote tip via git ls-remote (cepat dan langsung dari repo remote)
-			remoteOut, err := jalankanAgen(u, 6*time.Second, "git", "-C", hermesDir, "ls-remote", "origin", "refs/heads/main")
+			remoteOut, err := jalankanAgen(u, 10*time.Second, "git", "-C", hermesDir, "ls-remote", "origin", "refs/heads/main")
 			if err == nil {
 				fields := strings.Fields(remoteOut)
 				if len(fields) > 0 && len(fields[0]) >= 7 {
@@ -223,15 +313,7 @@ func cekUpdateAgenLangsung(name string, u *userInfo, path string) (bool, string,
 					if headSha != "" && remoteSha == headSha {
 						return false, "", nil // Sudah versi terbaru di repo
 					}
-					// Ada commit baru: ambil teks jumlahnya dari --version
-					// ("728 commits behind — run 'hermes update'") supaya
-					// notifikasi panel menyebut angkanya, bukan cuma "commits".
-					if out, err := jalankanAgen(u, 6*time.Second, path, "--version"); err == nil {
-						if pesan := pesanUpdateHermes(out); pesan != "" {
-							return true, pesan, nil
-						}
-					}
-					return true, "commits", nil // Ada commit baru di remote
+					return true, "commit " + remoteSha[:7], nil // Ada commit baru di remote
 				}
 			}
 
@@ -240,15 +322,20 @@ func cekUpdateAgenLangsung(name string, u *userInfo, path string) (bool, string,
 			if err == nil {
 				count := strings.TrimSpace(countOut)
 				if count != "" && count != "0" {
-					return true, "commits", nil
+					return true, fmt.Sprintf("%s commit", count), nil
 				}
 			}
 		}
 
 		// Fallback lewat probe --version
 		local, err := jalankanAgen(u, 6*time.Second, path, "--version")
-		if err == nil && (strings.Contains(local, "Update available:") || strings.Contains(local, "commits behind")) {
-			return true, "commits", nil
+		if err == nil {
+			if pesan := pesanUpdateHermes(local); pesan != "" {
+				return true, pesan, nil
+			}
+			if strings.Contains(local, "commits behind") {
+				return true, "commits", nil
+			}
 		}
 		return false, "", nil
 

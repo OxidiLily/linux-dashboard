@@ -3,12 +3,14 @@ package helper
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -214,6 +216,36 @@ func rumahAkunManusia() []string {
 	return out
 }
 
+// versiStampHermes membaca versi terpasang dari install-stamp.json milik
+// checkout hermes ($HOME/.hermes/hermes-agent). Stamp ditulis build-time dan
+// menjadi sumber versi yang autoritatif — membaca berkas jauh lebih murah dan
+// selalu berhasil, dibanding probe `hermes --version` yang menyalakan proses
+// Python berat dan bisa melewati batas waktu (menghasilkan versi kosong).
+//
+// Mengembalikan "" kalau stamp tidak ada/rusak — pemanggil jatuh ke probe.
+func versiStampHermes(home string) string {
+	if home == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".hermes", "hermes-agent", "install-stamp.json"))
+	if err != nil {
+		return ""
+	}
+	var stamp struct {
+		DisplayVersion string `json:"displayVersion"`
+		BaseVersion    string `json:"baseVersion"`
+	}
+	if json.Unmarshal(b, &stamp) != nil {
+		return ""
+	}
+	if v := strings.TrimSpace(stamp.DisplayVersion); v != "" {
+		return v
+	}
+	return strings.TrimSpace(stamp.BaseVersion)
+}
+
+var versiAgenRE = regexp.MustCompile(`\b[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?\b`)
+
 // versiAgen membaca versi dari binary agent di mana pun ia terpasang.
 //
 // Hasilnya di-cache lewat versiTersimpan dengan kunci berisi ukuran & waktu
@@ -225,8 +257,50 @@ func versiAgen(binary string) func() string {
 		if !ok {
 			return ""
 		}
-		return versiTersimpan(path, func() string { return firstLine(tryRun(path, "--version")) })
+		return versiTersimpan(path, func() string {
+			// Hermes: stamp build-time dulu (instan & selalu ada), baru
+			// fallback ke probe `--version` yang mahal. Dua kandidat HOME:
+			// shim di ~/.local/bin dan launcher di dalam checkout.
+			if binary == "hermes" {
+				for _, home := range []string{untukHome(path), homeDariCheckoutHermes(path)} {
+					if v := versiStampHermes(home); v != "" {
+						return v
+					}
+				}
+			}
+			return firstLine(tryRun(path, "--version"))
+		})
 	}
+}
+
+// untukHome memperkirakan HOME dari path binary: biner resmi agent berada di
+// $HOME/.local/bin, jadi induk dari ".local" adalah HOME. Mengembalikan ""
+// kalau pola itu tidak cocok (binary system-wide) — versiStampHermes lalu
+// mengalah dan pemanggil jatuh ke probe.
+func untukHome(path string) string {
+	kandidat := filepath.Dir(path) // .../.local/bin
+	if filepath.Base(kandidat) != "bin" {
+		return ""
+	}
+	induk := filepath.Dir(kandidat) // .../.local
+	if filepath.Base(induk) != ".local" {
+		return ""
+	}
+	return filepath.Dir(induk)
+}
+
+// homeDariCheckoutHermes mengambil HOME dari binary yang berada di dalam
+// checkout hermes ($HOME/.hermes/hermes-agent/.hermes/bin/hermes): potong di
+// segmen ".hermes" pertama, karena struktur checkout selalu
+// $HOME/.hermes/hermes-agent. untukHome tidak mengenali pola ini (bukan
+// ~/.local/bin), padahal stamp versinya tetap di $HOME/.hermes/hermes-agent.
+func homeDariCheckoutHermes(path string) string {
+	pemisah := string(os.PathSeparator)
+	i := strings.Index(path, pemisah+".hermes"+pemisah)
+	if i <= 0 {
+		return ""
+	}
+	return path[:i]
 }
 
 // envAgen menyusun lingkungan pemasangan milik user.

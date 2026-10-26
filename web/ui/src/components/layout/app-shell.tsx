@@ -673,7 +673,12 @@ export function AppShell() {
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm">{c.name}</span>
                         <span className="block truncate text-xs text-muted">
-                          {c.version ?? "?"} → {c.latest_version}
+                          {c.version || "?"} →{" "}
+                          {c.latest_version === "commits"
+                            ? tr("Commit baru tersedia")
+                            : /[^0-9.]/.test(c.latest_version ?? "")
+                              ? c.latest_version
+                              : `v${c.latest_version}`}
                         </span>
                       </span>
                       <Button
