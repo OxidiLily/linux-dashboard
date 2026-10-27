@@ -100,12 +100,25 @@ UI changes need rebuilding/deployment to go live; tests may skip without root/pa
 
 ## Security
 
-- HTTP does not encrypt passwords, OTPs, or sessions. Restrict access to trusted networks; enable HTTPS before public access.
-- Files/terminals follow account permissions; Docker is root-equivalent. Formatting/purging/data uninstall modes can destroy data: back up first.
-- UFW INPUT does not automatically protect Docker published ports; configure forwarding firewall rules.
-- TOTP/recovery codes are available; privilege separation does not guarantee freedom from bugs or attacks.
-- GeoIP sends public banned IPs to `https://ipwho.is/`; flags may load from `https://cdn.ipwhois.io`. Location is an estimate.
-- New mailcow exposes HTTP :8080/HTTPS :8443 on all interfaces, initially using self-signed HTTPS. Change the admin password, enable 2FA, configure firewall/SMTP/IMAP TLS before public access. FQDN/DNS and resources follow [upstream](https://docs.mailcow.email/getstarted/prerequisite-system/); LXC/OpenVZ are unsupported upstream.
+Protections already built into this panel:
+
+- **PAM authentication** — login uses real Linux accounts (system password & policy, not a panel DB); failed attempts are throttled per IP and per username.
+- **Secure sessions** — `HttpOnly` + `SameSite=Lax` cookies (`Secure` with TLS), 12-hour TTL, every helper request HMAC-signed.
+- **Privilege separation** — unprivileged web, separate root helper over a Unix socket; files/terminals run as the logged-in user so kernel enforces Unix permissions.
+- **Credentials** — changing a password requires the old one; password/account/group changes revoke old sessions; resetting another user requires sudo.
+- **2FA TOTP** + recovery codes; the seed is encrypted with a root-owned key kept outside the database.
+- **Audit** — logins, admin actions, and file operations are recorded in Logs & Alerts.
+- **Upload limits** per file and per request; admin actions require the `sudo`/`admin` group.
+- **Firewall** — the installer enables UFW + fail2ban without touching existing rules; HTTPS via native TLS or reverse proxy.
+
+Limits you should know:
+
+- HTTP does not encrypt passwords/OTPs/sessions — enable HTTPS before public access.
+- Docker is root-equivalent; formatting/purge/uninstall can destroy data — back up first.
+- UFW INPUT does not automatically protect Docker published ports.
+- GeoIP sends banned public IPs to `https://ipwho.is/` and loads flags from `https://cdn.ipwhois.io` (location is an estimate).
+- mailcow exposes :8080/:8443 with self-signed HTTPS — change the admin password, enable 2FA, set up TLS/firewall before public access ([upstream requirements](https://docs.mailcow.email/getstarted/prerequisite-system/); LXC/OpenVZ unsupported).
+- Privilege separation limits the blast radius of bugs; it is not a guarantee against attacks.
 
 ## License
 

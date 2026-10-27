@@ -100,12 +100,25 @@ UI perlu rebuild/deploy untuk tampil live; tes dapat skip tanpa root/paket/peran
 
 ## Security
 
-- HTTP tidak mengenkripsi password, OTP, sesi. Batasi jaringan tepercaya; gunakan HTTPS sebelum akses publik.
-- File/terminal mengikuti izin akun; Docker setara root. Format/purge/uninstall data dapat menghapus data: cadangkan dahulu.
-- UFW INPUT tidak otomatis melindungi published ports Docker; atur firewall forwarding.
-- TOTP/recovery codes tersedia; pemisahan privilege bukan jaminan bebas bug atau serangan.
-- GeoIP mengirim IP publik diblokir ke `https://ipwho.is/`; bendera dapat dimuat dari `https://cdn.ipwhois.io`. Lokasi estimasi.
-- mailcow baru membuka HTTP :8080/HTTPS :8443 di semua interface, HTTPS awal self-signed. Ganti password admin, aktifkan 2FA, siapkan firewall/TLS SMTP/IMAP sebelum publik. FQDN/DNS dan resource mengikuti [upstream](https://docs.mailcow.email/getstarted/prerequisite-system/); LXC/OpenVZ tidak didukung upstream.
+Perlindungan yang sudah ada di panel ini:
+
+- **Autentikasi PAM** — login memakai akun Linux asli (password & kebijakan sistem, bukan DB panel); percobaan gagal dibatasi per IP dan per username.
+- **Sesi aman** — cookie `HttpOnly` + `SameSite=Lax` (`Secure` saat TLS), TTL 12 jam, tiap request ke helper ditandatangani HMAC.
+- **Pemisahan privilege** — web non-root, helper root terpisah lewat Unix socket; file/terminal berjalan sebagai user login sehingga izin Unix ditegakkan kernel.
+- **Kredensial** — ganti password wajib password lama; perubahan password/akun/grup otomatis mencabut sesi lama; reset user lain butuh sudo.
+- **2FA TOTP** + recovery codes; seed terenkripsi dengan key root-owned di luar database.
+- **Audit** — login, aksi admin, dan operasi file tercatat di Logs & Alerts.
+- **Batas upload** per berkas dan per permintaan; aksi admin hanya untuk grup `sudo`/`admin`.
+- **Firewall** — installer mengaktifkan UFW + fail2ban tanpa menyentuh rule existing; HTTPS via TLS native atau reverse proxy.
+
+Batas yang perlu diketahui:
+
+- HTTP tidak mengenkripsi password/OTP/sesi — aktifkan HTTPS sebelum akses publik.
+- Docker setara root; format/purge/uninstall dapat menghapus data — cadangkan dahulu.
+- UFW INPUT tidak otomatis melindungi published ports Docker.
+- GeoIP mengirim IP publik yang diblokir ke `https://ipwho.is/` dan bendera dari `https://cdn.ipwhois.io` (lokasi hanya estimasi).
+- mailcow membuka :8080/:8443 dengan HTTPS self-signed — ganti password admin, aktifkan 2FA, siapkan TLS/firewall sebelum publik ([kebutuhan upstream](https://docs.mailcow.email/getstarted/prerequisite-system/); LXC/OpenVZ tidak didukung).
+- Pemisahan privilege mengurangi dampak bug, bukan jaminan bebas serangan.
 
 ## License
 
