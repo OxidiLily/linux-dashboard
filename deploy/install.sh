@@ -329,9 +329,11 @@ while IFS=: read -r akun _ uid gid _ home shell; do
 done < /etc/passwd
 install -m 0755 "${BIN_SRC}/linux-dashboard-server" "${PREFIX}/linux-dashboard-server"
 install -m 0755 "${BIN_SRC}/linux-dashboard-helper" "${PREFIX}/linux-dashboard-helper"
-# Command CLI `uninstall-linuxpanel` — dipasang sebelum servis dimatikan
+# Command CLI `uninstall-linuxpanel` — satu skrip uninstall (antarmuka +
+# langkah uninstall dalam satu berkas) yang sama juga dipasang ke share
+# direktori dan di-embed ke binary helper. Dipasang sebelum servis dimatikan
 # supaya tetap tersedia setelah uninstall (untuk reinstall bila perlu).
-install -m 0755 deploy/uninstall-linuxpanel.sh "${PREFIX}/uninstall-linuxpanel"
+install -m 0755 internal/helper/uninstall.sh "${PREFIX}/uninstall-linuxpanel"
 ok "Binary dipasang di ${PREFIX}"
 ok "Command uninstall-linuxpanel terpasang (CLI)"
 
@@ -351,13 +353,10 @@ install -d -m 0755 /usr/local/share/linux-dashboard
 if [[ -f deploy/9router.service ]]; then
   install -m 0644 deploy/9router.service /usr/local/share/linux-dashboard/9router.service
 fi
-# Skrip uninstaller inti — dipasang di share direktori agar command
-# `uninstall-linuxpanel` (di /usr/local/bin) selalu bisa menemukannya,
-# tanpa harus bergantung pada source tree yang mungkin sudah dihapus
-# oleh mode 'panel'. Berkas ini DUPLIKAT dari internal/helper/uninstall.sh
-# yang di-embed ke binary helper — satu sumber, dua representasi, sama
-# isinya. Installer menyalin keduanya agar update sistem tidak kehilangan
-# command CLI ini.
+# Salinan kedua skrip uninstall di share direktori — cadangan bila command
+# di ${PREFIX} terhapus (mode 'panel-data'/'total' menghapusnya). Sumbernya
+# SAMA dengan yang di-embed ke binary helper: internal/helper/uninstall.sh —
+# satu berkas, tiga wujud, tidak ada duplikasi langkah uninstall.
 if [[ -f internal/helper/uninstall.sh ]]; then
   install -m 0644 internal/helper/uninstall.sh /usr/local/share/linux-dashboard/uninstall.sh
   ok "Skrip uninstall.sh dipasang ke share direktori"

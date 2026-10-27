@@ -1,10 +1,21 @@
 #!/bin/bash
-# Uninstaller linux-dashboard — kebalikan deploy/install.sh.
+# Uninstaller linux-dashboard — SATU skrip untuk semua peran, kebalikan
+# deploy/install.sh.
 #
-#   sudo ./deploy/uninstall.sh panel        # binary, service, PAM, sumber
-#   sudo ./deploy/uninstall.sh panel-data   # + data & config panel
-#   sudo ./deploy/uninstall.sh total        # + copot components yang dipasang panel
-#   sudo ./deploy/uninstall.sh total-data   # + hapus folder data akun (~/DATA)
+#   sudo uninstall-linuxpanel panel        # binary, service, PAM, sumber
+#   sudo uninstall-linuxpanel panel-data   # + data & config panel
+#   sudo uninstall-linuxpanel total        # + copot components yang dipasang panel
+#   sudo uninstall-linuxpanel total-data   # + hapus folder data akun (~/DATA)
+#
+# Tiga wujud, satu berkas (internal/helper/uninstall.sh):
+#   1. Command CLI /usr/local/bin/uninstall-linuxpanel — untuk saat panel
+#      tidak bisa dibuka dari browser (crash, lupa password, atau uninstall
+#      sengaja via SSH tanpa login web).
+#   2. Salinan cadangan /usr/local/share/linux-dashboard/uninstall.sh.
+#   3. Di-embed ke binary helper (go:embed, lihat uninstall.go): panel
+#      menjalankannya lewat systemd-run dengan mode sebagai argumen pertama —
+#      tanpa interaksi (stdin bukan TTY, konfirmasi dilewati; password sudah
+#      diverifikasi PAM sebelumnya).
 #
 # Dipanggil panel lewat helper daemon (Settings → profil → Uninstall), tapi
 # tetap bisa dijalankan sendiri dari terminal.
@@ -14,23 +25,147 @@
 # `total-data`. Folder itu dibuatkan panel, tapi isinya milik pemilik akun —
 # dokumen, foto, dan (di mesin yang dipakai mengembangkan panel ini) checkout
 # kode beserta vault catatan. Tidak ada tombol "undo" untuk penghapusan itu,
-# jadi mode tersebut harus dipilih sendiri dan diketik ulang namanya di UI.
+# jadi mode tersebut harus dipilih sendiri dan diketik ulang namanya.
 set -uo pipefail
 
-MODE="${1:-panel}"
 PREFIX="${PREFIX:-/usr/local/bin}"
 SRC="${SRC:-/usr/local/src/go-react-linux-dashboard}"
 SERVICE_USER="linux-dashboard"
+LOG="/var/log/linux-dashboard-uninstall.log"
+
+usage() {
+  cat <<EOF
+uninstall-linuxpanel — cabut linux-dashboard dari mesin ini.
+
+Pemakaian:
+  uninstall-linuxpanel                  Tanya mode (default: panel)
+  uninstall-linuxpanel <mode>           Jalankan dengan mode tertentu
+  uninstall-linuxpanel -y <mode>        Lewati konfirmasi
+  uninstall-linuxpanel --help           Tampilkan bantuan ini
+
+Mode:
+  panel        Hapus service, unit systemd, binary, PAM, source tree.
+               Database panel & bookmark TETAP ADA.
+  panel-data   Semua di atas + database panel, kunci sesi, /etc/default
+               (termasuk sertifikat TLS), akun service linux-dashboard.
+  total        Semua di atas + copot SEMUA component yang dipasang panel,
+               termasuk Docker, Node.js, Tailscale, cloudflared, dan alat AI,
+               berikut seluruh datanya, container/volume/image Docker, dan cache.
+  total-data   Semua di atas + HAPUS folder DATA di setiap home akun beserta
+               isinya (dokumen, foto, unduhan, kode) dan /etc/skel/DATA.
+               TIDAK BISA DIKEMBALIKAN — konfirmasinya mengetik 'HAPUS DATA'.
+
+Dipanggil tanpa sudo: otomatis re-exec lewat sudo. Dipanggil non-interaktif
+(oleh binary helper, stdin bukan TTY): mode diambil dari argumen pertama dan
+konfirmasi dilewati.
+EOF
+}
 
 log() { echo "[i] $*"; }
 ok() { echo "[✓] $*"; }
 die() { echo "[✗] $*" >&2; exit 1; }
 
+# ---- Re-exec lewat sudo kalau bukan root ----------------------------------
+if [[ $EUID -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 ||
+    die "Bukan root dan sudo tidak terpasang. Masuk sebagai root (mis. \`su -\`) lalu ulangi."
+  exec sudo "$0" "$@"
+fi
+
+# ---- Parse argumen -------------------------------------------------------
+ASSUME_YES=0
+MODE_RAW=""
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) usage; exit 0 ;;
+    -y|--yes)  ASSUME_YES=1 ;;
+    panel|panel-data|total|total-data) MODE_RAW="$arg" ;;
+    *) die "Argumen tidak dikenal: '$arg'. Coba --help." ;;
+  esac
+done
+
+# ---- Konfirmasi interaktif (hanya dari terminal) -------------------------
+# Jalur helper (systemd-run) tidak punya TTY: mode dikirim eksplisit sebagai
+# argumen dan password sudah dikonfirmasi PAM, jadi tidak ada prompt di sini.
+if [[ -t 0 ]]; then
+  if [[ -z "$MODE_RAW" ]]; then
+    echo "Pilih mode uninstall:"
+    echo "  1) panel         — binary + service + PAM + unit systemd"
+    echo "  2) panel-data    — + database, sertifikat TLS, /etc/default"
+    echo "  3) total         — + copot SEMUA components yang dipasang panel"
+    echo "  4) total-data    — + HAPUS folder data akun (~/DATA), tidak bisa dikembalikan"
+    read -r -p "Mode [1/2/3/4, default 1]: " pilih
+    case "${pilih:-1}" in
+      1|"") MODE_RAW="panel" ;;
+      2)    MODE_RAW="panel-data" ;;
+      3)    MODE_RAW="total" ;;
+      4)    MODE_RAW="total-data" ;;
+      *)    die "Pilihan tidak dikenal: $pilih" ;;
+    esac
+  fi
+
+  log "Mode: $MODE_RAW"
+  if (( ASSUME_YES == 0 )); then
+    echo
+    echo "Akan menjalankan uninstall dengan mode '$MODE_RAW'."
+    case "$MODE_RAW" in
+      panel)
+        echo "  — service dihentikan, binary & unit systemd dihapus"
+        echo "  — sumber di /usr/local/src dihapus"
+        echo "  — database panel, akun, bookmark TETAP ADA"
+        ;;
+      panel-data)
+        echo "  — semua mode panel"
+        echo "  — database panel, kunci sesi, /etc/default (termasuk sertifikat TLS) dihapus"
+        echo "  — akun service '$SERVICE_USER' dihapus"
+        ;;
+      total)
+        echo "  — semua mode panel-data"
+        echo "  — SEMUA components yang dipasang panel dicopot, termasuk"
+        echo "    Docker, Node.js, Tailscale, cloudflared, dan alat AI"
+        echo "  — Data component ikut dihapus (token cloudflared, password 9router)"
+        echo "  — Data Docker (container, volume, network, image) ikut dibersihkan"
+        ;;
+      total-data)
+        echo "  — semua mode total"
+        echo "  — folder DATA di SETIAP home akun DIHAPUS BESERTA ISINYA"
+        echo "    (dokumen, foto, unduhan, kode) — TIDAK BISA DIKEMBALIKAN"
+        echo "  — /etc/skel/DATA ikut dihapus"
+        ;;
+    esac
+    if [[ "$MODE_RAW" == "total-data" ]]; then
+      echo
+      echo "  Folder data akun akan dihapus. Ketik 'HAPUS DATA' (huruf besar) untuk lanjut,"
+      read -r -p "  atau apa pun yang lain untuk membatalkan: " jawab
+      [[ "$jawab" == "HAPUS DATA" ]] || { log "Dibatalkan."; exit 0; }
+    else
+      echo "  — ~/DATA/ setiap akun TIDAK disentuh"
+      echo
+      read -r -p "Lanjut? Ketik 'yes' untuk konfirmasi: " jawab
+      [[ "$jawab" == "yes" ]] || { log "Dibatalkan."; exit 0; }
+    fi
+  fi
+fi
+
+# ---- Mode final ----------------------------------------------------------
+MODE="${MODE_RAW:-panel}"
 case "$MODE" in
   panel | panel-data | total | total-data) ;;
   *) die "Mode tidak dikenal: ${MODE} (pakai panel | panel-data | total | total-data)" ;;
 esac
 [[ $EUID -eq 0 ]] || die "Harus root."
+
+# ---- Log -----------------------------------------------------------------
+# Dari terminal seluruh keluaran ikut tersimpan di log. Dari helper,
+# systemd-run sudah mengarahkan stdout/stderr ke log yang sama.
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+{
+  echo "[i] uninstall-linuxpanel dipanggil pada $(date -Iseconds)"
+  echo "[i] Mode: $MODE"
+} >>"$LOG" 2>/dev/null || true
+if [[ -t 1 ]]; then
+  exec > >(tee -a "$LOG") 2>&1
+fi
 
 log "Mode: ${MODE}"
 
@@ -58,7 +193,9 @@ ok "Binary web, konfigurasi PAM, dan sumber dihapus"
 # ---- 1b. Command CLI -----------------------------------------------------
 # Mode 'panel' mempertahankan `uninstall-linuxpanel` supaya user bisa reinstall
 # tanpa harus unduh installer dari GitHub dulu. Mode 'panel-data' / 'total'
-# menghapus command ini juga — reinstall akan menulisnya kembali.
+# menghapus command ini juga — reinstall akan menulisnya kembali. Saat skrip
+# ini berjalan dari command itu sendiri, penghapusan dirinya sendiri aman:
+# bash memegang fd berkasnya tetap terbuka sampai skrip selesai.
 if [[ "$MODE" == "panel" ]]; then
   : # sengaja dibiarkan
 else
