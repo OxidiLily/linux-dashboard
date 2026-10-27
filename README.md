@@ -71,7 +71,7 @@ Config service: `/etc/default/linux-dashboard`. Unit: `linux-dashboard-web.servi
 
 Untuk reverse proxy HTTPS, upstream panel HTTP tetap `http`; kosongkan cert/key native jika memilih HTTP upstream.
 State web: `/var/lib/linux-dashboard`; helper: `/var/lib/linux-dashboard-helper`;
-state AI per akun: `~/DATA/AppData/linux-dashboard`.
+state AI per akun: `~/DATA/AppData/AI`.
 Supabase: batasi port DB 5432/6543; edit `.env` perlu **Up**, bukan Restart.
 AI membutuhkan login/provider; Hermes/OpenClaw dapat memakai 9router bila key aktif tersedia.
 

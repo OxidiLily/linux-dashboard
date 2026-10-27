@@ -6,7 +6,7 @@ set -euo pipefail
 # 2) directory tempat script ini berada, jika ada SOUL.md
 # 3) fallback default di home user
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_ROOT="$HOME/DATA/Documents/obsidian-vault/setup"
+DEFAULT_ROOT="$HOME/DATA/AppData/AI"
 
 if [[ -n "${LAST_RITE_SETUP_ROOT:-}" ]]; then
   SETUP_ROOT="$LAST_RITE_SETUP_ROOT"
@@ -134,6 +134,19 @@ Shared state:
 
 Before substantive work in every new session, read the canonical SOUL.
 
+MANDATORY KNOWLEDGE LOOP (run for every user question, no skipping):
+1) Search $SETUP_ROOT/Sessions/ for the user's topic FIRST; if a note matches, answer from it.
+2) If none matches, research the web using legit sources (official docs, vendor repos,
+   standards bodies, scientific publications); record URL + access date.
+3) Summarize the verified answer.
+4) Create/update the Session note BEFORE presenting the answer to the user
+   ($SETUP_ROOT/Sessions/<topic-kebab-case>.md, include Agent: $agent_id + sources).
+5) Present the summary to the user.
+6) On a repeat question, answer from the Session note without re-researching.
+Session continuation: same topic / ongoing session -> UPDATE the same note (append
+delta + bump timestamp); unrelated topic -> new note; new topic RELATED to an old note
+-> summarize the old note into a NEW note referencing it.
+
 9Router upstream skills:
 - Entry: ${NINEROUTER_SKILL_URLS[0]}
 - Cache root: $NINEROUTER_SKILL_ROOT
@@ -208,6 +221,20 @@ Shared state:
 
 Untuk autentikasi selalu manifest-first:
 SERVICE_NAME -> <Service>.md -> CREDENTIAL_KEY -> kredensial.env.
+
+ALUR WAJIB untuk setiap pertanyaan Endministrator (jangan dilewati):
+1. Cari topik user di $SETUP_ROOT/Sessions/ LEBIH DULU; bila ada, jawab dari session.
+2. Bila tidak ada: riset internet dengan sumber legit (docs resmi/vendor/standar),
+   catat URL + tanggal.
+3. Rangkum jawaban terverifikasi.
+4. BUAT/UPDATE file session di $SETUP_ROOT/Sessions/<topik-kebab-case>.md
+   SEBELUM menyajikan jawaban (isi: ringkasan, sumber, timestamp, Agent: hermes).
+5. Sajikan ringkasan ke user.
+6. Pertanyaan sama berikutnya -> jawab langsung dari session; riset ulang hanya
+   bila session tidak ada/basi atau user minta update.
+Aturan lanjutan session: topik sama/1 sesi -> UPDATE note yang sama (append delta,
+perbarui timestamp); topik beda -> note baru; topik baru yang BERKAITAN dengan note
+lama -> rangkum note lama ke note BARU + referensi nama note lama.
 
 Jangan otomatis mencari service credential di ~/.hermes/.env, ~/.git-credentials,
 ~/.netrc, credential helper, SSH key, atau config agent lain kecuali Endministrator

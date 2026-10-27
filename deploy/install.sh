@@ -144,14 +144,14 @@ pastikan_go() {
   # seri go.mod adalah patch terbaru seri itu. Seri kosong (go.mod tidak
   # terbaca) jatuh ke perilaku lama: versi absolut terbaru.
   pola="\"version\":[[:space:]]*\"go${seri//./\\.}[^\"]*\""
-  terbaru=$(printf '%s' "$versi_mentah" | grep -oE "$pola" | head -n1 | sed 's/.*"go//; s/"$//')
+  terbaru=$(printf '%s' "$versi_mentah" | grep -oE "$pola" | sed -n '1p' | sed 's/.*"go//; s/"$//')
   terpasang=$(go version 2>/dev/null | awk '{print $3}') || terpasang=""
   terpasang=${terpasang#go}
   if [[ -n "$terpasang" && -z "$terbaru" ]]; then
     ok "Go ${terpasang} — pengecekan versi dilewati (go.dev tidak terjangkau)"
     return
   fi
-  if [[ -n "$terpasang" && "$terbaru" == "$(printf '%s\n%s\n' "$terpasang" "$terbaru" | sort -V | head -n1)" ]]; then
+  if [[ -n "$terpasang" && "$terbaru" == "$(printf '%s\n%s\n' "$terpasang" "$terbaru" | sort -V | sed -n '1p')" ]]; then
     ok "Go ${terpasang} sudah memadai (target patch terbaru seri ${seri}: ${terbaru})"
     return
   fi
@@ -385,9 +385,11 @@ for file in grounded-search.py policy-seed.md; do
 done
 # Seed semua akun sebelum mengganti binary/unit; script kini terbaca meski
 # checkout berada dalam home operator yang tidak bisa dilintasi user lain.
+# Root ikut diseed (uid 0) — sesi agent yang berjalan sebagai root (mis. Hermes
+# CLI) memakai ~/DATA/AppData/AI yang sama.
 while IFS=: read -r akun _ uid gid _ home shell; do
   [[ "$uid" =~ ^[0-9]+$ ]] || continue
-  (( uid >= 1000 )) || continue
+  (( uid == 0 || uid >= 1000 )) || continue
   [[ "$shell" != */nologin && "$shell" != */false && -d "$home" ]] || continue
   runuser -u "$akun" -- env -i HOME="$home" PATH=/usr/bin:/bin LC_ALL=C \
     bash "$seed_root/deploy/install-ai-state.sh" "$home" "$seed_root" || \

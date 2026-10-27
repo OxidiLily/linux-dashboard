@@ -7,7 +7,7 @@ tanpa menyamakan format native antar-harness.
 
 `SETUP_ROOT` menunjuk shared state panel per akun. Lokasi runtime:
 
-`$HOME/DATA/AppData/linux-dashboard`
+`$HOME/DATA/AppData/AI`
 
 Dokumen ini diadaptasi dari referensi Obsidian; file referensi bukan dependency runtime.
 
@@ -53,7 +53,8 @@ Aturan:
 
 1. Baca `$SETUP_ROOT/SOUL.md`.
 2. Pahami permintaan Endministrator.
-3. Cari Session terkait di `$SETUP_ROOT/Sessions/`; lanjutkan note yang sama bila topiknya sama.
+3. Cari Session terkait di `$SETUP_ROOT/Sessions/` — WAJIB sebelum menjawab;
+   lanjutkan note yang sama bila topiknya sama.
 4. Jika auth dibutuhkan, resolve manifest di `$SETUP_ROOT/kredensial/`.
 5. Bila credential belum tersedia: N1→N4 sesuai SOUL.
 6. Baca Skill relevan di `$SETUP_ROOT/Skills/`.
@@ -62,7 +63,15 @@ Aturan:
    - Jika upstream gagal, gunakan `$SETUP_ROOT/Skills/_upstream/<skill-name>/SKILL.md`.
 7. Eksekusi/jawab dan verifikasi state aktual.
 8. Update Session note shared; setiap delta diberi timestamp + `Agent: <agent-id>`.
+   Untuk pertanyaan pengetahuan: session ditulis SEBELUM jawaban disajikan ke user.
 9. Update Skill shared hanya untuk improvement reusable.
+
+Alur pertanyaan pengetahuan (detail di SOUL §0.1):
+Session → riset internet sumber legit (URL + tanggal) → rangkum → tulis Session → sajikan.
+Pertanyaan berulang dibuka dari Session, bukan riset ulang.
+Lanjutan session (SOUL §0.1 S1–S3): topik sama → update note yang sama (append delta);
+topik beda → note baru; topik baru yang berkaitan dengan note lama → rangkum note lama
+ke note baru + referensi.
 
 Sebelum write ke file shared, re-read versi terbaru dan gunakan atomic write/locking bila tersedia.
 

@@ -101,7 +101,7 @@ def install(home, seed):
         raise ValueError("Home does not match account environment")
     with contextlib.ExitStack() as stack:
         fd = open_home(stack, home)
-        for name in ("DATA", "AppData", "linux-dashboard"):
+        for name in ("DATA", "AppData", "AI"):
             fd = directory(stack, fd, name)
         lock = keep(stack, os.open(".ai-state.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
                                   | os.O_NONBLOCK | os.O_CLOEXEC, 0o600, dir_fd=fd))
@@ -119,7 +119,7 @@ def install(home, seed):
         os.fchmod(sessions, 0o700)
         for name, content, replace in data:
             publish(fd, name, content, replace)
-    print("AI state: " + home + "/DATA/AppData/linux-dashboard")
+    print("AI state: " + home + "/DATA/AppData/AI")
 
 
 if __name__ == "__main__":

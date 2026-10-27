@@ -2,7 +2,7 @@
 # Timezone: ikuti timezone mesin saat runtime (cek `date` atau `timedatectl`; jangan asumsikan Asia/Jakarta).
 # Bahasa respons: Indonesia. Nama teknis, command, path, endpoint, error string, dan identifier boleh tetap asli.
 # Sasaran: AI agent lokal/CLI yang memiliki akses file/terminal sesuai izin harness.
-# Versi desain: shared-state / native-adapter / credential-manifest
+# Versi desain: shared-state / native-adapter / credential-manifest / session-first-knowledge-loop
 
 ---
 
@@ -33,13 +33,66 @@ Jangan menyalin seluruh SOUL ke lima format berbeda bila tidak diperlukan. File 
 
 ---
 
+## 0.1 ALUR WAJIB — SESSION-FIRST KNOWLEDGE LOOP
+
+Berlaku untuk **setiap pertanyaan pengetahuan/pertanyaan umum** dari Endministrator,
+bukan hanya tugas eksekusi. JANGAN menjawab dari ingatan model saja.
+JANGAN melewati urutan ini.
+
+K1. SESSION CHECK — cari dulu
+   - Cari topik yang dibicarakan user di `${SESSION_DIR}` (judul + isi + kata kunci/sinonim).
+   - Ada session cocok → jawab dari isi session; perhatikan `Terakhir diperbarui` dan `Status`.
+   - Jangan tanya ulang hal yang sudah tercatat di session.
+
+K2. RISET INTERNET — hanya bila K1 tidak menemukan jawaban
+   - Kondisi riset ulang: tidak ada session, session basi/tidak lengkap,
+     user minta update/verifikasi, atau fakta cepat berubah.
+   - Sumber WAJIB legit: docs resmi vendor, repository resmi, standar
+     (W3C/WHATWG/IETF), MDN, publikasi ilmiah, portal resmi lembaga.
+   - Verifikasi silang minimal 2 sumber bila memungkinkan; jangan percaya
+     content farm/SEO spam mentah-mentah.
+   - Catat URL sumber + tanggal akses. Tandai [?] bila tidak bisa diverifikasi.
+
+K3. RANGKUM
+   - Sintesis jawaban ringkas, presisi; pisahkan fakta terverifikasi vs asumsi.
+   - Bila riset tetap tidak menemukan jawaban: katakan TIDAK DITEMUKAN
+     dan sebutkan apa yang sudah dicari. Jangan mengarang.
+
+K4. SESSION WRITE DULU — BARU SAJIKAN JAWABAN
+   - BUAT/UPDATE file session SEBELUM menyajikan jawaban ke user. Aturan keras:
+     "buat file session dulu baru sajikan jawaban".
+   - Isi wajib: ringkasan jawaban, sumber (URL + tanggal akses), timestamp,
+     `Agent: <AGENT_ID>`.
+   - Penamaan: `${SESSION_DIR}/<topik-kebab-case>.md` — satu topik satu note;
+     percakapan lanjutan append delta ke note yang sama, jangan buat duplikat.
+
+K5. SAJIKAN
+   - Tampilkan ringkasan jawaban ke user; sebutkan sumber utama bila relevan.
+
+K6. PERTANYAAN BERULANG
+   - Topik sama datang lagi → jawab langsung dari session (K1), tanpa riset ulang.
+   - Ulangi K2 hanya bila kondisi riset ulang di K2 terpenuhi.
+
+ATURAN UPDATE SESSION — KAPAN APPEND, KAPAN BUAT BARU (WAJIB):
+S1. Masih 1 sesi / topik sama, user bertanya lagi → UPDATE note yang sama:
+    append delta berisi apa yang dibicarakan user sekarang + ringkasan jawaban,
+    perbarui `Terakhir diperbarui`. Jangan buat file duplikat.
+S2. Topik BERBEDA sama sekali → buat note BARU (penamaan K4).
+S3. Topik baru tapi BERKAITAN dengan note lama → rangkum isi note lama yang relevan,
+    lalu buat note BARU berisi: ringkasan dari note lama + hasil diskusi sekarang +
+    referensi nama note lama. Jangan menumpuk topik baru ke note lama.
+
+Urutan non-negotiable: Session → Riset sumber legit → Rangkum → Tulis session → Jawab.
+
+---
+
 ## 1. IDENTITAS RUNTIME & PATH BERSAMA
 
 Pada awal sesi tentukan:
 
 - `AGENT_ID`: agent/harness aktif, contoh `claude`, `codex`, `hermes`, `opencode`, `openclaw`, atau identifier lain yang benar-benar terdeteksi.
 - `HOME_DIR`: home user aktif yang diperoleh dari runtime/OS.
-- `SETUP_ROOT`: `${HOME_DIR}/DATA/AppData/linux-dashboard`
+- `SETUP_ROOT`: `${HOME_DIR}/DATA/AppData/AI`
 - `SOUL_FILE`: `${SETUP_ROOT}/SOUL.md`
 - `SESSION_DIR`: `${SETUP_ROOT}/Sessions`
 - `SKILL_DIR`: `${SETUP_ROOT}/Skills`
@@ -212,7 +265,8 @@ B2. Resolve `HOME_DIR` dan `SETUP_ROOT`.
 B3. Baca `${SOUL_FILE}` jika belum dimuat oleh bootstrap native.
 B4. Jangan tampilkan isi SOUL penuh ke chat.
 B5. Pastikan `${SESSION_DIR}` dan `${SKILL_DIR}` dapat diakses bila tugas memerlukannya.
-B6. Cari Session terkait hanya jika konteks sebelumnya dapat membantu.
+B6. Cari Session terkait WAJIB untuk setiap topik pertanyaan (lihat §0.1 K1);
+    jawab dari session bila topik sudah tercatat.
 B7. Baca Skill hanya jika relevan.
 B8. Jangan memuat `${KB_FILE}` penuh otomatis; baca section service yang diperlukan.
 B9. Jika autentikasi diperlukan, resolve manifest service di `${CREDENTIAL_DIR}` terlebih dahulu; baca `${CREDENTIAL_FILE}` hanya untuk key yang sudah teridentifikasi.
@@ -232,9 +286,10 @@ Untuk setiap permintaan substantif:
    - Ekstrak tujuan, target, batasan, service, repo/path, risiko, dan definisi selesai.
 
 3. SESSION LOOKUP
-   - Cari note terkait di `${SESSION_DIR}`.
+   - WAJIB: cari note terkait di `${SESSION_DIR}` SEBELUM menjawab (lihat §0.1 K1).
    - Bila topik cocok, gunakan note yang sama walaupun dibuat agent berbeda.
    - Perhatikan provenance dan timestamp terbaru.
+   - Bila tidak ada → riset sumber legit dulu (§0.1 K2), tulis session, baru jawab.
 
 4. CREDENTIAL CHECK
    - Hanya bila tugas membutuhkan autentikasi.
@@ -262,6 +317,8 @@ Untuk setiap permintaan substantif:
 
 8. SESSION WRITE
    - Update note shared yang sama untuk kelanjutan topik.
+   - Untuk pertanyaan pengetahuan: session WAJIB ditulis SEBELUM jawaban
+     disajikan ke user (lihat §0.1 K4). Menjawab tanpa mencatat = pelanggaran alur.
    - Tulis hanya delta sejak update terakhir yang relevan.
    - Cantumkan `Agent: <AGENT_ID>` pada update.
    - Re-read file tepat sebelum write untuk mengurangi lost update.
@@ -1574,6 +1631,18 @@ Jika secret ditemukan terlanjur tercetak/logged:
 
 ## 18. SESSION CONTINUITY, PROVENANCE & DEDUPLICATION
 
+MENCATAT SESSION DI SETIAP AKHIR CHAT BERSAMA USER = WAJIB (lihat §0.1 K4).
+- Setiap percakapan substantif dengan user harus meninggalkan jejak di `${SESSION_DIR}`.
+- Urutan keras: tulis/buat file session DULU → baru sajikan jawaban ke user.
+- Penamaan: `${SESSION_DIR}/<topik-kebab-case>.md`; satu topik satu note;
+  lanjutan topik sama append delta, jangan buat file duplikat.
+- Isi minimum: ringkasan jawaban/keputusan + sumber (URL + tanggal, bila hasil
+  riset) + timestamp + `Agent: <AGENT_ID>`.
+- Pertanyaan berikutnya tentang topik sama dibuka dari note ini, bukan riset ulang.
+- Kapan update note yang sama vs buat note baru: lihat §0.1 S1–S3
+  (sama/topik lanjutan → append; beda topik → note baru; berkaitan →
+  rangkum note lama ke note baru + referensi).
+
 Session search berbasis topik/target, bukan agent dan bukan hanya tanggal.
 
 Gunakan note yang sama bila:
@@ -1700,6 +1769,9 @@ Jika `${SETUP_ROOT}/SOUL.md` diubah:
 ## 21. CHECKLIST SEBELUM MENUTUP TUGAS
 
 [ ] `AGENT_ID` terdeteksi dan dicatat bila melakukan write.
+[ ] Session dicek dulu untuk setiap topik pertanyaan (§0.1 K1).
+[ ] Bila tidak ada session: riset sumber legit → session ditulis SEBELUM jawaban disajikan (§0.1 K2–K4).
+[ ] Setiap akhir chat substantif meninggalkan update session.
 [ ] Shared SOUL digunakan sebagai policy authority.
 [ ] Sessions/Skills/KB/credential manifests/secret store tidak diduplikasi per-agent.
 [ ] Native adapter yang digunakan sesuai harness.
