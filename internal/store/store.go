@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS user_totp (
   secret_ciphertext BLOB NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 0,
   last_counter INTEGER NOT NULL DEFAULT -1,
+  recovery_ciphertext BLOB,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -160,6 +161,11 @@ func Open(path string) (*Store, error) {
 		// login ulang — bukan diperlakukan sebagai user mana pun.
 		`ALTER TABLE sessions ADD COLUMN helper_token TEXT`,
 		`ALTER TABLE geoip_cache ADD COLUMN data TEXT NOT NULL DEFAULT ''`,
+		// Recovery codes dalam bentuk terenkripsi supaya pemilik bisa
+		// menampilkan/mengunduh ulang (lihat handleTOTPRecoveryCodes). NULL
+		// untuk enrollment sebelum kolom ini ada — kode lama hanya hidup di
+		// tangan user, persis seperti perilaku lama.
+		`ALTER TABLE user_totp ADD COLUMN recovery_ciphertext BLOB`,
 	} {
 		if _, err := db.Exec(kolom); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrasi kolom preferensi: %w", err)
@@ -190,7 +196,7 @@ func (s *Store) SetTOTPPending(username string, ciphertext []byte) error {
 	_, err := s.db.Exec(`INSERT INTO user_totp(username, secret_ciphertext, enabled, last_counter, updated_at)
 VALUES(?,?,0,-1,CURRENT_TIMESTAMP)
 ON CONFLICT(username) DO UPDATE SET secret_ciphertext=excluded.secret_ciphertext, enabled=0,
-last_counter=-1, updated_at=CURRENT_TIMESTAMP`, username, ciphertext)
+last_counter=-1, recovery_ciphertext=NULL, updated_at=CURRENT_TIMESTAMP`, username, ciphertext)
 	if err == nil {
 		_, err = s.db.Exec(`DELETE FROM user_totp_recovery WHERE username=?`, username)
 	}
@@ -280,6 +286,33 @@ func (s *Store) ConsumeTOTPRecovery(username string, hash []byte) (bool, error) 
 func (s *Store) DisableTOTP(username string) error {
 	_, err := s.db.Exec(`DELETE FROM user_totp WHERE username=?`, username)
 	return err
+}
+
+// SetTOTPRecoveryCiphertext menyimpan recovery codes dalam bentuk terenkripsi
+// supaya pemiliknya bisa menampilkan/mengunduh ulang (tetap lewat verifikasi
+// password). Hash di user_totp_recovery tetap yang dipakai memvalidasi kode
+// saat login — plaintext-nya tidak pernah masuk DB.
+func (s *Store) SetTOTPRecoveryCiphertext(username string, ciphertext []byte) error {
+	_, err := s.db.Exec(`UPDATE user_totp SET recovery_ciphertext=?, updated_at=CURRENT_TIMESTAMP WHERE username=?`,
+		ciphertext, username)
+	return err
+}
+
+// TOTPRecoveryCiphertext mengembalikan recovery codes terenkripsi; ok=false
+// bila tidak pernah tersimpan (enrollment sebelum fitur ini ada).
+func (s *Store) TOTPRecoveryCiphertext(username string) ([]byte, bool, error) {
+	var b []byte
+	err := s.db.QueryRow(`SELECT recovery_ciphertext FROM user_totp WHERE username=? AND enabled=1`, username).Scan(&b)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if len(b) == 0 {
+		return nil, false, nil
+	}
+	return b, true, nil
 }
 
 // DeleteUserSecurityState membuang faktor kedua milik identitas Linux yang

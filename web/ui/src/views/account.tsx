@@ -115,6 +115,38 @@ export function AccountView() {
     } catch (e) { notify.err(trf("Gagal menonaktifkan TFA: {0}", pesanError(e))) }
   }
 
+  // lihatKode membuka ulang recovery codes — syaratnya sama dengan nonaktifkan
+  // TFA: password Linux diverifikasi server (PAM) sebelum kode dibuka.
+  const lihatKode = async () => {
+    const password = await promptDialog({ title: tr("Lihat recovery codes"), label: tr("Konfirmasi password Linux"), password: true, confirmLabel: tr("Lanjutkan") })
+    if (!password) return
+    try {
+      const result = await apiSend<{ recovery_codes: string[] }>("/api/settings/account/totp/recovery-codes", "POST", { password })
+      setRecoveryCodes(result.recovery_codes)
+    } catch (e) {
+      notify.err(trf("Gagal menampilkan recovery codes: {0}", pesanError(e)))
+    }
+  }
+
+  // unduhKode menyimpan recovery codes sebagai berkas teks lewat browser —
+  // tanpa lewat server, jadi tidak ada jejak unduhan di log panel.
+  const unduhKode = (codes: string[]) => {
+    const isi = [
+      "Linux Server Dashboard — recovery codes",
+      `Akun: ${currentUser?.username ?? ""}`,
+      `Tanggal: ${new Date().toISOString()}`,
+      "",
+      ...codes,
+      "",
+    ].join("\n")
+    const url = URL.createObjectURL(new Blob([isi], { type: "text/plain" }))
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `recovery-codes-${currentUser?.username ?? "tfa"}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
@@ -385,12 +417,33 @@ export function AccountView() {
           )}
           {recoveryCodes.length > 0 && (
             <div className="rounded-md border border-warn/40 bg-warn/10 p-3">
-              <p className="font-medium">{tr("Simpan recovery codes ini sekarang. Kode hanya ditampilkan sekali.")}</p>
+              <p className="font-medium">{tr("Simpan recovery codes ini di tempat aman.")}</p>
               <div className="mt-2 grid grid-cols-2 gap-1 font-mono text-xs">{recoveryCodes.map((code) => <span key={code}>{code}</span>)}</div>
-              <Button className="mt-3" size="sm" variant="outline" onClick={() => setRecoveryCodes([])}>{tr("Saya sudah menyimpan")}</Button>
+              <div className="mt-3 flex gap-2">
+                {/* Di atas kotak warn-tint, outline polos (border-border
+                    transparan) menyatu dengan latar. Unduh Kode diberi border
+                    kontras + latar padat; tombol konfirmasi jadi varian solid
+                    supaya keduanya terbaca sebagai tombol. */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-foreground/50 bg-background hover:bg-secondary"
+                  onClick={() => unduhKode(recoveryCodes)}
+                >
+                  {tr("Unduh Kode")}
+                </Button>
+                <Button size="sm" variant="default" onClick={() => setRecoveryCodes([])}>
+                  {tr("Saya sudah menyimpan")}
+                </Button>
+              </div>
             </div>
           )}
-          {totpStatus.enabled && recoveryCodes.length === 0 && <Button size="sm" variant="outline" onClick={disableTOTP}>{tr("Nonaktifkan TFA")}</Button>}
+          {totpStatus.enabled && recoveryCodes.length === 0 && (
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={disableTOTP}>{tr("Nonaktifkan TFA")}</Button>
+              <Button size="sm" variant="outline" onClick={lihatKode}>{tr("Lihat Kode")}</Button>
+            </div>
+          )}
         </div>
       </Panel>
 

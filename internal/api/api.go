@@ -221,6 +221,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/settings/account/totp", s.handleTOTPStatus)
 			r.Post("/settings/account/totp/enroll", s.handleTOTPEnroll)
 			r.Post("/settings/account/totp/confirm", s.handleTOTPConfirm)
+			r.Post("/settings/account/totp/recovery-codes", s.handleTOTPRecoveryCodes)
 			r.Delete("/settings/account/totp", s.handleTOTPDisable)
 			r.Put("/settings/account/hostname", s.handleSetHostname)
 			r.Get("/settings/account/users", s.handleUserList)

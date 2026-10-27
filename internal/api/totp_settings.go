@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -149,6 +150,17 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "gagal mengaktifkan TOTP")
 		return
 	}
+	// Recovery codes juga disimpan terenkripsi (key TOTP, bukan DB plaintext)
+	// supaya pemiliknya bisa menampilkan/mengunduh ulang lewat "Lihat Kode".
+	// Kegagalan simpan tidak membatalkan enrollment: kode tetap tampil sekali
+	// seperti perilaku lama, hanya fitur tampil-ulang yang hilang.
+	if raw, err := json.Marshal(codes); err == nil {
+		if sealedCodes, err := cipher.EncryptFor(username, raw); err == nil {
+			if err := s.store.SetTOTPRecoveryCiphertext(username, sealedCodes); err != nil {
+				log.Printf("simpan recovery codes terenkripsi %s: %v", username, err)
+			}
+		}
+	}
 	s.throttle.reset(confirmKey, ip)
 	s.store.LogActivity(username, "totp_enabled", "", nil, ip)
 	w.Header().Set("Cache-Control", "no-store")
@@ -171,4 +183,47 @@ func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.LogActivity(username, "totp_disabled", "", nil, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]bool{"enabled": false})
+}
+
+// handleTOTPRecoveryCodes menampilkan ulang recovery codes milik sendiri,
+// dengan syarat yang sama dengan nonaktifkan TFA: password Linux diverifikasi
+// PAM lebih dulu. Kode dibuka dari salinan terenkripsi — tanpa verifikasi ini
+// endpoint jadi kotak kunci yang bisa dibuka siapa pun yang mencuri sesi.
+func (s *Server) handleTOTPRecoveryCodes(w http.ResponseWriter, r *http.Request) {
+	var req totpPasswordRequest
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.reauthTOTP(w, r, req.Password) {
+		return
+	}
+	username := sessionFrom(r).Username
+	sealed, ok, err := s.store.TOTPRecoveryCiphertext(username)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "gagal membaca recovery codes")
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "Recovery codes tidak tersimpan — nonaktifkan lalu aktifkan ulang TFA untuk membuat kode baru")
+		return
+	}
+	cipher, err := appTotp.LoadCipher(appTotp.KeyPath())
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "Key TOTP tidak tersedia")
+		return
+	}
+	plain, err := cipher.DecryptFor(username, sealed)
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "Recovery codes tidak dapat dibuka")
+		return
+	}
+	var codes []string
+	if err := json.Unmarshal(plain, &codes); err != nil {
+		writeErr(w, http.StatusInternalServerError, "Recovery codes rusak")
+		return
+	}
+	s.store.LogActivity(username, "totp_recovery_view", "", nil, clientIP(r))
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"recovery_codes": codes})
 }

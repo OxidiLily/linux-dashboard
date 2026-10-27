@@ -14,6 +14,11 @@ const kalimatBackend: Record<string, string> = {
     "the partial file is missing — the upload must restart from the beginning",
   "unggahan dijeda lebih dari %d menit dan dianggap gagal":
     "the upload was paused for more than %d minutes and has failed",
+  "Recovery codes tidak tersimpan — nonaktifkan lalu aktifkan ulang TFA untuk membuat kode baru":
+    "No recovery codes are stored — disable then re-enable 2FA to generate new ones",
+  "Recovery codes tidak dapat dibuka": "The recovery codes cannot be unlocked",
+  "Recovery codes rusak": "The stored recovery codes are corrupted",
+  "gagal membaca recovery codes": "failed to read the recovery codes",
   "aksi firewall harus allow atau deny": "firewall action must be allow or deny",
   "aksi service tidak diizinkan": "service action not allowed",
   "aksi tidak dikenal": "unknown action",
