@@ -379,6 +379,11 @@ var (
 	uploadMaxPart   = 500      // jumlah berkas per permintaan
 )
 
+// batasJedaUpload adalah ambang unggahan yang dijeda: potongan lanjutan yang
+// datang setelah jeda lebih lama dari ini membuat unggahannya GAGAL, bukan
+// dilanjutkan. Variabel supaya bisa diperkecil di test.
+var batasJedaUpload = 10 * time.Minute
+
 // handleUpload menerima multipart secara streaming: tiap part disalin langsung
 // ke helper → disk, dibatasi per berkas dan per permintaan. Tidak ada file yang
 // ditahan penuh di RAM (ParseMultipartForm sengaja tidak dipakai).
@@ -488,6 +493,135 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	s.store.LogActivity(sess.Username, "file_upload", "upload",
 		map[string]any{"files": saved, "dir": dir}, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "files": saved})
+}
+
+// buangParsial menghapus sisa unggahan lewat helper. Kegagalan hapus tidak
+// disembunyikan — kalau ini gagal, berkasnya memang tinggal di disk dan
+// satu-satunya cara tahu adalah dari log.
+func (s *Server) buangParsial(token, dest string) {
+	if err := s.helper.Call(helperproto.CmdFileRemove, token,
+		helperproto.PathArgs{Path: dest}, nil); err != nil {
+		log.Printf("upload: berkas parsial %s gagal dihapus: %v", dest, err)
+	}
+}
+
+// handleUploadChunk menerima SATU potongan berkas untuk unggahan bertahap yang
+// bisa dijeda, dilanjutkan, dan dibatalkan dari UI. Tulisannya streaming ke
+// helper, sama seperti handleUpload — tidak ada potongan yang ditahan di RAM.
+//
+// Keberlanjutan tanpa state di server: potongan lanjutan (append=1) diperiksa
+// dari berkas parsialnya sendiri — ukuran berkas = offset yang sah, waktu ubah
+// terakhir = kapan potongan terakhir selesai ditulis. Karena itu jeda lebih dari
+// batasJedaUpload terdeteksi dari mtime dan unggahannya GAGAL, walau kliennya
+// tidak pernah kembali untuk melanjutkan.
+func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	dir := r.URL.Query().Get("path")
+	if dir == "" {
+		dir = sess.Home
+	}
+	rel := uploadRelPath(r.URL.Query().Get("name"))
+	if rel == "" {
+		writeErr(w, http.StatusBadRequest, "nama berkas tidak valid")
+		return
+	}
+	dest := filepath.Join(dir, rel)
+	lanjut := r.URL.Query().Get("append") == "1"
+
+	if r.URL.Query().Get("batal") == "1" {
+		// Unggahan dibatalkan: berkas parsialnya dibuang supaya tidak
+		// meninggalkan setengah berkas yang menghabiskan kuota disk.
+		s.buangParsial(sess.HelperToken, dest)
+		s.usage.buang(sess.Username)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	var ukuran int64
+	if lanjut {
+		var entries []helperproto.FileEntry
+		if err := s.helper.Call(helperproto.CmdFileList, sess.HelperToken,
+			helperproto.PathArgs{Path: filepath.Dir(dest)}, &entries); err != nil {
+			writeHelperErr(w, err)
+			return
+		}
+		var ada bool
+		for _, e := range entries {
+			if e.Name != filepath.Base(rel) {
+				continue
+			}
+			ada = true
+			ukuran = e.Size
+			if time.Since(time.Unix(e.ModTime, 0)) > batasJedaUpload {
+				// Jeda kelewatan: unggahannya GAGAL. Parsialnya ikut dibuang
+				// — yang datang setelah ini harus mulai dari awal.
+				s.buangParsial(sess.HelperToken, dest)
+				s.usage.buang(sess.Username)
+				writeErr(w, http.StatusConflict, "unggahan dijeda lebih dari "+
+					strconv.Itoa(int(batasJedaUpload.Minutes()))+" menit dan dianggap gagal")
+				return
+			}
+			break
+		}
+		if !ada {
+			writeErr(w, http.StatusConflict, "berkas parsial tidak ditemukan — unggahan harus dimulai dari awal")
+			return
+		}
+	} else if sub := filepath.Dir(rel); sub != "." {
+		// Upload folder mengirim path relatif, jadi direktori antaranya harus
+		// ada dulu. Hanya saat potongan pertama — potongan lanjutan menulis
+		// ke berkas yang sudah ada.
+		if err := s.helper.Call(helperproto.CmdFileMkdir, sess.HelperToken,
+			helperproto.PathArgs{Path: filepath.Dir(dest)}, nil); err != nil {
+			writeHelperErr(w, err)
+			return
+		}
+	}
+
+	// Sisa kuota dihitung dari ukuran berkas parsial yang benar-benar ada di
+	// disk, bukan dari angka yang dikirim klien. Satu byte lebih dari sisa
+	// membedakan "pas" dari "lewat" tanpa menahan potongan di memori.
+	sisa := int64(uploadMaxBerkas) - ukuran
+	stream, err := s.helper.Stream(helperproto.CmdFileWrite, sess.HelperToken,
+		helperproto.WriteArgs{Path: dest, Append: lanjut})
+	if err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	n, copyErr := io.CopyN(stream, r.Body, sisa+1)
+	if n > sisa {
+		stream.Close()
+		s.buangParsial(sess.HelperToken, dest)
+		s.usage.buang(sess.Username)
+		alasan := pesanBatasUpload(int64(uploadMaxBerkas))
+		s.store.LogActivity(sess.Username, "file_upload", "upload ditolak: "+alasan,
+			map[string]any{"path": dest}, clientIP(r))
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{
+			"error": "Upload ditolak: " + alasan,
+		})
+		return
+	}
+	// Selesai memberi EOF ke helper lalu menunggu konfirmasi tulis — tanpa
+	// menunggu, potongan yang ditolak izin tetap dilaporkan berhasil.
+	doneErr := stream.Selesai()
+	stream.Close()
+	if copyErr != nil && !errors.Is(copyErr, io.EOF) {
+		writeErr(w, http.StatusInternalServerError, "upload gagal: "+copyErr.Error())
+		return
+	}
+	if doneErr != nil {
+		writeHelperErr(w, doneErr)
+		return
+	}
+	s.usage.buang(sess.Username)
+	if r.URL.Query().Get("selesai") == "1" {
+		// Hanya potongan terakhir yang dicatat: log per potongan akan
+		// membanjiri riwayat operasi file untuk satu unggahan.
+		s.store.LogFileOp(sess.Username, "upload", "", dest)
+		s.store.LogActivity(sess.Username, "file_upload", "upload",
+			map[string]any{"files": []string{dest}, "dir": dir}, clientIP(r))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "bytes": n})
 }
 
 // partFileName mengambil nama berkas MENTAH dari header Content-Disposition.

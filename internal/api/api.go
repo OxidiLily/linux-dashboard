@@ -136,6 +136,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/files", s.handleFileList)
 			r.Get("/files/search", s.handleFileSearch)
 			r.Post("/files/upload", s.handleUpload)
+			r.Post("/files/upload/chunk", s.handleUploadChunk)
 			r.Get("/files/download", s.handleDownload)
 			r.Get("/files/archive", s.handleArchive)
 			r.Get("/files/usage", s.handleUsage)

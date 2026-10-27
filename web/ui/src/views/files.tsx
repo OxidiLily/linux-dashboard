@@ -42,7 +42,32 @@ import {
   Archive,
   Search,
   X,
+  Pause,
+  Play,
 } from "lucide-react"
+
+// Ukuran potongan unggahan bertahap. Jeda hanya efektif di antara potongan,
+// jadi jangan terlalu besar — tombol Jeda lambat merespons kalau potongannya
+// ratusan megabyte.
+const BESAR_POTONGAN = 8 * 1024 * 1024
+// Jeda lebih lama dari ini membuat unggahan gagal. Batas yang sama
+// ditegakkan server dari waktu ubah berkas parsialnya (handleUploadChunk).
+const BATAS_JEDA_MS = 10 * 60 * 1000
+
+// Kontrol unggahan yang dibagikan tombol bar (Jeda/Lanjutkan/Batal) ke mesin
+// pengirim potongan.
+type KontrolUnggahan = {
+  jeda: boolean
+  batal: boolean
+  // dibatalkanUser membedakan Batal ditekan user dari kegagalan lain (mis.
+  // batas jeda) — keduanya menghentikan unggahan tapi dilaporkan berbeda.
+  dibatalkanUser: boolean
+  alasanBatal: string | null
+  xhr: XMLHttpRequest | null
+  lanjut: (() => void) | null
+  gagal: ((e: Error) => void) | null
+  timerJeda: ReturnType<typeof setTimeout> | null
+}
 
 type FileEntry = {
   name: string
@@ -345,13 +370,20 @@ export function FileManagerView() {
   // induk sebelum enter berikutnya tiba.
   const [sedangDrop, setSedangDrop] = useState(false)
   const dragCounter = useRef(0)
+  // Kontrol mesin unggahan dari tombol bar. Ref, bukan state: tombol harus
+  // bereaksi seketika dan tidak boleh memicu render ulang yang memutus alur
+  // potongan yang sedang berjalan.
+  const kontrolUnggahan = useRef<KontrolUnggahan | null>(null)
   // Kemajuan unggahan nyata dari XHR (upload.onprogress), bukan animasi
   // "sedang bekerja": berkas besar lewat LAN lambat butuh puluhan detik, dan
   // tanpa angka user tidak bisa membedakan masih berjalan dari menggantung.
   // menulis = byte terakhir sudah terkirim, helper masih menuliskannya ke disk.
-  const [unggahan, setUnggahan] = useState<{ nama: string; persen: number; menulis: boolean } | null>(
-    null,
-  )
+  const [unggahan, setUnggahan] = useState<{
+    nama: string
+    persen: number
+    menulis: boolean
+    jeda: boolean
+  } | null>(null)
 
   const loadRoots = async () => {
     try {
@@ -471,64 +503,183 @@ export function FileManagerView() {
   // direktori sesudahnya. Dipakai oleh input file DAN drag-and-drop.
   const uploadBerkas = async (files: File[]) => {
     if (files.length === 0) return
-    const formData = new FormData()
-    files.forEach((f) => formData.append("files", f, (f as any).webkitRelativePath || f.name))
+    const daftar = files.map((f) => ({ file: f, rel: (f as any).webkitRelativePath || f.name }))
     // Satu nama yang bisa dibaca user di bar: nama berkasnya kalau cuma satu,
     // jumlahnya kalau banyak — daftar panjang tidak muat di satu baris.
-    const nama =
-      files.length === 1
-        ? (files[0] as any).webkitRelativePath || files[0].name
-        : trf("{0} berkas", files.length)
+    const nama = daftar.length === 1 ? daftar[0].rel : trf("{0} berkas", daftar.length)
+    const kontrol: KontrolUnggahan = {
+      jeda: false,
+      batal: false,
+      dibatalkanUser: false,
+      alasanBatal: null,
+      xhr: null,
+      lanjut: null,
+      gagal: null,
+      timerJeda: null,
+    }
+    kontrolUnggahan.current = kontrol
     setLoading(true)
-    setUnggahan({ nama, persen: 0, menulis: false })
+    setUnggahan({ nama, persen: 0, menulis: false, jeda: false })
     try {
       await unggahLaluMuatUlang(
-        () =>
-          kirimUnggahan(
-            formData,
-            (persen) => setUnggahan({ nama, persen, menulis: false }),
-            // 100% terkirim BUKAN 100% selesai: helper masih menulis berkasnya ke
-            // disk, dan untuk folder besar itu bagian yang paling lama. Tanpa
-            // keadaan terpisah ini bar berdiri diam di 100% tanpa keterangan.
-            () => setUnggahan({ nama, persen: 100, menulis: true }),
-          ),
+        () => kirimUnggahanBertahap(daftar, kontrol),
         () => loadDir(currentPath),
       )
     } catch (err: any) {
-      notify.err(trf("Upload gagal: {0}", pesanError(err)))
+      if (err?.dibatalkan) notify.ok(tr("Unggahan dibatalkan."))
+      else notify.err(trf("Upload gagal: {0}", pesanError(err)))
     } finally {
+      if (kontrol.timerJeda) clearTimeout(kontrol.timerJeda)
+      kontrolUnggahan.current = null
       setLoading(false)
       setUnggahan(null)
     }
   }
 
-  // kirimUnggahan memakai XMLHttpRequest, bukan fetch: hanya XHR yang punya
-  // event kemajuan untuk PENGIRIMAN (upload.onprogress). Dengan fetch(),
-  // satu-satunya kabar yang tersedia adalah "sedang mengunggah" tanpa akhir
-  // yang jelas — dan justru di situasi itu (berkas besar, LAN lambat) panel
-  // paling sering dikira menggantung.
-  const kirimUnggahan = (
-    formData: FormData,
-    saatProgres: (persen: number) => void,
-    saatTerkirim: () => void,
+  // errorBatal membangun error penghentian unggahan. Penanda "dibatalkan"
+  // hanya untuk Batal yang ditekan user (dilaporkan sebagai info); batas jeda
+  // yang lewat tetap kegagalan.
+  const errorBatal = (kontrol: KontrolUnggahan) =>
+    Object.assign(new Error(kontrol.alasanBatal ?? tr("unggahan dibatalkan")), {
+      dibatalkan: kontrol.dibatalkanUser,
+    })
+
+  // batalParsial membuang berkas parsial lewat endpoint batal yang sama dengan
+  // tombol Batal. Kegagalannya tidak dilaporkan: unggahan yang jeda-nya
+  // kelewatan tetap ditolak server, dan sisa yang tertinggal terlihat dari log.
+  const batalParsial = (rel: string) =>
+    fetch(
+      `/api/files/upload/chunk?path=${encodeURIComponent(currentPath)}&name=${encodeURIComponent(rel)}&batal=1`,
+      { method: "POST", credentials: "include" },
+    ).catch(() => {})
+
+  // kirimPotongan mengirim satu potongan dengan XHR, bukan fetch: hanya XHR
+  // yang punya event kemajuan untuk PENGIRIMAN (upload.onprogress). Dengan
+  // fetch(), satu-satunya kabar yang tersedia adalah "sedang mengunggah" tanpa
+  // akhir yang jelas — dan justru di situasi itu (berkas besar, LAN lambat)
+  // panel paling sering dikira menggantung.
+  const kirimPotongan = (
+    potongan: Blob,
+    rel: string,
+    offset: number,
+    selesai: boolean,
+    kontrol: KontrolUnggahan,
+    saatProgres: (dalamPotongan: number) => void,
   ) =>
     new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
-      xhr.open("POST", `/api/files/upload?path=${encodeURIComponent(currentPath)}`)
+      kontrol.xhr = xhr
+      const qs = new URLSearchParams({
+        path: currentPath,
+        name: rel,
+        append: offset > 0 ? "1" : "0",
+        selesai: selesai ? "1" : "0",
+      })
+      xhr.open("POST", `/api/files/upload/chunk?${qs}`)
       // Setara credentials: "include" pada fetch — cookie sesi PAM ikut.
       xhr.withCredentials = true
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) saatProgres(Math.round((e.loaded / e.total) * 100))
-      }
-      xhr.upload.onload = saatTerkirim
+      xhr.upload.onprogress = (e) => saatProgres(e.loaded)
       xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) resolve()
-        else reject(new Error(`Upload error ${xhr.status}`))
+        if (xhr.status >= 200 && xhr.status < 300) return resolve()
+        // Pesan error backend ({"error": ...}) lebih berguna dari status polos.
+        let pesan = `Upload error ${xhr.status}`
+        try {
+          pesan = JSON.parse(xhr.responseText).error || pesan
+        } catch {}
+        reject(new Error(pesan))
       }
       xhr.onerror = () => reject(new Error(tr("koneksi ke server terputus")))
-      xhr.onabort = () => reject(new Error(tr("unggahan dibatalkan")))
-      xhr.send(formData)
+      xhr.onabort = () => reject(errorBatal(kontrol))
+      xhr.send(potongan)
     })
+
+  // kirimUnggahanBertahap mengirim tiap berkas sebagai potongan berurutan ke
+  // /api/files/upload/chunk. Inilah yang membuat Jeda/Batal mungkin: XHR tidak
+  // bisa dijeda di tengah, tapi antrean potongan bisa. Potongan yang sedang
+  // berjalan sengaja dibiarkan utuh saat Jeda ditekan — server melanjutkan
+  // tulisan dari ukuran berkas parsialnya, jadi potongan harus utuh atau
+  // dibatalkan beserta berkasnya.
+  const kirimUnggahanBertahap = async (
+    daftar: { file: File; rel: string }[],
+    kontrol: KontrolUnggahan,
+  ) => {
+    const total = daftar.reduce((n, d) => n + d.file.size, 0)
+    let terkirim = 0
+    let relAktual = ""
+    try {
+      for (const { file, rel } of daftar) {
+        relAktual = rel
+        let offset = 0
+        do {
+          while (kontrol.jeda && !kontrol.batal) {
+            // Menunggu tombol Lanjutkan/Batal, atau batas jeda yang
+            // menggagalkan unggahan dari timer.
+            await new Promise<void>((res, rej) => {
+              kontrol.lanjut = res
+              kontrol.gagal = rej
+            })
+          }
+          if (kontrol.batal) throw errorBatal(kontrol)
+          const potongan = file.slice(offset, offset + BESAR_POTONGAN)
+          const dasar = terkirim
+          await kirimPotongan(
+            potongan,
+            rel,
+            offset,
+            offset + potongan.size >= file.size,
+            kontrol,
+            (dalamPotongan) => {
+              const persen = total === 0 ? 100 : Math.floor(((dasar + dalamPotongan) / total) * 100)
+              setUnggahan((u) => (u ? { ...u, persen, menulis: false } : u))
+            },
+          )
+          offset += potongan.size
+          terkirim += potongan.size
+        } while (offset < file.size)
+        relAktual = ""
+      }
+    } catch (err) {
+      // Sisa potongan yang gagal dibuang: resume hanya mungkin lewat tombol
+      // Jeda, jadi berkas parsial yang ditinggal error hanya sampah disk.
+      if (relAktual) void batalParsial(relAktual)
+      throw err
+    }
+    setUnggahan((u) => (u ? { ...u, persen: 100, menulis: true } : u))
+  }
+
+  const tombolJeda = () => {
+    const k = kontrolUnggahan.current
+    if (!k || k.batal) return
+    if (!k.jeda) {
+      k.jeda = true
+      setUnggahan((u) => (u ? { ...u, jeda: true } : u))
+      // Jeda yang kebablasan membuat unggahan GAGAL — batas yang sama
+      // ditegakkan server dari waktu ubah berkas parsialnya.
+      k.timerJeda = setTimeout(() => {
+        k.alasanBatal = tr("unggahan dijeda lebih dari 10 menit")
+        k.batal = true
+        k.xhr?.abort()
+        k.gagal?.(errorBatal(k))
+      }, BATAS_JEDA_MS)
+    } else {
+      k.jeda = false
+      if (k.timerJeda) clearTimeout(k.timerJeda)
+      k.timerJeda = null
+      setUnggahan((u) => (u ? { ...u, jeda: false } : u))
+      k.lanjut?.()
+    }
+  }
+
+  const tombolBatal = () => {
+    const k = kontrolUnggahan.current
+    if (!k) return
+    k.batal = true
+    k.dibatalkanUser = true
+    k.alasanBatal = tr("unggahan dibatalkan")
+    if (k.timerJeda) clearTimeout(k.timerJeda)
+    k.xhr?.abort()
+    k.gagal?.(errorBatal(k))
+  }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return
@@ -568,13 +719,13 @@ export function FileManagerView() {
       }
     })
 
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current = 0
-    setSedangDrop(false)
+  // Drag-and-drop berlaku untuk SELURUH jendela, bukan sebatas area tabel:
+  // zona drop yang mengikuti tinggi konten membuat ruang kosong di bawah
+  // daftar (saat berkas masih sedikit) tidak bisa menerima drop sama sekali.
+  const bawaFile = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files")
 
-    const items = e.dataTransfer.items
+  const jatuhkanFile = async (e: DragEvent) => {
+    const items = e.dataTransfer?.items
     if (!items || items.length === 0) return
 
     // Coba pakai webkitGetAsEntry untuk folder support
@@ -595,27 +746,54 @@ export function FileManagerView() {
     }
   }
 
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current++
-    if (dragCounter.current === 1) setSedangDrop(true)
-  }
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current--
-    if (dragCounter.current <= 0) {
+  // Listener di window supaya overlay fixed inset-0 benar-benar satu zona
+  // drop untuk seluruh halaman. Pasang ulang saat tujuan upload (currentPath)
+  // berubah — itulah satu-satunya nilai luar yang dipakai jalur drop.
+  useEffect(() => {
+    const masuk = (e: DragEvent) => {
+      if (!bawaFile(e)) return
+      e.preventDefault()
+      dragCounter.current++
+      if (dragCounter.current === 1) setSedangDrop(true)
+    }
+    const keluar = (e: DragEvent) => {
+      if (!bawaFile(e)) return
+      // relatedTarget null = drag meninggalkan jendela atau dibatalkan (Esc).
+      // Counter direset penuh; kalau tidak, overlay bisa tersangkut selamanya.
+      if (e.relatedTarget === null) {
+        dragCounter.current = 0
+        setSedangDrop(false)
+        return
+      }
+      dragCounter.current--
+      if (dragCounter.current <= 0) {
+        dragCounter.current = 0
+        setSedangDrop(false)
+      }
+    }
+    const lewat = (e: DragEvent) => {
+      // Tanpa preventDefault, browser membuka berkasnya dan drop tidak
+      // pernah sampai ke handler.
+      if (bawaFile(e)) e.preventDefault()
+    }
+    const jatuh = (e: DragEvent) => {
+      if (!bawaFile(e)) return
+      e.preventDefault()
       dragCounter.current = 0
       setSedangDrop(false)
+      void jatuhkanFile(e)
     }
-  }
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }
+    window.addEventListener("dragenter", masuk)
+    window.addEventListener("dragleave", keluar)
+    window.addEventListener("dragover", lewat)
+    window.addEventListener("drop", jatuh)
+    return () => {
+      window.removeEventListener("dragenter", masuk)
+      window.removeEventListener("dragleave", keluar)
+      window.removeEventListener("dragover", lewat)
+      window.removeEventListener("drop", jatuh)
+    }
+  }, [currentPath])
 
   const handleMkdir = async () => {
     const name = await promptDialog({
@@ -1254,15 +1432,9 @@ export function FileManagerView() {
     return daftarkanEscape(() => setRenameTarget(null))
   }, [renameTarget])
   return (
-    <div
-      className="space-y-4 relative"
-      onClick={() => setContextMenu(null)}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-    >
-      {/* Drop overlay — terlihat saat file diseret ke atas file manager */}
+    <div className="space-y-4 relative" onClick={() => setContextMenu(null)}>
+      {/* Drop overlay — muncul di mana pun file diseret di jendela ini
+          (listener drag dipasang di window, lihat useEffect di atas). */}
       {sedangDrop && (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-signal/10">
           <div className="rounded-xl border-2 border-dashed border-signal bg-surface/90 px-8 py-6 text-center shadow-xl">
@@ -1286,13 +1458,35 @@ export function FileManagerView() {
             aria-valuemax={100}
             aria-label={tr("Kemajuan unggahan")}
           >
-            <div className="flex items-baseline justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
               <span className="truncate text-xs text-muted-foreground">
                 {unggahan.menulis
                   ? tr("Server menulis berkas…")
-                  : trf("Mengunggah {0}", unggahan.nama)}
+                  : unggahan.jeda
+                    ? tr("Dijeda")
+                    : trf("Mengunggah {0}", unggahan.nama)}
               </span>
-              <span className="num shrink-0 text-[11px] text-muted-2">{unggahan.persen}%</span>
+              <span className="flex shrink-0 items-center gap-1">
+                <span className="num text-[11px] text-muted-2">{unggahan.persen}%</span>
+                <button
+                  type="button"
+                  className="pointer-events-auto rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  onClick={tombolJeda}
+                  title={unggahan.jeda ? tr("Lanjutkan") : tr("Jeda")}
+                  aria-label={unggahan.jeda ? tr("Lanjutkan") : tr("Jeda")}
+                >
+                  {unggahan.jeda ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  className="pointer-events-auto rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-crit"
+                  onClick={tombolBatal}
+                  title={tr("Batal")}
+                  aria-label={tr("Batal")}
+                >
+                  <X className="size-3.5" />
+                </button>
+              </span>
             </div>
             <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
               <div

@@ -9,6 +9,11 @@
 // pertama yang cocok yang dipakai.
 const kalimatBackend: Record<string, string> = {
   // ---- validasi & izin (internal/helper) ----
+  "nama berkas tidak valid": "invalid file name",
+  "berkas parsial tidak ditemukan — unggahan harus dimulai dari awal":
+    "the partial file is missing — the upload must restart from the beginning",
+  "unggahan dijeda lebih dari %d menit dan dianggap gagal":
+    "the upload was paused for more than %d minutes and has failed",
   "aksi firewall harus allow atau deny": "firewall action must be allow or deny",
   "aksi service tidak diizinkan": "service action not allowed",
   "aksi tidak dikenal": "unknown action",
