@@ -19,7 +19,7 @@ SRC="${SRC:-/usr/local/src/go-react-linux-dashboard}"
 PREFIX="${PREFIX:-/usr/local/bin}"
 SERVICE_USER="linux-dashboard"
 # Sama dengan komponen nodejs di panel (internal/helper/components.go).
-NODE_MAJOR="${NODE_MAJOR:-24}"
+NODE_MAJOR="${NODE_MAJOR:-26}"
 # INITIAL_PASSWORD: kalau diset, tiap akun Linux non-sistem (UID ≥ 1000 dan
 # bukan nologin) yang TIDAK punya password akan diberi password ini. Dipakai
 # untuk instalasi headless lewat cloud-init/auto-install — tanpa ini, panel
@@ -124,6 +124,65 @@ pastikan_keamanan_runtime() {
     die "Gagal memasang keamanan runtime: ${kurang[*]}"
 }
 
+# Go dipasang dari tarball resmi go.dev, selalu versi rilis terakhir.
+#
+# Bukan paket golang-go distro: umurnya bisa bertahun-tahun tertinggal dan
+# tidak pernah benar-benar dipakai untuk build (go.mod menuntut lebih baru).
+# Bukan pula GOTOOLCHAIN=auto: modul toolchain yang diunduhnya disimpan di
+# GOMODCACHE dan pernah hilang di tengah build, membuat paket acak gagal
+# dengan "fork/exec …/compile: no such file or directory". Tarball resmi
+# meninggalkan satu toolchain lengkap di /usr/local/go, tanpa unduhan
+# toolchain sama sekali.
+pastikan_go() {
+  local terbaru terpasang versi_mentah arsip arsitektur
+  versi_mentah=$(curl -fsSL 'https://go.dev/VERSION?m=text' 2>/dev/null) || versi_mentah=""
+  terbaru=${versi_mentah%%[[:space:]]*}
+  terbaru=${terbaru#go}
+  terpasang=$(go version 2>/dev/null | awk '{print $3}') || terpasang=""
+  terpasang=${terpasang#go}
+  if [[ -n "$terpasang" && -z "$terbaru" ]]; then
+    ok "Go ${terpasang} — pengecekan versi dilewati (go.dev tidak terjangkau)"
+    return
+  fi
+  if [[ -n "$terpasang" && "$terbaru" == "$(printf '%s\n%s\n' "$terpasang" "$terbaru" | sort -V | head -n1)" ]]; then
+    ok "Go ${terpasang} sudah versi terbaru"
+    return
+  fi
+  if [[ -z "$terbaru" ]]; then
+    # Tidak ada Go sama sekali dan go.dev tidak terjangkau: jatuh ke paket
+    # distro + GOTOOLCHAIN=auto, supaya build tetap bisa jalan.
+    command -v go >/dev/null 2>&1 && return
+    log "go.dev tidak terjangkau — memasang golang-go dari apt (bukan versi terbaru)"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends golang-go
+    return
+  fi
+  case "$(dpkg --print-architecture)" in
+    amd64) arsitektur=amd64 ;;
+    arm64) arsitektur=arm64 ;;
+    armhf) arsitektur=armv6l ;;
+    *)
+      if [[ -n "$terpasang" ]]; then
+        ok "Go ${terpasang} — arsitektur $(dpkg --print-architecture) tidak punya tarball resmi, versi terbaru dilewati"
+        return
+      fi
+      die "Arsitektur $(dpkg --print-architecture) tidak punya tarball Go resmi" ;;
+  esac
+  arsip=$(mktemp)
+  log "Memasang Go ${terbaru} dari go.dev…"
+  curl -fsSL "https://go.dev/dl/go${terbaru}.linux-${arsitektur}.tar.gz" -o "$arsip" || {
+    rm -f "$arsip"
+    die "Gagal mengunduh Go ${terbaru} dari go.dev"
+  }
+  rm -rf /usr/local/go
+  tar -C /usr/local -xzf "$arsip"
+  rm -f "$arsip"
+  ln -sf /usr/local/go/bin/go /usr/local/bin/go
+  ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+  ok "Go $(/usr/local/bin/go version | awk '{print $3}') terpasang"
+}
+
 install_build_deps() {
   export DEBIAN_FRONTEND=noninteractive
   # Deteksi dulu, pasang seperlunya. Menjalankan apt-get install untuk paket
@@ -135,35 +194,35 @@ install_build_deps() {
   for p in "${wajib[@]}"; do
     paket_terpasang "$p" || kurang+=("$p")
   done
-  # Go sering dipasang di luar apt (tarball resmi, asdf, snap). Cek binary-nya,
-  # bukan paket golang-go — kalau tidak, toolchain yang sudah ada diabaikan dan
-  # apt memasang Go kedua yang tidak pernah dipakai.
-  command -v go >/dev/null 2>&1 || kurang+=(golang-go)
   if (( ${#kurang[@]} == 0 )); then
     ok "Dependency build sudah lengkap — tidak ada yang dipasang"
   else
     log "Memasang dependency build yang belum ada: ${kurang[*]}"
     apt-get update -qq
-    # golang-go boleh versi lawas: go.mod menuntut Go 1.27.1 dan toolchain itu
-    # diunduh sendiri oleh Go (GOTOOLCHAIN=auto, diset sebelum `make build`).
     # libpam0g-dev wajib — helper daemon memakai PAM lewat cgo.
     apt-get install -y -qq --no-install-recommends "${kurang[@]}"
   fi
+  pastikan_go
 
   # Node diambil dari NodeSource, bukan apt: Ubuntu 24.04 mengirim Node 18 +
   # npm 9 yang kena bug optional dependency npm (npm/cli#4828) sehingga binding
   # native @tailwindcss/oxide tidak ikut terpasang dan `vite build` gagal.
   # Paket `npm` distro juga menyeret ~200 paket node-* yang tidak terpakai.
   # npm 12 memerlukan Node ^22.22.2 || ^24.15.0 || >=26.0.0.
-  # Node 24.22.1 adalah security release terbaru; pertahankan Node >=26.
+  # NODE_MAJOR menentukan garis rilis yang dipasang — default 26, rilis
+  # terbaru, dan Node yang mayor-nya lebih lawas ikut dinaikkan supaya
+  # instalasi selalu berakhir di versi terakhir garis itu (tanpa menurunkan
+  # Node yang sudah lebih baru).
   local node_check='const [major, minor, patch] = process.versions.node.split(".").map(Number); process.exit(major >= 26 || (major === 24 && (minor > 22 || (minor === 22 && patch >= 1))) ? 0 : 1)'
-  if ! node -e "$node_check" 2>/dev/null || ! command -v npm >/dev/null; then
-    [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] && (( NODE_MAJOR >= 24 )) || die "NODE_MAJOR harus >=24 untuk toolchain UI terbaru."
-    log "Memasang Node ${NODE_MAJOR} dari NodeSource (minimum 24.22.1)…"
+  local node_major_aktual
+  node_major_aktual=$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null) || node_major_aktual=0
+  [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] && (( NODE_MAJOR >= 24 )) || die "NODE_MAJOR harus >=24 untuk toolchain UI terbaru."
+  if ! node -e "$node_check" 2>/dev/null || ! command -v npm >/dev/null || (( node_major_aktual < NODE_MAJOR )); then
+    log "Memasang Node ${NODE_MAJOR} dari NodeSource…"
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
     apt-get install -y -qq nodejs
   fi
-  node -e "$node_check" || die "Node yang aktif belum memenuhi minimum 24.15.0 atau >=26; periksa PATH."
+  node -e "$node_check" || die "Node yang aktif belum memenuhi minimum 24.22.1 atau >=26; periksa PATH."
 }
 
 if [[ -z "$REPO_ROOT" ]]; then

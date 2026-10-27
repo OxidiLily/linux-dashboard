@@ -7,14 +7,14 @@
 ## Tech Stack
 
 - Backend: Go, chi, WebSocket, PAM (cgo), gopsutil, SQLite.
-- Frontend: React 18, TypeScript, Vite, Tailwind CSS, Zustand, xterm.js.
+- Frontend: React 19, TypeScript, Vite, Tailwind CSS, Zustand, xterm.js.
 - Sistem: systemd; helper root terpisah dari web non-root melalui Unix socket + HMAC.
 
 ## Requirements
 
 - Ubuntu/Debian dengan systemd; target amd64/arm64/armhf.
 - Instalasi membutuhkan root/sudo, akses jaringan untuk dependency; aksi admin membutuhkan root atau grup `sudo`/`admin`.
-- Build: Go 1.27.1+, Node.js 24.15+ atau >=26, `make`, compiler C, `libpam0g-dev`.
+- Build: Go 1.27.1+, Node.js 24.15+ atau >=26, `make`, compiler C, `libpam0g-dev`. Installer memasang Go dan Node versi terbaru.
 - Build di server dapat membutuhkan memori besar; layanan opsional punya kebutuhan resource/perangkat sendiri. Tidak ada jaminan RAM 1 GB cukup.
 
 ## Description

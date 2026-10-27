@@ -421,18 +421,24 @@ export function AccountView() {
               <div className="mt-2 grid grid-cols-2 gap-1 font-mono text-xs">{recoveryCodes.map((code) => <span key={code}>{code}</span>)}</div>
               <div className="mt-3 flex gap-2">
                 {/* Di atas kotak warn-tint, outline polos (border-border
-                    transparan) menyatu dengan latar. Unduh Kode diberi border
-                    kontras + latar padat; tombol konfirmasi jadi varian solid
-                    supaya keduanya terbaca sebagai tombol. */}
+                    transparan) menyatu dengan latar. Keduanya diberi border
+                    tebal kontras + teks tebal: tombol konfirmasi solid
+                    (foreground) dengan garis tepi ganda supaya terbaca jelas
+                    oleh mata di atas latar amber. */}
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-foreground/50 bg-background hover:bg-secondary"
+                  className="border-2 border-foreground/60 bg-background font-semibold hover:bg-secondary"
                   onClick={() => unduhKode(recoveryCodes)}
                 >
                   {tr("Unduh Kode")}
                 </Button>
-                <Button size="sm" variant="default" onClick={() => setRecoveryCodes([])}>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="border-2 border-foreground font-semibold"
+                  onClick={() => setRecoveryCodes([])}
+                >
                   {tr("Saya sudah menyimpan")}
                 </Button>
               </div>

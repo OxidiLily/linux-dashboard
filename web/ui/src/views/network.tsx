@@ -37,6 +37,21 @@ type VPNStatus = {
   needs_approval?: boolean
 }
 
+type WolIface = {
+  name: string
+  mac: string
+  supported: boolean
+  enabled: boolean
+}
+
+type WolStatus = {
+  /** ethtool terpasang — pengaturan WOL bisa dibaca/diubah. */
+  installed: boolean
+  /** etherwake terpasang — magic packet bisa dikirim. */
+  send_ready: boolean
+  ifaces: WolIface[]
+}
+
 // Field per-VPN yang dikirim ke backend VPNArgs:
 //   tailscale  → { action: "up"|"down", auth_key, hostname? }
 //   cloudflared→ { action: "up"|"down", token }
@@ -50,6 +65,8 @@ export function NetworkView() {
   const [ifaces, setIfaces] = useState<Iface[]>([])
   const [dnsInput, setDnsInput] = useState("")
   const [vpns, setVpns] = useState<VPNStatus[]>([])
+  const [wol, setWol] = useState<WolStatus | null>(null)
+  const [wolMac, setWolMac] = useState("")
   const [loading, setLoading] = useState(false)
   const [editIface, setEditIface] = useState<Iface | null>(null)
   const navigate = useNavigate()
@@ -71,12 +88,14 @@ export function NetworkView() {
   const load = async (paksaTokenServer = false) => {
     setLoading(true)
     try {
-      const [ifData, dnsData] = await Promise.all([
+      const [ifData, dnsData, wolData] = await Promise.all([
         apiGet<Iface[]>("/api/settings/network/interfaces"),
         apiGet<{ nameservers: string[] }>("/api/settings/network/dns"),
+        apiGet<WolStatus>("/api/settings/network/wol"),
       ])
       setIfaces(ifData || [])
       setDnsInput(dnsData?.nameservers?.join(", ") || "")
+      setWol(wolData || null)
 
       if (user?.sudo) {
         const vpnData = await apiGet<VPNStatus[]>("/api/settings/network/vpn")
@@ -192,6 +211,45 @@ export function NetworkView() {
     return n
   }
 
+  const handleWolSet = async (i: WolIface) => {
+    const aktifkan = !i.enabled
+    try {
+      await notify.tugas(
+        apiSend(`/api/settings/network/wol/${i.name}`, "PUT", { enabled: aktifkan }),
+        {
+          jalan: aktifkan
+            ? trf("Mengaktifkan WOL pada {0}…", i.name)
+            : trf("Menonaktifkan WOL pada {0}…", i.name),
+          sukses: aktifkan
+            ? trf("Wake-on-LAN aktif pada {0} — bertahan setelah reboot.", i.name)
+            : trf("Wake-on-LAN nonaktif pada {0}.", i.name),
+          gagal: (e) => trf("Gagal mengatur WOL: {0}", pesanError(e)),
+        },
+      )
+      load()
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
+    }
+  }
+
+  const handleWolSend = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const mac = wolMac.trim()
+    if (!/^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/.test(mac)) {
+      notify.err(tr("MAC tidak valid."))
+      return
+    }
+    try {
+      await notify.tugas(apiSend("/api/settings/network/wol/send", "POST", { mac }), {
+        jalan: trf("Mengirim magic packet ke {0}…", mac),
+        sukses: trf("Magic packet terkirim ke {0}.", mac),
+        gagal: (e) => trf("Gagal mengirim magic packet: {0}", pesanError(e)),
+      })
+    } catch {
+      // Pesan gagalnya sudah ditampilkan notify.tugas.
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Network Interfaces */}
@@ -238,6 +296,92 @@ export function NetworkView() {
             </div>
           ))}
         </div>
+      </Panel>
+
+      {/* Wake on LAN — antara Network Interfaces dan DNS/VPN sesuai permintaan. */}
+      <Panel
+        title={tr("Wake on LAN")}
+        hint={tr("Aktifkan WOL pada interface mesin ini dan bangunkan perangkat lain lewat magic packet")}
+      >
+        {!wol?.installed ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="muted">{tr("Belum Terpasang")}</Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => navigate("/settings/components")}
+            >
+              <Package className="mr-1 size-3" /> {tr("Pasang di Components")}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {(wol.ifaces || []).map((i) => (
+              <div
+                key={i.name}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold">{i.name}</p>
+                    <Badge tone={!i.supported ? "muted" : i.enabled ? "ok" : "crit"}>
+                      {!i.supported
+                        ? tr("Tidak didukung")
+                        : i.enabled
+                          ? tr("WOL aktif")
+                          : tr("WOL nonaktif")}
+                    </Badge>
+                  </div>
+                  <p className="num text-[11px] text-muted-foreground">MAC: {i.mac}</p>
+                </div>
+                {user?.sudo && i.supported && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => handleWolSet(i)}
+                  >
+                    {i.enabled ? tr("Nonaktifkan") : tr("Aktifkan")}
+                  </Button>
+                )}
+              </div>
+            ))}
+            {(wol.ifaces || []).length === 0 && (
+              <p className="py-2 text-xs text-muted-foreground">
+                {tr("Tidak ada interface yang mendukung Wake-on-LAN.")}
+              </p>
+            )}
+            {user?.sudo && (
+              <form onSubmit={handleWolSend} className="flex flex-wrap items-end gap-2">
+                <div className="min-w-48">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {tr("Bangunkan perangkat lain (MAC)")}
+                  </label>
+                  <Input
+                    className="mt-1 font-mono text-[11px]"
+                    value={wolMac}
+                    onChange={(e) => setWolMac(e.target.value)}
+                    placeholder="aa:bb:cc:dd:ee:ff"
+                  />
+                </div>
+                <Button type="submit" size="sm" disabled={!wol.send_ready}>
+                  {tr("Bangunkan")}
+                </Button>
+                {!wol.send_ready && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => navigate("/settings/components")}
+                  >
+                    <Package className="mr-1 size-3" /> {tr("Pasang etherwake di Components")}
+                  </Button>
+                )}
+              </form>
+            )}
+          </div>
+        )}
       </Panel>
 
       <div className="grid gap-4 md:grid-cols-2">

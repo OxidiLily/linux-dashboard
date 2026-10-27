@@ -41,6 +41,7 @@ import { StatusDot } from "@/components/ui/status-dot"
 import { Button } from "@/components/ui/button"
 import { ConfirmHost, confirmDialog } from "@/components/ui/confirm"
 import { PromptHost } from "@/components/ui/prompt"
+import { PilihHost } from "@/components/ui/pilih"
 import { Byline } from "@/components/ui/byline"
 import { UpdateModal } from "@/components/ui/update-modal"
 import { useUpdateStore } from "@/stores/update"
@@ -816,6 +817,7 @@ export function AppShell() {
       )}
       <ConfirmHost />
       <PromptHost />
+      <PilihHost />
       <Toaster />
     </div>
   )

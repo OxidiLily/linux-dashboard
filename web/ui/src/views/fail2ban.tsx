@@ -176,7 +176,7 @@ export function Fail2banView() {
   const [geo, setGeo] = useState<Record<string, GeoIP>>({})
   const [geoError, setGeoError] = useState("")
   const loadSeq = useRef(0)
-  const request = useRef<AbortController>()
+  const request = useRef<AbortController | null>(null)
 
   const load = async () => {
     request.current?.abort()

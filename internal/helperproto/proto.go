@@ -42,6 +42,9 @@ const (
 	CmdSysDNSSet      = "sys.dns_set"
 	CmdNetIfaceGet    = "net.iface_get"
 	CmdNetIfaceSet    = "net.iface_set"
+	CmdWolStatus      = "wol.status"
+	CmdWolSet         = "wol.set"
+	CmdWolSend        = "wol.send"
 
 	// Certificates mengelola DASHBOARD_TLS_CERT/DASHBOARD_TLS_KEY pada
 	// /etc/default/linux-dashboard. Keduanya privileged karena berkas itu milik
@@ -1094,6 +1097,35 @@ type IfaceConfig struct {
 	IPv6    string   `json:"ipv6"` // auto | static | off
 	Addrs6  []string `json:"addrs6"`
 	Gw6     string   `json:"gw6,omitempty"`
+}
+
+// WolIface = satu interface dengan status Wake-on-LAN-nya.
+type WolIface struct {
+	Name string `json:"name"`
+	MAC  string `json:"mac"`
+	// Supported: perangkat/ethtool mengenal WOL (bukan "Supports Wake-on: d").
+	Supported bool `json:"supported"`
+	// Enabled: WOL sedang aktif (Wake-on mengandung g — magic packet).
+	Enabled bool `json:"enabled"`
+}
+
+type WolStatus struct {
+	// Installed: ethtool terpasang — pengaturan WOL bisa dibaca/diubah.
+	Installed bool `json:"installed"`
+	// SendReady: etherwake terpasang — magic packet bisa dikirim.
+	SendReady bool       `json:"send_ready"`
+	Ifaces    []WolIface `json:"ifaces"`
+}
+
+type WolSetArgs struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+type WolSendArgs struct {
+	MAC string `json:"mac"`
+	// Iface kosong = interface default (yang dipakai etherwake sendiri).
+	Iface string `json:"iface,omitempty"`
 }
 
 // Frame type untuk stream terminal (arah client → helper).

@@ -43,10 +43,16 @@ internal/helper/embed/headroom.service: deploy/headroom.service
 
 build: ui server helper
 
+# go test -timeout 30m: tiap test API membuat SQLite di t.TempDir(), dan di
+# filesystem dengan fsync lambat (loop device, jaringan) satu store.Open bisa
+# ~3 detik — ratusan test internal/api melewati timeout bawaan go test
+# (10 menit). TMPDIR sengaja TIDAK dipindah ke /tmp: test seed AI dan mailcow
+# memvalidasi kepemilikan/mode ancestor path fixture-nya dan menolak TMPDIR
+# world-writable seperti /tmp (mode 1777).
 test:
 	python3 -B -m unittest deploy/test_postfix.py
 	python3 -B -m unittest deploy/test_build_memory.py
-	go test ./...
+	go test -timeout 30m ./...
 	python3 -B -m unittest discover -s internal/helper -p 'test_grounded_search.py'
 	cd $(UI) && npm run test --if-present
 

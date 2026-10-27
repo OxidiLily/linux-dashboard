@@ -474,6 +474,21 @@ func (s *Server) dispatch(u *userInfo, req helperproto.Request) (json.RawMessage
 		}
 		return nil, ifaceConfigSet(args)
 
+	case helperproto.CmdWolStatus:
+		return jsonOf(wolStatus(), nil)
+	case helperproto.CmdWolSet:
+		args, err := decodeArgs[helperproto.WolSetArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return nil, wolSet(args.Name, args.Enabled)
+	case helperproto.CmdWolSend:
+		args, err := decodeArgs[helperproto.WolSendArgs](req)
+		if err != nil {
+			return nil, err
+		}
+		return nil, wolSend(args.MAC, args.Iface)
+
 	case helperproto.CmdCertificatesGet:
 		return jsonOf(statusCertificates(time.Now()), nil)
 	case helperproto.CmdCertificatesSet:

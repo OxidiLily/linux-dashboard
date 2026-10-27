@@ -237,6 +237,9 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/settings/network/dns", s.handleSetDNS)
 			r.Get("/settings/network/vpn", s.handleVPNStatus)
 			r.Put("/settings/network/vpn/{name}", s.handleVPNConfigure)
+			r.Get("/settings/network/wol", s.handleWolStatus)
+			r.Put("/settings/network/wol/{name}", s.handleWolSet)
+			r.Post("/settings/network/wol/send", s.handleWolSend)
 
 			r.Get("/settings/certificates", s.handleCertificatesGet)
 			r.Put("/settings/certificates", s.handleCertificatesSet)

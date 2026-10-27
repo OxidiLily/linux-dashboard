@@ -6,6 +6,7 @@ import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
 import { confirmDialog } from "@/components/ui/confirm"
 import { promptDialog } from "@/components/ui/prompt"
+import { pilihDialog } from "@/components/ui/pilih"
 import { useAuth } from "@/stores/auth"
 import { Panel } from "@/components/ui/panel"
 import { trf, useTr } from "@/stores/i18n"
@@ -499,11 +500,90 @@ export function FileManagerView() {
     return () => ac.abort()
   }, [entries])
 
+  // namaBebas mencari "nama (1).ext" / "nama (1)" pertama yang belum dipakai
+  // direktori tujuan maupun oleh unggahan yang sama.
+  const namaBebas = (atas: string, folder: boolean, terpakai: Set<string>) => {
+    const titik = folder ? -1 : atas.lastIndexOf(".")
+    const inti = titik > 0 ? atas.slice(0, titik) : atas
+    const ekstensi = titik > 0 ? atas.slice(titik) : ""
+    for (let n = 1; ; n++) {
+      const kandidat = `${inti} (${n})${ekstensi}`
+      if (!terpakai.has(kandidat)) return kandidat
+    }
+  }
+
+  // selesaikanKonflik memeriksa nama item tingkat pertama unggahan terhadap
+  // isi direktori tujuan, lalu meminta keputusan user per nama yang bentrok —
+  // SEBELUM byte pertama dikirim, karena sesudahnya keputusan terlanjur ada di
+  // disk. Melempar error berpenanda "dibatalkan" bila user membatalkan
+  // seluruh unggahan dari dialog.
+  const selesaikanKonflik = async (daftar: { file: File; rel: string }[]) => {
+    const { entries } = await apiGet<{ entries: FileEntry[] }>(
+      `/api/files?path=${encodeURIComponent(currentPath)}`,
+    )
+    const terpakai = new Set(entries.map((e) => e.name))
+    // Kelompokkan per nama item paling atas: unggahan folder mengirim banyak
+    // rel "folder/sub/berkas" yang kesemuanya satu keputusan.
+    const grup = new Map<string, { file: File; rel: string }[]>()
+    for (const item of daftar) {
+      const atas = item.rel.split("/")[0]
+      const g = grup.get(atas)
+      if (g) g.push(item)
+      else grup.set(atas, [item])
+    }
+    const hasil: { file: File; rel: string }[] = []
+    for (const [atas, isi] of grup) {
+      if (!terpakai.has(atas)) {
+        hasil.push(...isi)
+        terpakai.add(atas)
+        continue
+      }
+      const folder = isi.length > 1 || isi[0].rel.includes("/")
+      const aksi = await pilihDialog({
+        title: trf("Nama \"{0}\" sudah ada di tujuan upload", atas),
+        detail: currentPath,
+        opsi: [
+          { nilai: "timpa", label: tr("Timpa yang lama") },
+          { nilai: "nama", label: tr("Ganti nama dengan angka") },
+          { nilai: "lewat", label: tr("Lewati") },
+        ],
+      })
+      if (aksi === null) {
+        throw Object.assign(new Error(tr("unggahan dibatalkan")), { dibatalkan: true })
+      }
+      if (aksi === "lewat") continue
+      if (aksi === "nama") {
+        const baru = namaBebas(atas, folder, terpakai)
+        terpakai.add(baru)
+        for (const item of isi) hasil.push({ file: item.file, rel: baru + item.rel.slice(atas.length) })
+        continue
+      }
+      // "timpa" = replace penuh: item lama dihapus lebih dulu (folder beserta
+      // isinya, rekursif), lalu unggahan menempati namanya. Satu perilaku untuk
+      // file maupun folder — termasuk saat tipenya berbeda (file lama vs
+      // folder baru, atau sebaliknya) yang kalau ditimpa langsung akan gagal
+      // di server karena path-nya sudah terpakai tipe lain.
+      await apiSend("/api/files/delete", "POST", {
+        path: `${currentPath}/${atas}`.replace(/\/+/g, "/"),
+      })
+      hasil.push(...isi)
+      terpakai.add(atas)
+    }
+    return hasil
+  }
+
   // Inti upload: menerima daftar File, mengirim ke server, dan memuat ulang
   // direktori sesudahnya. Dipakai oleh input file DAN drag-and-drop.
   const uploadBerkas = async (files: File[]) => {
     if (files.length === 0) return
-    const daftar = files.map((f) => ({ file: f, rel: (f as any).webkitRelativePath || f.name }))
+    let daftar = files.map((f) => ({ file: f, rel: (f as any).webkitRelativePath || f.name }))
+    try {
+      daftar = await selesaikanKonflik(daftar)
+    } catch (err: any) {
+      if (!err?.dibatalkan) notify.err(trf("Upload gagal: {0}", pesanError(err)))
+      return
+    }
+    if (daftar.length === 0) return
     // Satu nama yang bisa dibaca user di bar: nama berkasnya kalau cuma satu,
     // jumlahnya kalau banyak — daftar panjang tidak muat di satu baris.
     const nama = daftar.length === 1 ? daftar[0].rel : trf("{0} berkas", daftar.length)

@@ -256,6 +256,17 @@ var components = map[string]*component{
 		purge:     purgeCloudflared,
 		version:   func() string { return firstLine(tryRun("cloudflared", "--version")) },
 	},
+	// Wake on LAN butuh dua paket dengan peran berbeda: ethtool membaca dan
+	// menyetel flag WOL interface mesin ini, etherwake mengirim magic packet
+	// untuk membangunkan perangkat lain di LAN.
+	"wakeonlan": {
+		Name: "wakeonlan", Binary: "ethtool", Label: "Wake on LAN",
+		Category: katBerbagi, RequiredFor: "Settings → Network (Wake on LAN)",
+		Description: "ethtool + etherwake — aktifkan Wake-on-LAN pada interface dan kirim magic packet untuk membangunkan perangkat lain.",
+		install:     func() error { return aptInstall("ethtool", "etherwake") },
+		uninstall:   func() error { return aptRemove("ethtool", "etherwake") },
+		version:     func() string { return firstLine(tryRun("ethtool", "--version")) },
+	},
 	"9router": {
 		Name: "9router", Binary: "9router", Service: "9router", Label: "9router",
 		Category: katAI, Description: "Gateway API AI lokal + Headroom context compressor (butuh Node.js).",
@@ -1721,8 +1732,9 @@ func tambahkanKeGrupDocker(username string) {
 }
 
 const (
-	// Node 24 = LTS aktif, dan versi yang diminta dokumentasi 9Router.
-	nodeMajor    = "24"
+	// Node 26 = rilis terbaru (LTS aktif). Dipasang dari NodeSource; versi
+	// lebih lawas dari ini ikut dinaikkan saat komponen dipasang.
+	nodeMajor    = "26"
 	nodeSetupURL = "https://deb.nodesource.com/setup_" + nodeMajor + ".x"
 )
 

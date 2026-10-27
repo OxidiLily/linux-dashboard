@@ -411,6 +411,62 @@ func (s *Server) handleVPNConfigure(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
+// handleWolStatus menampilkan status Wake-on-LAN tiap interface. Bacaan
+// terbuka untuk sesi yang sudah login (sama dengan daftar interface);
+// perubahannya membutuhkan sudo.
+func (s *Server) handleWolStatus(w http.ResponseWriter, r *http.Request) {
+	var st helperproto.WolStatus
+	if err := s.helper.Call(helperproto.CmdWolStatus, sessionFrom(r).HelperToken, nil, &st); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleWolSet(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	var body helperproto.WolSetArgs
+	if err := decodeBody(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	body.Name = chi.URLParam(r, "name")
+	if err := s.helper.Call(helperproto.CmdWolSet, sess.HelperToken, body, nil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	aksi := "nonaktifkan"
+	if body.Enabled {
+		aksi = "aktifkan"
+	}
+	s.store.LogActivity(sess.Username, "wol_set", aksi,
+		map[string]any{"iface": body.Name}, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": body.Name, "enabled": body.Enabled})
+}
+
+func (s *Server) handleWolSend(w http.ResponseWriter, r *http.Request) {
+	if !requireSudo(w, r) {
+		return
+	}
+	sess := sessionFrom(r)
+	var body helperproto.WolSendArgs
+	if err := decodeBody(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.helper.Call(helperproto.CmdWolSend, sess.HelperToken, body, nil); err != nil {
+		writeHelperErr(w, err)
+		return
+	}
+	// MAC tujuan bukan rahasia (alamat hardware siaran), aman dicatat untuk audit.
+	s.store.LogActivity(sess.Username, "wol_send", "kirim magic packet",
+		map[string]any{"mac": body.MAC, "iface": body.Iface}, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
 // ---- Firewall (ufw) ----
 
 func (s *Server) handleFirewallList(w http.ResponseWriter, r *http.Request) {
