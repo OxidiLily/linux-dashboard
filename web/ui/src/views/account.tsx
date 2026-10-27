@@ -217,22 +217,39 @@ export function AccountView() {
   }
 
   const handleResetUserPassword = async (u: LinuxUser) => {
+    // Baris akun SENDIRI mengikuti aturan "Ganti Password Sendiri": helper
+    // memperlakukannya sebagai ganti password sendiri yang mewajibkan password
+    // lama. Baris user lain tetap reset oleh admin — password lama user itu
+    // tidak diketahui admin.
+    const diri = u.username === currentUser?.username
+    let lama = ""
+    if (diri) {
+      const isi = await promptDialog({
+        title: trf("Ganti Password \"{0}\"", u.username),
+        label: tr("Password Lama"),
+        password: true,
+        confirmLabel: tr("Lanjutkan"),
+      })
+      if (!isi) return
+      lama = isi
+    }
     const p = await promptDialog({
-      title: trf("Reset password {0}", u.username),
-      label: tr("Password baru"),
+      title: diri ? trf("Ganti Password \"{0}\"", u.username) : trf("Reset password {0}", u.username),
+      label: diri ? tr("Password Baru (min 8 karakter)") : tr("Password baru"),
       password: true,
-      confirmLabel: tr("Reset"),
+      confirmLabel: diri ? tr("Ubah Password") : tr("Reset"),
     })
     if (!p) return
     try {
       await notify.tugas(
         apiSend(`/api/settings/account/users/${encodeURIComponent(u.username)}/password`, "PUT", {
+          ...(diri ? { old_password: lama } : {}),
           new_password: p,
         }),
         {
-          jalan: trf("Mereset password {0}…", u.username),
-          sukses: tr("Password user berhasil direset."),
-          gagal: (e) => trf("Gagal reset password: {0}", pesanError(e)),
+          jalan: diri ? tr("Mengubah password…") : trf("Mereset password {0}…", u.username),
+          sukses: diri ? tr("Password berhasil diubah.") : tr("Password user berhasil direset."),
+          gagal: (e) => (diri ? trf("Gagal mengubah password: {0}", pesanError(e)) : trf("Gagal reset password: {0}", pesanError(e))),
         },
       )
     } catch {

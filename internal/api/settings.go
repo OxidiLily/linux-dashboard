@@ -193,17 +193,29 @@ func (s *Server) handleUserResetPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	target := chi.URLParam(r, "name")
+	// OldPassword diteruskan apa adanya: helper memperlakukan target ==
+	// pemanggil sebagai ganti password sendiri yang MAWAJIBKAN password lama
+	// (lihat helper changePassword), sedangkan target user lain
+	// mengabaikannya.
 	if err := s.helper.Call(helperproto.CmdAuthPasswd, sess.HelperToken, helperproto.PasswdArgs{
-		Target: target, NewPassword: body.NewPassword,
+		Target: target, OldPassword: body.OldPassword, NewPassword: body.NewPassword,
 	}, nil); err != nil {
 		writeHelperErr(w, err)
 		return
 	}
-	// Password target berubah karena tindakan admin: semua sesi target —
-	// yang mungkin sudah dipegang penyerang — dicabut saat itu juga.
-	_ = s.store.DeleteSessionsByUsername(target)
-	s.store.LogActivity(sess.Username, "user_password_reset", "reset password user lain",
-		map[string]any{"username": target}, clientIP(r))
+	if target == sess.Username {
+		// Ganti password sendiri lewat tabel user: sesi yang sedang dipakai
+		// tetap hidup supaya user tidak terlempar keluar, sesi lain dicabut.
+		_ = s.store.DeleteSessionsExcept(sess.Username, sess.ID)
+		s.store.LogActivity(sess.Username, "password_change", "ganti password sendiri",
+			nil, clientIP(r))
+	} else {
+		// Password target berubah karena tindakan admin: semua sesi target —
+		// yang mungkin sudah dipegang penyerang — dicabut saat itu juga.
+		_ = s.store.DeleteSessionsByUsername(target)
+		s.store.LogActivity(sess.Username, "user_password_reset", "reset password user lain",
+			map[string]any{"username": target}, clientIP(r))
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
