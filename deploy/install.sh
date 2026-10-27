@@ -124,7 +124,9 @@ pastikan_keamanan_runtime() {
     die "Gagal memasang keamanan runtime: ${kurang[*]}"
 }
 
-# Go dipasang dari tarball resmi go.dev, selalu versi rilis terakhir.
+# Go dipasang dari tarball resmi go.dev, patch terbaru dalam SERI yang diuji
+# (diambil dari `go.mod`, mis. 1.27.x) — bukan rilis absolut terbaru: rilis
+# seri berikutnya tidak boleh masuk mesin build tanpa lewat uji lebih dulu.
 #
 # Bukan paket golang-go distro: umurnya bisa bertahun-tahun tertinggal dan
 # tidak pernah benar-benar dipakai untuk build (go.mod menuntut lebih baru).
@@ -134,10 +136,15 @@ pastikan_keamanan_runtime() {
 # meninggalkan satu toolchain lengkap di /usr/local/go, tanpa unduhan
 # toolchain sama sekali.
 pastikan_go() {
-  local terbaru terpasang versi_mentah arsip arsitektur
-  versi_mentah=$(curl -fsSL 'https://go.dev/VERSION?m=text' 2>/dev/null) || versi_mentah=""
-  terbaru=${versi_mentah%%[[:space:]]*}
-  terbaru=${terbaru#go}
+  local terbaru terpasang versi_mentah arsip arsitektur seri pola
+  seri=$(awk '$1 == "go" {print $2; exit}' go.mod 2>/dev/null)
+  seri=${seri%.*} # 1.27.1 -> 1.27
+  versi_mentah=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' 2>/dev/null) || versi_mentah=""
+  # Daftar rilis berurut dari yang terbaru: entri pertama yang cocok dengan
+  # seri go.mod adalah patch terbaru seri itu. Seri kosong (go.mod tidak
+  # terbaca) jatuh ke perilaku lama: versi absolut terbaru.
+  pola="\"version\":[[:space:]]*\"go${seri//./\\.}[^\"]*\""
+  terbaru=$(printf '%s' "$versi_mentah" | grep -oE "$pola" | head -n1 | sed 's/.*"go//; s/"$//')
   terpasang=$(go version 2>/dev/null | awk '{print $3}') || terpasang=""
   terpasang=${terpasang#go}
   if [[ -n "$terpasang" && -z "$terbaru" ]]; then
@@ -145,7 +152,7 @@ pastikan_go() {
     return
   fi
   if [[ -n "$terpasang" && "$terbaru" == "$(printf '%s\n%s\n' "$terpasang" "$terbaru" | sort -V | head -n1)" ]]; then
-    ok "Go ${terpasang} sudah versi terbaru"
+    ok "Go ${terpasang} sudah memadai (target patch terbaru seri ${seri}: ${terbaru})"
     return
   fi
   if [[ -z "$terbaru" ]]; then

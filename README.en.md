@@ -14,7 +14,7 @@
 
 - Ubuntu/Debian with systemd; targets amd64/arm64/armhf.
 - Installation requires root/sudo and network access for dependencies; admin actions require root or `sudo`/`admin` membership.
-- Build: Go 1.27.1+, Node.js 24.15+ or >=26, `make`, a C compiler, `libpam0g-dev`. The installer installs the latest Go and Node releases.
+- Build: Go 1.27.1+, Node.js 24.15+ or >=26, `make`, a C compiler, `libpam0g-dev`. The installer installs the latest Go patch of the `go.mod` series (1.27.x) and Node 26 from NodeSource — not the absolute newest releases, so a new series never lands before it is tested.
 - Server-side builds can be memory-intensive; optional services have separate resource/hardware requirements. No guarantee of fitting in 1 GB RAM.
 
 ## Description
