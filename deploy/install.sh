@@ -137,14 +137,20 @@ pastikan_keamanan_runtime() {
 # toolchain sama sekali.
 pastikan_go() {
   local terbaru terpasang versi_mentah arsip arsitektur seri pola
-  seri=$(awk '$1 == "go" {print $2; exit}' go.mod 2>/dev/null)
+  seri=$(awk '$1 == "go" {print $2; exit}' go.mod 2>/dev/null) || seri=""
   seri=${seri%.*} # 1.27.1 -> 1.27
   versi_mentah=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' 2>/dev/null) || versi_mentah=""
   # Daftar rilis berurut dari yang terbaru: entri pertama yang cocok dengan
   # seri go.mod adalah patch terbaru seri itu. Seri kosong (go.mod tidak
   # terbaca) jatuh ke perilaku lama: versi absolut terbaru.
   pola="\"version\":[[:space:]]*\"go${seri//./\\.}[^\"]*\""
-  terbaru=$(printf '%s' "$versi_mentah" | grep -oE "$pola" | sed -n '1p' | sed 's/.*"go//; s/"$//')
+  # Substitusi yang boleh gagal WAJIB ditoleransi (`seri=` di atas juga):
+  # `set -euo pipefail` menghentikan seluruh installer saat satu assignment
+  # bernilai bukan-nol. go.mod hilang itu normal (mode `curl | sudo bash`
+  # ber-CWD /), dan grep tanpa match itu normal (go.dev tak terjangkau / seri
+  # belum dirilis) — keduanya sudah ditangani cabang kosong di bawah, tapi
+  # tidak akan pernah tercapai tanpa guard ini.
+  terbaru=$(printf '%s' "$versi_mentah" | grep -oE "$pola" | sed -n '1p' | sed 's/.*"go//; s/"$//') || terbaru=""
   terpasang=$(go version 2>/dev/null | awk '{print $3}') || terpasang=""
   terpasang=${terpasang#go}
   if [[ -n "$terpasang" && -z "$terbaru" ]]; then
