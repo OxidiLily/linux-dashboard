@@ -885,10 +885,25 @@ else
 fi
 
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+secure_cookie=$(ambil_env_dashboard DASHBOARD_SECURE_COOKIE | tr '[:upper:]' '[:lower:]')
 if [[ "$plaintext_dipilih" == true && -z "$tls_cert" && -z "$tls_key" ]]; then
-  ok "Terpasang. Buka URL HTTPS milik reverse proxy/terminator TLS Anda."
-  echo "[i] Backend panel mendengar HTTP pada ${ip:-<ip-server>}:${panel_port}; jangan buka port ini langsung ke internet."
-  echo "[i] Cookie sesi tetap Secure dan hanya dikirim browser melalui HTTPS."
+  # Cookie Secure=true berarti browser hanya mengirimnya lewat HTTPS, jadi URL
+  # yang bisa dibuka memang milik terminator TLS eksternal. Selain itu (false /
+  # tidak diset — default runtime tanpa TLS) login HTTP langsung berfungsi:
+  # sebutkan alamat yang benar-benar bisa dibuka, jangan menyuruh pengguna
+  # mencari reverse proxy yang belum tentu ada.
+  case "$secure_cookie" in
+    1|t|true)
+      ok "Terpasang. Buka URL HTTPS milik reverse proxy/terminator TLS Anda."
+      echo "[i] Backend panel mendengar HTTP pada ${ip:-<ip-server>}:${panel_port}; jangan buka port ini langsung ke internet."
+      echo "[i] Cookie sesi tetap Secure dan hanya dikirim browser melalui HTTPS."
+      ;;
+    *)
+      ok "Terpasang. Buka http://${ip:-<ip-server>}:${panel_port}"
+      echo "[⚠] Mode HTTP: password, OTP, dan sesi terkirim tanpa enkripsi — jangan ekspos port ${panel_port} ke internet."
+      echo "[i] Bila di belakang reverse proxy TLS, buka URL proxy Anda dan set DASHBOARD_SECURE_COOKIE=true."
+      ;;
+  esac
 else
   ok "Terpasang. Buka https://${ip:-<ip-server>}:${panel_port}"
   echo "[i] TLS native aktif; cookie sesi Secure. Sertifikat self-signed perlu dipercaya"

@@ -7,8 +7,9 @@
 #   systemctl restart linux-dashboard-web
 #
 # Alamat dengar. Unit systemd memakai 0.0.0.0:1122 agar panel dapat diakses
-# langsung dari jaringan tanpa reverse proxy. Installer membuat TLS native dan
-# membuka port ini di UFW sebelum firewall diaktifkan.
+# langsung dari jaringan tanpa reverse proxy. Installer membuka port ini di UFW
+# sebelum firewall diaktifkan; instalasi baru berjalan HTTP — lihat
+# DASHBOARD_ALLOW_PLAINTEXT di bawah.
 #DASHBOARD_LISTEN=0.0.0.0:1122
 
 # Direktori secret HMAC helper. TERPISAH dari state dir web (DASHBOARD_STATE_DIR)
@@ -19,8 +20,9 @@
 # sendiri (mode 0640, pemilik root, grup linux-dashboard) lalu restart helper.
 #DASHBOARD_SECRET_DIR=/var/lib/linux-dashboard-helper
 
-# Cookie sesi selalu Secure ketika TLS native aktif. Installer menulis nilai ini
-# menjadi true; runtime mengabaikan nilai false bila cert/key native tersedia.
+# Cookie sesi selalu Secure ketika TLS native aktif. Installer menulis true saat
+# TLS native dibuat dan false pada instalasi HTTP baru; runtime mengabaikan nilai
+# false bila cert/key native tersedia.
 #DASHBOARD_SECURE_COOKIE=true
 
 # TLS langsung di panel. Installer mengisi dua variabel ini dan membuat
@@ -31,8 +33,9 @@
 #DASHBOARD_TLS_CERT=/etc/linux-dashboard/tls.crt
 #DASHBOARD_TLS_KEY=/etc/linux-dashboard/tls.key
 
-# Plaintext publik hanya untuk terminasi TLS eksternal yang dipilih secara
-# sadar. Jangan aktifkan untuk akses langsung dari internet/LAN.
+# Plaintext = HTTP tanpa enkripsi. Installer menyetel true pada instalasi baru
+# (akses LAN); untuk terminasi TLS eksternal biarkan true. Jangan ekspos port
+# panel ke internet dalam mode ini.
 #DASHBOARD_ALLOW_PLAINTEXT=false
 
 # Key AES-256-GCM untuk mengenkripsi secret TOTP di SQLite. Installer membuat
