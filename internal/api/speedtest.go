@@ -36,7 +36,8 @@ var speedTestServers = []struct {
 	URL  string
 	Size int64 // perkiraan ukuran file, byte
 }{
-	{"Cloudflare", "https://speed.cloudflare.com/__down?bytes=104857600", 100 << 20},
+	// Cloudflare menolak (403) dimensi >= 100MB; 75MB terverifikasi 200 (2026-10-28).
+	{"Cloudflare", "https://speed.cloudflare.com/__down?bytes=73400320", 75 << 20},
 	{"Hetzner (DE)", "https://speed.hetzner.de/100MB.bin", 100 << 20},
 }
 
@@ -55,7 +56,8 @@ func (s *Server) handleSpeedtestStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	// ponytail: context.Background, bukan r.Context() — request selesai = test mati.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	stCancel = cancel
 
 	id := randomHex(8)
@@ -220,10 +222,13 @@ func measureDownload(ctx context.Context, url string, result *speedtestResult) f
 		return 0
 	}
 	defer resp.Body.Close()
-
+	if resp.StatusCode != http.StatusOK {
+		setError(result, fmt.Sprintf("Download gagal: HTTP %d", resp.StatusCode))
+		return 0
+	}
 	totalExpected := resp.ContentLength
 	if totalExpected <= 0 {
-		totalExpected = 100 << 20 // assume 100MB
+		totalExpected = 75 << 20 // assume 75MB
 	}
 
 	buf := make([]byte, 256<<10) // 256KB buffer
@@ -344,6 +349,10 @@ func measureUpload(ctx context.Context, result *speedtestResult) float64 {
 		return 0
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		setError(result, fmt.Sprintf("Upload gagal: HTTP %d", resp.StatusCode))
+		return 0
+	}
 	// Baca response body agar koneksi bisa di-reuse.
 	_, _ = io.Copy(io.Discard, resp.Body)
 
