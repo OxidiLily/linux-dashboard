@@ -102,9 +102,22 @@ func GenerateSecret() (string, error) {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b), nil
 }
 
+// issuerTFA memakai hostname mesin sebagai nama entri di aplikasi authenticator
+// ("{hostname} Dashboard") agar beberapa server mudah dibedakan saat dipindai.
+// Titik dua dibuang dari hostname supaya pemisah issuer:account tetap tunggal.
+func issuerTFA() string {
+	host, err := os.Hostname()
+	host = strings.TrimSpace(host)
+	if err != nil || host == "" {
+		return "Linux Dashboard"
+	}
+	return strings.ReplaceAll(host, ":", "") + " Dashboard"
+}
+
 func URI(username, secret string) string {
-	label := "Linux Dashboard:" + username
-	q := url.Values{"secret": {secret}, "issuer": {"Linux Dashboard"}, "algorithm": {"SHA1"}, "digits": {"6"}, "period": {"30"}}
+	issuer := issuerTFA()
+	label := issuer + ":" + username
+	q := url.Values{"secret": {secret}, "issuer": {issuer}, "algorithm": {"SHA1"}, "digits": {"6"}, "period": {"30"}}
 	return "otpauth://totp/" + url.PathEscape(label) + "?" + q.Encode()
 }
 
