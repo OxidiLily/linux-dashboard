@@ -1,14 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
-	"math"
 	"io"
-	"log"
+	"math"
 	"net/http"
+	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,16 +31,27 @@ type speedtestResult struct {
 	FinishedAt int64   `json:"finished_at,omitempty"`
 }
 
-// Server speed test bawaan — file publik yang bisa diunduh untuk mengukur.
-// Sengaja pakai beberapa mirror untuk memperkecil latensi ke satu geografi.
-var speedTestServers = []struct {
-	Name string
-	URL  string
-	Size int64 // perkiraan ukuran file, byte
-}{
-	// Cloudflare menolak (403) dimensi >= 100MB; 75MB terverifikasi 200 (2026-10-28).
-	{"Cloudflare", "https://speed.cloudflare.com/__down?bytes=73400320", 75 << 20},
-	{"Hetzner (DE)", "https://speed.hetzner.de/100MB.bin", 100 << 20},
+// serverUji adalah satu server uji publik: endpoint unduh, endpoint unggah
+// ("" bila tidak tersedia), batas byte per request unggah, dan napas antar
+// request supaya tidak kena rate limit.
+type serverUji struct {
+	Nama        string
+	URL         string
+	UnggahURL   string
+	ChunkUnggah int64
+	Jeda        time.Duration
+}
+
+// Server uji bawaan — semua endpoint terverifikasi 2026-10-28 dari mesin ini
+// (unduh GET/HEAD 200, unggah POST 200). Bila satu server gagal atau kena
+// rate limit (429), test otomatis pindah ke server berikutnya (failover).
+var speedTestServers = []serverUji{
+	{"Cloudflare", "https://speed.cloudflare.com/__down?bytes=73400320",
+		"https://speed.cloudflare.com/__up", 25 << 20, 500 * time.Millisecond},
+	{"SpeedtestDoctor", "https://api.speedtest.doctor/down",
+		"https://api.speedtest.doctor/up", 5 << 20, 200 * time.Millisecond},
+	{"OVH (FR)", "https://proof.ovh.net/files/100Mb.dat", "", 0, 0},
+	{"Vultr (US)", "https://lax-ca-us-ping.vultr.com/vultr.com.100MB.bin", "", 0, 0},
 }
 
 // Hanya satu test berjalan sekaligus per server.
@@ -103,29 +116,28 @@ func randomHex(n int) string {
 	return fmt.Sprintf("%x", b)
 }
 
-// runSpeedTest menjalankan fase ping, download, upload secara berurutan.
+// runSpeedTest menjalankan fase ping, download, upload secara berurutan dengan
+// failover antar server uji bila server yang sedang dipakai gagal.
 func runSpeedTest(ctx context.Context, cancel context.CancelFunc, result *speedtestResult) {
 	defer cancel()
 
-	// Pilih server dengan latensi terbaik.
-	bestIdx, bestPing, bestJitter := pickBestServer(ctx, result)
+	// Urutkan server dari latensi terbaik — gagal di tengah = pindah berikutnya.
+	urutan := urutkanServer(ctx, result)
 	if ctx.Err() != nil {
 		setError(result, "Dibatalkan")
 		return
 	}
 
-	srv := speedTestServers[bestIdx]
 	updateResult(result, func(r *speedtestResult) {
-		r.Ping = bestPing
-		r.Jitter = bestJitter
-		r.Server = srv.Name
-		r.ServerURL = srv.URL
 		r.Phase = "download"
 		r.Progress = 0
 	})
 
 	// Download test.
-	dlMbps := measureDownload(ctx, srv.URL, result)
+	dlMbps := measureDownload(ctx, urutan, result)
+	if hasError(result) {
+		return
+	}
 	if ctx.Err() != nil {
 		setError(result, "Dibatalkan")
 		return
@@ -138,7 +150,10 @@ func runSpeedTest(ctx context.Context, cancel context.CancelFunc, result *speedt
 	})
 
 	// Upload test — kirim data acak ke endpoint yang menerima POST.
-	ulMbps := measureUpload(ctx, result)
+	ulMbps := measureUpload(ctx, urutan, result)
+	if hasError(result) {
+		return
+	}
 	if ctx.Err() != nil {
 		setError(result, "Dibatalkan")
 		return
@@ -166,21 +181,36 @@ func setError(r *speedtestResult, msg string) {
 	})
 }
 
-func pickBestServer(ctx context.Context, result *speedtestResult) (bestIdx int, bestPing, bestJitter float64) {
-	bestPing = 9999
+// hasError menandai hasil sudah masuk status error — fase berikutnya tidak
+// boleh menimpa status error dengan "done"/"upload".
+func hasError(r *speedtestResult) bool {
+	stMu.Lock()
+	defer stMu.Unlock()
+	return r.Phase == "error"
+}
+
+// urutkanServer mengukur latensi tiap server uji lalu mengembalikan urutan
+// indeks dari yang tercepat. Ping/jitter terbaik dicatat ke hasil.
+func urutkanServer(ctx context.Context, result *speedtestResult) []int {
+	type nilai struct {
+		idx    int
+		ping   float64
+		jitter float64
+	}
+	terukur := make([]nilai, 0, len(speedTestServers))
+	tanpaPing := make([]int, 0)
 	for i, srv := range speedTestServers {
 		if ctx.Err() != nil {
-			return
+			break
 		}
 		updateResult(result, func(r *speedtestResult) {
 			r.Phase = "ping"
 			r.Progress = float64(i) / float64(len(speedTestServers))
 		})
-
-		pings := make([]float64, 0, 5)
-		for j := 0; j < 5; j++ {
+		pings := make([]float64, 0, 3)
+		for j := 0; j < 3; j++ {
 			if ctx.Err() != nil {
-				return
+				break
 			}
 			start := time.Now()
 			req, err := http.NewRequestWithContext(ctx, "HEAD", srv.URL, nil)
@@ -195,179 +225,278 @@ func pickBestServer(ctx context.Context, result *speedtestResult) (bestIdx int, 
 			pings = append(pings, float64(time.Since(start).Microseconds())/1000)
 		}
 		if len(pings) == 0 {
+			tanpaPing = append(tanpaPing, i) // tetap bisa dicoba saat failover
 			continue
 		}
-		avgPing := avg(pings)
-		jitter := stddev(pings)
-		if avgPing < bestPing {
-			bestPing = avgPing
-			bestJitter = jitter
-			bestIdx = i
-		}
+		terukur = append(terukur, nilai{i, avg(pings), stddev(pings)})
 	}
-	return
+	sort.Slice(terukur, func(a, b int) bool { return terukur[a].ping < terukur[b].ping })
+	if len(terukur) > 0 {
+		terbaik := speedTestServers[terukur[0].idx]
+		updateResult(result, func(r *speedtestResult) {
+			r.Ping = round2(terukur[0].ping)
+			r.Jitter = terukur[0].jitter
+			r.Server = terbaik.Nama
+			r.ServerURL = terbaik.URL
+		})
+	}
+	urutan := make([]int, 0, len(speedTestServers))
+	for _, n := range terukur {
+		urutan = append(urutan, n.idx)
+	}
+	urutan = append(urutan, tanpaPing...)
+	return urutan
 }
 
-func measureDownload(ctx context.Context, url string, result *speedtestResult) float64 {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		setError(result, "Download request gagal: "+err.Error())
-		return 0
-	}
+// speedTestPhase adalah durasi tetap tiap fase ukur (unduh/unggah) supaya kedua
+// fase selesai dalam waktu yang sama, seperti speed test pada umumnya.
+const speedTestPhase = 10 * time.Second
 
-	start := time.Now()
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		setError(result, "Download gagal: "+err.Error())
-		return 0
+// progressFase mengubah waktu berjalan menjadi kemajuan fase 0..0.99.
+func progressFase(elapsed float64) float64 {
+	p := elapsed / speedTestPhase.Seconds()
+	if p > 0.99 {
+		return 0.99
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		setError(result, fmt.Sprintf("Download gagal: HTTP %d", resp.StatusCode))
-		return 0
-	}
-	totalExpected := resp.ContentLength
-	if totalExpected <= 0 {
-		totalExpected = 75 << 20 // assume 75MB
-	}
-
-	buf := make([]byte, 256<<10) // 256KB buffer
-	var totalBytes int64
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	// Update progress in background.
-	done := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				updateResult(result, func(r *speedtestResult) {
-					r.Progress = float64(totalBytes) / float64(totalExpected)
-					if r.Progress > 1 {
-						r.Progress = 0.99
-					}
-					elapsed := time.Since(start).Seconds()
-					if elapsed > 0.5 {
-						r.Download = float64(totalBytes*8) / elapsed / 1e6
-					}
-				})
-			case <-done:
-				return
-			}
-		}
-	}()
-
-	for {
-		n, readErr := resp.Body.Read(buf)
-		totalBytes += int64(n)
-		if readErr != nil {
-			break
-		}
-		if ctx.Err() != nil {
-			break
-		}
-	}
-	close(done)
-
-	elapsed := time.Since(start).Seconds()
-	if elapsed < 0.01 {
-		elapsed = 0.01
-	}
-	mbps := float64(totalBytes*8) / elapsed / 1e6
-	return round2(mbps)
+	return p
 }
 
-// measureUpload mengirim data acak ke Cloudflare speed test upload endpoint.
-func measureUpload(ctx context.Context, result *speedtestResult) float64 {
-	// Cloudflare menerima POST upload di __up.
-	uploadURL := "https://speed.cloudflare.com/__up"
-	uploadSize := int64(25 << 20) // 25MB upload
+// hitungReader menghitung byte yang benar-benar dialirkan ke jaringan.
+type hitungReader struct {
+	r io.Reader
+	n *atomic.Int64
+}
 
-	pr, pw := io.Pipe()
-	go func() {
-		defer pw.Close()
-		buf := make([]byte, 64<<10)
-		var written int64
-		for written < uploadSize {
+func (h hitungReader) Read(p []byte) (int, error) {
+	n, err := h.r.Read(p)
+	h.n.Add(int64(n))
+	return n, err
+}
+
+// jedaFase menunggu d; false bila fase keburu habis / dibatalkan.
+func jedaFase(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// unduhDari mengunduh dari satu server sampai fase habis. Mengembalikan true
+// bila server cukup sampai akhir fase; false = server gagal dan caller harus
+// pindah ke server berikutnya (failover).
+func unduhDari(ctx context.Context, srv serverUji, totalBytes *atomic.Int64, result *speedtestResult) bool {
+	buf := make([]byte, 256<<10)
+	kena429 := 0
+	for ctx.Err() == nil {
+		req, err := http.NewRequestWithContext(ctx, "GET", srv.URL, nil)
+		if err != nil {
+			return false
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return true // fase habis / dibatalkan — normal
 			}
-			_, _ = rand.Read(buf)
-			toWrite := int64(len(buf))
-			if written+toWrite > uploadSize {
-				toWrite = uploadSize - written
+			return false // gagal jaringan — pindah server
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			kena429++
+			if kena429 >= 2 {
+				return false // rate limit menetap — failover ke server lain
 			}
-			n, err := pw.Write(buf[:toWrite])
-			written += int64(n)
-			if err != nil {
-				return
+			if !jedaFase(ctx, time.Second) {
+				return true
+			}
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return false
+		}
+		kena429 = 0
+		updateResult(result, func(r *speedtestResult) {
+			r.Server = srv.Nama
+			r.ServerURL = srv.URL
+		})
+		for ctx.Err() == nil {
+			n, readErr := resp.Body.Read(buf)
+			totalBytes.Add(int64(n))
+			if readErr != nil {
+				break
 			}
 		}
-	}()
-
-	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, pr)
-	if err != nil {
-		setError(result, "Upload request gagal: "+err.Error())
-		return 0
+		resp.Body.Close()
+		if !jedaFase(ctx, srv.Jeda) {
+			return true
+		}
 	}
-	req.ContentLength = uploadSize
-	req.Header.Set("Content-Type", "application/octet-stream")
+	return true
+}
+
+// measureDownload mengukur unduhan berkelanjutan selama speedTestPhase dengan
+// failover antar server uji. Angka live dan angka akhir dihitung dari
+// akumulasi byte / waktu yang sama.
+func measureDownload(ctx context.Context, urutan []int, result *speedtestResult) float64 {
+	phaseCtx, cancel := context.WithTimeout(ctx, speedTestPhase)
+	defer cancel()
 
 	start := time.Now()
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
+	var totalBytes atomic.Int64
 
-	done := make(chan struct{})
+	stop := make(chan struct{})
+	defer close(stop)
 	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
 				elapsed := time.Since(start).Seconds()
 				if elapsed > 0.5 {
 					updateResult(result, func(r *speedtestResult) {
-						// Perkiraan progress: waktu / perkiraan total
-						r.Progress = elapsed / 30 // max ~30 detik
-						if r.Progress > 0.99 {
-							r.Progress = 0.99
-						}
+						r.Download = round2(float64(totalBytes.Load()*8) / elapsed / 1e6)
+						r.Progress = progressFase(elapsed)
 					})
 				}
-			case <-done:
+			case <-stop:
 				return
 			}
 		}
 	}()
 
-	resp, err := http.DefaultClient.Do(req)
-	close(done)
-	if err != nil {
-		if ctx.Err() != nil {
-			return 0
+	for _, i := range urutan {
+		if phaseCtx.Err() != nil {
+			break
 		}
-		setError(result, "Upload gagal: "+err.Error())
-		return 0
+		if unduhDari(phaseCtx, speedTestServers[i], &totalBytes, result) {
+			break
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		setError(result, fmt.Sprintf("Upload gagal: HTTP %d", resp.StatusCode))
-		return 0
-	}
-	// Baca response body agar koneksi bisa di-reuse.
-	_, _ = io.Copy(io.Discard, resp.Body)
 
+	if totalBytes.Load() == 0 && ctx.Err() == nil {
+		setError(result, "Unduh gagal: semua server uji tidak merespons")
+		return 0
+	}
 	elapsed := time.Since(start).Seconds()
 	if elapsed < 0.01 {
 		elapsed = 0.01
 	}
+	return round2(float64(totalBytes.Load()*8) / elapsed / 1e6)
+}
 
-	// Coba parse header upload-speed dari Cloudflare jika ada.
-	if cfSpeed := resp.Header.Get("Server-Timing"); cfSpeed != "" {
-		log.Printf("speedtest upload Server-Timing: %s", cfSpeed)
+// unggahDari mengunggah ke satu server sampai fase habis. Mengembalikan true
+// bila server cukup sampai akhir fase; false = caller pindah server berikutnya.
+func unggahDari(ctx context.Context, srv serverUji, payload []byte, totalBytes *atomic.Int64, result *speedtestResult) bool {
+	chunk := srv.ChunkUnggah
+	if chunk <= 0 {
+		chunk = 5 << 20
+	}
+	if chunk > int64(len(payload)) {
+		chunk = int64(len(payload))
+	}
+	kena429 := 0
+	for ctx.Err() == nil {
+		req, err := http.NewRequestWithContext(ctx, "POST", srv.UnggahURL,
+			hitungReader{r: bytes.NewReader(payload[:chunk]), n: totalBytes})
+		if err != nil {
+			return false
+		}
+		req.ContentLength = chunk
+		req.Header.Set("Content-Type", "application/octet-stream")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return true // fase habis / dibatalkan — normal
+			}
+			return false // gagal jaringan — pindah server
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			kena429++
+			if kena429 >= 2 {
+				return false
+			}
+			if !jedaFase(ctx, time.Second) {
+				return true
+			}
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return false
+		}
+		kena429 = 0
+		updateResult(result, func(r *speedtestResult) {
+			r.Server = srv.Nama
+			r.ServerURL = srv.UnggahURL
+		})
+		// Baca response body agar koneksi bisa di-reuse.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if !jedaFase(ctx, srv.Jeda) {
+			return true
+		}
+	}
+	return true
+}
+
+// measureUpload mengukur unggahan berkelanjutan selama speedTestPhase dengan
+// failover antar server uji yang menerima POST.
+func measureUpload(ctx context.Context, urutan []int, result *speedtestResult) float64 {
+	phaseCtx, cancel := context.WithTimeout(ctx, speedTestPhase)
+	defer cancel()
+
+	start := time.Now()
+	var totalBytes atomic.Int64
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				elapsed := time.Since(start).Seconds()
+				if elapsed > 0.5 {
+					updateResult(result, func(r *speedtestResult) {
+						r.Upload = round2(float64(totalBytes.Load()*8) / elapsed / 1e6)
+						r.Progress = progressFase(elapsed)
+					})
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	payload := make([]byte, 25<<20) // maksimum chunk antar server
+	_, _ = rand.Read(payload)       // isi acak — sekali buat, dipakai ulang
+
+	for _, i := range urutan {
+		srv := speedTestServers[i]
+		if srv.UnggahURL == "" || phaseCtx.Err() != nil {
+			continue
+		}
+		if unggahDari(phaseCtx, srv, payload, &totalBytes, result) {
+			break
+		}
 	}
 
-	mbps := float64(uploadSize*8) / elapsed / 1e6
-	return round2(mbps)
+	if totalBytes.Load() == 0 && ctx.Err() == nil {
+		setError(result, "Upload gagal: semua server uji menolak unggahan")
+		return 0
+	}
+	elapsed := time.Since(start).Seconds()
+	if elapsed < 0.01 {
+		elapsed = 0.01
+	}
+	return round2(float64(totalBytes.Load()*8) / elapsed / 1e6)
 }
 
 func avg(vals []float64) float64 {

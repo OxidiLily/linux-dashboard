@@ -3,6 +3,7 @@ import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
 import { Panel } from "@/components/ui/panel"
+import { NilaiFlow } from "@/components/ui/nilai-flow"
 import { useTr, trf, daftarkanTerjemahan } from "@/stores/i18n"
 import { Button } from "@/components/ui/button"
 import { Play, Square, ArrowDown, ArrowUp, Activity, Server } from "lucide-react"
@@ -208,11 +209,14 @@ export function SpeedtestView() {
 function ProgressBar({ progress }: { progress: number }) {
   const pct = Math.min(Math.max(progress * 100, 0), 100)
   return (
-    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-      <div
-        className="h-full rounded-full bg-signal transition-all duration-300"
-        style={{ width: `${pct}%` }}
-      />
+    <div>
+      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+        <div
+          className="bar-stripes h-full rounded-full bg-signal transition-all duration-300 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="num mt-1.5 text-xs text-muted-foreground">{pct.toFixed(0)}%</p>
     </div>
   )
 }
@@ -261,7 +265,7 @@ function GaugeCard({
           />
         </svg>
         <div className="absolute inset-0 flex items-end justify-center pb-1">
-          <span className="num text-2xl font-bold tabular-nums">{value.toFixed(2)}</span>
+          <NilaiFlow nilai={value} desimal={2} className="display text-3xl" />
           <span className="ml-1 text-xs text-muted-foreground mb-0.5">{unit}</span>
         </div>
       </div>
@@ -284,8 +288,8 @@ function MetricCard({
       {text ? (
         <p className="text-sm font-semibold truncate">{text}</p>
       ) : (
-        <p className="num text-lg font-bold tabular-nums">
-          {value.toFixed(2)} <span className="text-xs text-muted-foreground">{unit}</span>
+        <p>
+          <NilaiFlow nilai={value} desimal={2} className="display text-lg" /> <span className="text-xs text-muted-foreground">{unit}</span>
         </p>
       )}
     </div>
