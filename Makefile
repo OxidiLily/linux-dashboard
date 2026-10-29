@@ -15,12 +15,24 @@ all: build
 # tertukar dengan error yang sebenarnya. Pembaruan npm ditangani installer
 # (pastikan_npm di deploy/install.sh), bukan oleh pesan di log.
 ui: export NPM_CONFIG_UPDATE_NOTIFIER=false
+# tsc/vite dipanggil langsung, BUKAN `npm run build`: wrapper npm ikut hidup
+# sebagai proses node ~60-100 MB selama render dan mendorong puncak build UI
+# melewati 512 MB (terukur 2026-10-29). Jangan dikembalikan ke npm run build.
 ui:
-	cd $(UI) && npm ci && (npm run audit || { i=0; while [ $$i -lt 3 ]; do npm audit fix; npm run audit && break; i=$$((i+1)); done; if [ $$i -eq 3 ]; then echo "WARN: vulnerability tetap ada setelah 3x fix, lanjut build"; fi; }) && npm run build
+	cd $(UI) && npm ci && (npm run audit || { i=0; while [ $$i -lt 3 ]; do npm audit fix; npm run audit && break; i=$$((i+1)); done; if [ $$i -eq 3 ]; then echo "WARN: vulnerability tetap ada setelah 3x fix, lanjut build"; fi; }) && ./node_modules/.bin/tsc -b && ./node_modules/.bin/vite build
+
+# NODE_OPTIONS: batasi heap V8 saat build UI supaya muat di perangkat 512 MB.
+# Vite 7 (rollup) semua memori di heap V8 yang terikat batas ini; override
+# dengan export NODE_OPTIONS bila perangkat lega. ponytail: 320 MiB adalah
+# titik kerja terkecil yang teruji 3/3 lolos di cgroup 512 MB tanpa swap.
+NODE_OPTIONS ?= --max-old-space-size=320
+export NODE_OPTIONS
 
 # ponytail: anggaran per proses, bukan batas RSS; build lebih lambat demi VPS 1 GB.
 # Paket SQLite generated besar; batasi compiler tanpa mematikan optimasi runtime.
-GO_BUILD := env GOMAXPROCS=1 GOGC=20 GOMEMLIMIT=256MiB go build -p=1 -gcflags='modernc.org/sqlite/lib=-c=1'
+# GOMEMLIMIT 192MiB (bukan 256MiB): dengan 256MiB, compile/link go pernah
+# OOM di cgroup 512 MB — 192MiB teruji lolos penuh di sana (2026-10-29).
+GO_BUILD := env GOMAXPROCS=1 GOGC=20 GOMEMLIMIT=192MiB go build -p=1 -gcflags='modernc.org/sqlite/lib=-c=1'
 .NOTPARALLEL: build server helper release-server
 
 server:

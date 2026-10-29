@@ -266,6 +266,41 @@ if command -v certbot >/dev/null 2>&1 && ! paket_terpasang python3-certbot-dns-c
 fi
 pastikan_keamanan_runtime
 
+# ---- 2a. Swap darurat untuk perangkat RAM kecil --------------------------
+# Build UI (vite/rollup) puncak ~475 MB anon dan go build ~370 MB; di perangkat
+# 512 MB dengan baseline OS+service, itu melebihi RAM fisik. Perangkat dengan
+# swap >= 256 MB dibiarkan apa adanya. Bila tidak ada swap memadai, installer
+# membuat swapfile 768M supaya build tidak OOM-kill. Best-effort (nonfatal):
+# kegagalan hanya menghasilkan peringatan, build tetap dijalankan.
+# ponytail: swapfile permanen (ikut fstab) — juga menolong runtime panel di
+# perangkat kecil; hapus manual bila tidak diinginkan. Alternatif lebih ramah
+# SD-card: zram (zram-tools).
+pastikan_swap_build() {
+  local mem_kb swap_kb
+  mem_kb=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+  swap_kb=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo)
+  [[ $mem_kb =~ ^[0-9]+$ && $swap_kb =~ ^[0-9]+$ ]] || return 0
+  (( mem_kb < 2097152 && swap_kb < 262144 )) || return 0
+  if [[ ! -f /swapfile ]]; then
+    log "RAM ${mem_kb} kB dengan swap ${swap_kb} kB — membuat swapfile 768M untuk build…"
+    if ! fallocate -l 768M /swapfile || ! chmod 600 /swapfile || ! mkswap /swapfile >/dev/null; then
+      rm -rf /swapfile # -rf: kalau /swapfile ternyata direktori, `rm -f` gagal dan set -e mematikan installer
+      echo "[⚠] Gagal membuat swapfile — build bisa OOM-kill di RAM 512 MB tanpa swap." >&2
+      return 0
+    fi
+  fi
+  # fstab dan klaim "aktif" HANYA setelah swap benar-benar aktif di
+  # /proc/swaps — swapon bisa gagal diam-diam (container tanpa izin swapon,
+  # /swapfile milik aplikasi lain yang bukan swap), dan entry fstab untuk
+  # berkas yang tidak aktif hanya menjadi noise saat boot.
+  if swapon /swapfile 2>/dev/null || grep -q '^/swapfile ' /proc/swaps 2>/dev/null; then
+    grep -q '^/swapfile ' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    ok "Swap build aktif: $(awk '/^SwapTotal:/{printf "%.0f", $2/1024}' /proc/meminfo) MB"
+  else
+    echo "[⚠] /swapfile tidak bisa diaktifkan — build bisa OOM-kill di RAM 512 MB tanpa swap." >&2
+  fi
+}
+
 # ---- 2. Build kalau binary belum ada ------------------------------------
 BIN_SRC_DIBERIKAN="${BIN_SRC:-}"
 BIN_SRC="${BIN_SRC:-bin}"
@@ -307,7 +342,7 @@ fi
 pastikan_npm() {
   command -v npm >/dev/null 2>&1 || return 0
   # Berlaku untuk seluruh proses turunan skrip ini, termasuk `npm ci` dan
-  # `npm run build` yang dipanggil Makefile.
+  # pemanggilan tsc/vite langsung oleh Makefile.
   export NPM_CONFIG_UPDATE_NOTIFIER=false
 
   local sekarang terbaru
@@ -338,6 +373,7 @@ fi
 if (( need_build )); then
   install_build_deps
   pastikan_npm
+  pastikan_swap_build
   log "Build UI + dua binary (beberapa menit di mesin kecil)…"
   export GOTOOLCHAIN=auto
   make build
