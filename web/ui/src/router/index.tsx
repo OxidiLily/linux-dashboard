@@ -3,6 +3,10 @@ import { createBrowserRouter, Navigate, useLocation } from "react-router-dom"
 import { AppShell } from "@/components/layout/app-shell"
 import { LoginView } from "@/views/login"
 import { DashboardView } from "@/views/dashboard"
+// error.tsx di-import statis, BUKAN lazy: app-shell sudah memuat
+// OverlayTerputus dari modul yang sama, jadi modul ini pasti masuk main chunk
+// dan import dinamis tidak pernah memecahnya (pernah jadi warning rollup).
+import { NotFoundView, RouteErrorView } from "@/views/error"
 import { useAuth } from "@/stores/auth"
 import { ComponentGuard } from "@/components/ui/component-guard"
 import { pemuatRute } from "@/router/lazy-routes"
@@ -53,8 +57,6 @@ const ProcessesView = rute("/system/processes", "ProcessesView")
 const DockerView = rute("/system/docker", "DockerView")
 const CronView = rute("/system/cron", "CronView")
 const TerminalView = rute("/system/terminal", "TerminalView")
-const NotFoundView = lazyNamed(() => import("@/views/error"), "NotFoundView")
-const RouteErrorView = lazyNamed(() => import("@/views/error"), "RouteErrorView")
 
 // Wrapper Suspense saat chunk route dimuat.
 //
