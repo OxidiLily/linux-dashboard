@@ -7,7 +7,6 @@ import { Meter } from "@/components/ui/meter"
 import { Sparkline } from "@/components/ui/sparkline"
 import { Badge } from "@/components/ui/badge"
 import { MetricTile } from "@/components/ui/metric-tile"
-import { NilaiSkalaFlow } from "@/components/ui/nilai-flow"
 import { StorageCard } from "@/components/ui/storage-card"
 import { DiskPrepareModal } from "@/components/ui/disk-prepare-modal"
 import { HardDrive, Unplug, Trash2 } from "lucide-react"
@@ -18,7 +17,7 @@ import { apiSend } from "@/lib/api"
 import { pesanError } from "@/lib/pesan-error"
 import { UnusedDisk } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { formatBytes, formatPercent, formatRate, formatUptime, formatTanggal, pecahRate } from "@/lib/format"
+import { formatBytes, formatPercent, formatRate, formatUptime, formatTanggal } from "@/lib/format"
 
 // Seluruh pustaka chart (@visx, d3-array, motion — ~233 kB) masuk lewat satu
 // modul ini, dan modulnya di-lazy-load. Dashboard ada di chunk utama supaya
@@ -120,7 +119,7 @@ export function DashboardView() {
   const diskLevel = levelFor("storage", diskPct)
   const gpu = snap.gpus[0]
 
-  const netAgg = snap.network.reduce(
+  const netAgg = (snap.network ?? []).reduce(
     (acc, n) => ({
       rx_rate: acc.rx_rate + n.rx_rate,
       tx_rate: acc.tx_rate + n.tx_rate,
@@ -325,11 +324,11 @@ export function DashboardView() {
           <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
             <div>
               <p className="eyebrow">{tr("Masuk")}</p>
-              <p className="num text-xl font-semibold"><NilaiSkalaFlow angka={pecahRate(netAgg.rx_rate)} /></p>
+              <p className="num text-xl font-semibold">{formatRate(netAgg.rx_rate)}</p>
             </div>
             <div>
               <p className="eyebrow">{tr("Keluar")}</p>
-              <p className="num text-xl font-semibold"><NilaiSkalaFlow angka={pecahRate(netAgg.tx_rate)} /></p>
+              <p className="num text-xl font-semibold">{formatRate(netAgg.tx_rate)}</p>
             </div>
             <p className="num ml-auto text-xs text-muted-foreground">
               {tr("total")} ↓ {formatBytes(netAgg.rx_bytes)} · ↑ {formatBytes(netAgg.tx_bytes)}
