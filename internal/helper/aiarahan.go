@@ -147,7 +147,7 @@ Credential: manifest %s/kredensial/<Service>.md dulu, hanya key yang perlu dari 
 3. K3 RANGKUM: Susun ringkasan presisi, pisahkan fakta vs asumsi. Jika tidak ditemukan, akui terus terang; jangan mengarang.
 4. K4 WAJIB CATAT KE SESSIONS SEBELUM MENJAWAB:
    Jalankan:
-   python3 %s/grounded-search.py record --agent %s --topic '<topik non-rahasia>' --question '<ringkasan non-rahasia>' --answer '<ringkasan non-rahasia>' --sources '<referensi non-rahasia>'
+   python3 %s/grounded-search.py record --agent %s --topic '<topik non-rahasia>' --question '<ringkasan non-rahasia>' --answer '<ringkasan non-rahasia>' --sources '<referensi non-rahasia>' [--masalah '<masalah non-rahasia>']
    ATURAN KERAS: File session WAJIB dibuat/diupdate SEBELUM mengirim teks jawaban final ke user. Dilarang skip pencatatan dengan alasan tugas teknis/coding/jawaban singkat.
 5. K5 SAJIKAN: Tampilkan jawaban ke pengguna setelah langkah 4 berhasil dicatat.
 6. K6 PERTANYAAN BERULANG / LANJUTAN: Topik sama dalam satu sesi = update note yang sama (append delta + timestamp). Topik beda = note baru. Topik baru berkaitan = rangkum note lama ke note baru + referensi.
