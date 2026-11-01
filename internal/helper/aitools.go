@@ -19,11 +19,11 @@ import (
 
 // ---- Alat & Skill wajib untuk semua AI Agent -----------------------------
 //
-// Panel ini memasang empat alat di setiap sesi AI Agent, bukan menyerahkannya
+// Panel ini memasang lima alat di setiap sesi AI Agent, bukan menyerahkannya
 // ke masing-masing user: rtk dan graphify memangkas pemakaian token secara
 // signifikan, ponytail menahan agent dari menulis kode yang sebenarnya tidak
-// perlu ada, dan browser-use memberinya satu-satunya jalan untuk mengerjakan
-// tugas yang menuntut browser sungguhan. Kalau pemasangannya opsional, sesi
+// perlu ada, browser-use memberinya kendali browser sungguhan, dan Agent Reach
+// menyediakan channel web untuk agent. Kalau pemasangannya opsional, sesi
 // pertama tiap user berjalan tanpa satu pun dari alat ini.
 //
 // caveman pernah ada di daftar ini dan sengaja dikeluarkan: perannya sebagai
@@ -38,6 +38,10 @@ import (
 //	graphify     https://github.com/Graphify-Labs/graphify#install
 //	ponytail     https://github.com/DietrichGebert/ponytail#install
 //	browser-use  https://browser-use.com — https://docs.browser-use.com
+//	agent-reach  https://raw.githubusercontent.com/Panniantong/Agent-Reach/main/docs/install.md
+//
+// Agent Reach TIDAK dipasang dari PyPI; dokumentasinya secara eksplisit
+// mengarahkan ke ZIP GitHub resmi lewat uv, lalu `agent-reach setup`.
 
 // agenAI adalah komponen yang memicu penyediaan toolchain saat dipasang.
 var agenAI = []string{"hermes", "claude-code", "codex", "opencode", "openclaw"}
@@ -54,8 +58,8 @@ func komponenAgenAI(name string) bool {
 // alatWajibAI adalah urutan pemasangan: rtk lebih dulu karena hook-nya yang
 // menulis ulang perintah shell juga menguntungkan pemasangan berikutnya.
 // browser-use terakhir — venv-nya yang paling besar, dan alat lain tidak
-// menunggu apa pun darinya.
-var alatWajibAI = []string{"rtk", "graphify", "ponytail", "browser-use"}
+// menunggu apa pun darinya. Agent Reach menyusul setelah uv tersedia.
+var alatWajibAI = []string{"rtk", "graphify", "ponytail", "browser-use", "agent-reach"}
 
 // pastikanToolchainAI memasang alat yang belum ada. Kegagalan satu alat tidak
 // membatalkan pemasangan agent-nya: agent tetap bisa dipakai, hanya tanpa
@@ -226,6 +230,58 @@ func uninstallBrowserUse() error {
 	_, err := runIn("", envPipx(), "pipx", "uninstall", "browser-use")
 	_ = purgeBrowserUse()
 	return err
+}
+
+const (
+	agentReachURL  = "https://github.com/Panniantong/Agent-Reach/releases/latest/download/agent-reach.zip"
+	agentReachHome = "/opt/agent-reach"
+)
+
+func installAgentReach() error {
+	uv, err := exec.LookPath("uv")
+	if err != nil {
+		tahapBaru("memasang uv untuk Agent Reach")
+		script, bersihkan, e := unduhSkrip("https://astral.sh/uv/install.sh", "uv-install.sh")
+		if e != nil {
+			return e
+		}
+		defer bersihkan()
+		if _, e = run("/bin/sh", script); e != nil {
+			return e
+		}
+		if err = salinBinary("/root/.local/bin/uv", "/usr/local/bin/uv"); err != nil {
+			return err
+		}
+		uv = "/usr/local/bin/uv"
+	}
+	if err := os.MkdirAll(agentReachHome, 0o755); err != nil {
+		return err
+	}
+	tahapBaru("memasang Agent Reach dari GitHub resmi")
+	_, err = runIn("", []string{
+		"UV_TOOL_BIN_DIR=/usr/local/bin",
+		"UV_TOOL_DIR=" + agentReachHome,
+	}, uv, "tool", "install", "--force", agentReachURL)
+	if err != nil {
+		return err
+	}
+	tahapBaru("menjalankan setup Agent Reach")
+	_, err = runIn("", nil, "/usr/local/bin/agent-reach", "setup")
+	return err
+}
+
+func uninstallAgentReach() error {
+	_, err := runIn("", []string{"UV_TOOL_DIR=" + agentReachHome}, "uv", "tool", "uninstall", "agent-reach")
+	return err
+}
+
+func purgeAgentReach() error {
+	for _, home := range append(rumahAgen(), "/root") {
+		if home != "" {
+			_ = os.RemoveAll(filepath.Join(home, ".agent-reach"))
+		}
+	}
+	return nil
 }
 
 func purgeBrowserUse() error {

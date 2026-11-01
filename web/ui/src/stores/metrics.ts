@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { apiGet } from "@/lib/api"
 import type { Snapshot, SystemInfo, Threshold, AlertLevel } from "@/lib/types"
 
 const HISTORY = 60
@@ -43,8 +44,8 @@ export const useMetrics = create<MetricsStore>((set, get) => ({
   txHistory: [],
   async loadStatic() {
     const [system, thresholds] = await Promise.all([
-      fetch("/api/system/info", { credentials: "include" }).then((r) => r.json()),
-      fetch("/api/settings/alert-thresholds", { credentials: "include" }).then((r) => r.json()),
+      apiGet<SystemInfo>("/api/system/info"),
+      apiGet<Threshold[]>("/api/settings/alert-thresholds"),
     ])
     set({ system, thresholds })
   },
@@ -61,13 +62,13 @@ export const useMetrics = create<MetricsStore>((set, get) => ({
       rxRate += n.rx_rate
       txRate += n.tx_rate
     }
-    set({
+    set((state) => ({
       snapshot: snap,
-      cpuHistory: push(get().cpuHistory, snap.cpu?.total_pct ?? 0),
-      ramHistory: push(get().ramHistory, snap.memory?.used_pct ?? 0),
-      rxHistory: push(get().rxHistory, rxRate),
-      txHistory: push(get().txHistory, txRate),
-    })
+      cpuHistory: push(state.cpuHistory, snap.cpu?.total_pct ?? 0),
+      ramHistory: push(state.ramHistory, snap.memory?.used_pct ?? 0),
+      rxHistory: push(state.rxHistory, rxRate),
+      txHistory: push(state.txHistory, txRate),
+    }))
   },
   setConnected(b) {
     set({ connected: b })

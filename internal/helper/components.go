@@ -356,6 +356,15 @@ var components = map[string]*component{
 		purge:       purgeBrowserUse,
 		version:     versiPipx("browser-use"),
 	},
+	"agent-reach": {
+		Name: "agent-reach", Binary: "agent-reach",
+		Category: katAI, RequiredFor: "AI → AI Agent",
+		Description: "Agent Reach — channel web untuk AI Agent (GitHub resmi, bukan paket PyPI agent-reach).",
+		install:     installAgentReach,
+		uninstall:   uninstallAgentReach,
+		purge:       purgeAgentReach,
+		version:     func() string { return firstLine(tryRun("agent-reach", "version")) },
+	},
 
 	// ---- paket repo Debian/Ubuntu yang TIDAK ikut di instalasi dasar ----
 
@@ -478,9 +487,9 @@ func ComponentNames() []string {
 	return []string{
 		"nginx", "certbot", "docker", "nodejs", "tailscale", "cloudflared", "9router",
 		"hermes", "claude-code", "codex", "opencode", "openclaw",
-		"rtk", "graphify", "ponytail", "browser-use",
+		"rtk", "graphify", "ponytail", "browser-use", "agent-reach",
 		"supabase",
-		"samba", "nfs-server", "nfs-client", "cifs-utils", "avahi", "technitium-dns", "print-server", "mergerfs", "mailcow", "postfix",
+		"samba", "nfs-server", "nfs-client", "cifs-utils", "avahi", "wakeonlan", "technitium-dns", "print-server", "mergerfs", "mailcow", "postfix",
 		"ufw", "fail2ban",
 		"lm-sensors", "smartmontools", "nvme-cli", "qemu-guest-agent",
 		"htop", "ncdu", "fastfetch", "restic",
@@ -864,6 +873,12 @@ func installComponent(name string, u *userInfo, hostname ...string) (helperproto
 		// memasang agent sebelum rilis ini punya agent tanpa satu pun alat.
 		if komponenAgenAI(name) {
 			pastikanToolchainAI()
+			if u != nil {
+				siapkanArahanAI(u, c.Binary)
+				if err := siapkanPolicyAI(u, c.Binary); err != nil {
+					log.Printf("policy AI: siapkanPolicyAI %s untuk %s gagal: %v", name, u.Name, err)
+				}
+			}
 		}
 		// Alasan yang sama untuk grup docker: mesin yang memasang Docker
 		// sebelum rilis ini punya Docker tanpa satu pun user di grupnya, dan
@@ -927,6 +942,12 @@ func installComponent(name string, u *userInfo, hostname ...string) (helperproto
 	// (lihat pastikanToolchainAI), hanya tercatat di log helper.
 	if komponenAgenAI(name) {
 		pastikanToolchainAI()
+		if u != nil {
+			siapkanArahanAI(u, c.Binary)
+			if err := siapkanPolicyAI(u, c.Binary); err != nil {
+				log.Printf("policy AI: siapkanPolicyAI %s untuk %s gagal: %v", name, u.Name, err)
+			}
+		}
 		// 9router menemukan CLI agent lewat `which <biner>` yang membaca PATH
 		// proses-nya sendiri. Agent yang baru dipasang setelah 9router hidup
 		// tidak terlihat sampai 9router di-restart — halaman CLI Tools

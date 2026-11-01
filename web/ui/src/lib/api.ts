@@ -14,6 +14,11 @@ export class ApiError extends Error {
   }
 }
 
+async function jsonOrEmpty<T>(res: Response): Promise<T> {
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, { credentials: "include", signal })
   if (!res.ok) {
@@ -21,7 +26,7 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
     try { errBody = await res.json() } catch {}
     throw new ApiError(res, errBody.error, errBody.code, errBody.params)
   }
-  return res.json()
+  return jsonOrEmpty<T>(res)
 }
 
 export async function apiSend<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -36,5 +41,5 @@ export async function apiSend<T>(path: string, method: string, body?: unknown): 
     try { errBody = await res.json() } catch {}
     throw new ApiError(res, errBody.error, errBody.code, errBody.params)
   }
-  return res.json()
+  return jsonOrEmpty<T>(res)
 }

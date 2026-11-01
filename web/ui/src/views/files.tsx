@@ -285,6 +285,7 @@ export type HasilCari = {
 export function FileManagerView() {
   const tr = useTr()
   const user = useAuth((s) => s.user)
+  const authReady = useAuth((s) => s.ready)
   const [searchParams, setSearchParams] = useSearchParams()
   const initialPath = searchParams.get("path") || user?.home || "/"
   const [currentPath, setCurrentPath] = useState(initialPath)
@@ -437,10 +438,11 @@ export function FileManagerView() {
   }, [setSearchParams])
 
   useEffect(() => {
+    if (!authReady) return
     loadRoots()
     loadDir(initialPath)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [authReady])
 
   // Tutup context menu saat klik di tempat lain atau tekan Escape.
   useEffect(() => {

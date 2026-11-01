@@ -103,11 +103,15 @@ export function FirewallView() {
     // filter di kernel — bukan tulis berkas biasa. Rule baru juga tidak pernah
     // punya pesan berhasil sebelum ini: yang mengonfirmasi hanya baris yang
     // muncul di tabel, dan itu tidak terlihat kalau daftarnya panjang.
-    const spec = editing?.num ? "" : editing?.raw
+    const spec = editing?.num ? "" : editing?.raw?.trim()
+    if (editing && !editing.num && !spec) {
+      notify.err(tr("Rule firewall tidak memiliki identitas yang valid."))
+      return
+    }
     const url = editing
       ? editing.num
         ? `/api/firewall/rules/${editing.num}`
-        : `/api/firewall/rules/-?spec=${encodeURIComponent(spec!)}`
+        : `/api/firewall/rules/-?spec=${encodeURIComponent(spec || "")}`
       : "/api/firewall/rules"
     try {
       await notify.tugas(apiSend(url, editing ? "PUT" : "POST", body), {
@@ -125,8 +129,11 @@ export function FirewallView() {
 
   const handleDelete = async (rule: UfwRule) => {
     // ufw nonaktif -> rule tidak bernomor, dihapus lewat spec ("allow 22/tcp").
-    const spec = rule.num ? "" : rule.raw
-    if (!rule.num && !spec) return
+    const spec = rule.num ? "" : rule.raw?.trim()
+    if (!rule.num && !spec) {
+      notify.err(tr("Rule firewall tidak memiliki identitas yang valid."))
+      return
+    }
     const ok = await confirmDialog({
       title: rule.num
         ? trf("Hapus rule firewall nomor {0}?", rule.num)

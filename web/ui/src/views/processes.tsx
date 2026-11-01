@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { pesanError } from "@/lib/pesan-error"
 import { apiGet, apiSend } from "@/lib/api"
 import { notify } from "@/components/ui/toast"
@@ -29,24 +29,33 @@ export function ProcessesView() {
   const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState("")
   const [err, setErr] = useState<string | null>(null)
+  const loadingRef = useRef(false)
+  const mountedRef = useRef(true)
 
   const load = async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     setLoading(true)
     setErr(null)
     try {
       const data = await apiGet<Proc[]>("/api/processes")
-      setProcs(data)
+      if (mountedRef.current) setProcs(data)
     } catch (e: any) {
-      setErr(pesanError(e) || tr("Gagal memuat daftar proses"))
+      if (mountedRef.current) setErr(pesanError(e) || tr("Gagal memuat daftar proses"))
     } finally {
-      setLoading(false)
+      loadingRef.current = false
+      if (mountedRef.current) setLoading(false)
     }
   }
 
   useEffect(() => {
+    mountedRef.current = true
     load()
     const t = setInterval(load, 3000)
-    return () => clearInterval(t)
+    return () => {
+      mountedRef.current = false
+      clearInterval(t)
+    }
   }, [])
 
   const kill = async (pid: number) => {
