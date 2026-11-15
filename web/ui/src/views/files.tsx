@@ -31,7 +31,9 @@ import {
   Grid,
   List,
   MoreVertical,
+  Bookmark,
   BookmarkPlus,
+  ChevronDown,
   Lock,
   Copy as CopyIcon,
   Scissors,
@@ -154,6 +156,8 @@ function namaTanpaArsip(name: string): string {
 // codec-nya memang sudah didukung browser.
 const EKSTENSI_VIDEO = ["mp4", "m4v", "mkv", "webm", "ogv", "mov", "avi", "mpeg", "mpg", "ts"]
 const EKSTENSI_AUDIO = ["mp3", "m4a", "aac", "ogg", "opus", "flac", "wav"]
+
+type BookmarkItem = { id: number; name: string; path: string }
 
 type ClipItem = { path: string; name: string }
 
@@ -328,6 +332,8 @@ export function FileManagerView() {
   const [clipboard, setClipboard] = useState<ClipboardOp>({ kind: "none" })
   // Format arsip yang bisa dibuat di mesin ini (dari /api/files/formats).
   const [formatArsip, setFormatArsip] = useState<{ zip: boolean; rar: boolean } | null>(null)
+  const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([])
+  const [bookmarkOpen, setBookmarkOpen] = useState(false)
   // Seleksi disimpan sebagai path, bukan indeks: isi direktori bisa berubah
   // di antara refresh, dan indeks lama akan menunjuk berkas yang salah.
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -397,6 +403,9 @@ export function FileManagerView() {
     try {
       setFormatArsip(await apiGet<{ zip: boolean; rar: boolean }>("/api/files/formats"))
     } catch {}
+    try {
+      setBookmarks(await apiGet<BookmarkItem[]>("/api/bookmarks") || [])
+    } catch {}
   }
 
   const loadDir = useCallback(async (path: string) => {
@@ -446,7 +455,7 @@ export function FileManagerView() {
 
   // Tutup context menu saat klik di tempat lain atau tekan Escape.
   useEffect(() => {
-    const close = () => { urutanMenu.current++; setContextMenu(null) }
+    const close = () => { urutanMenu.current++; setContextMenu(null); setBookmarkOpen(false) }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close()
     }
@@ -1048,6 +1057,7 @@ export function FileManagerView() {
     try {
       await apiSend("/api/bookmarks", "POST", { name, path: currentPath })
       notify.ok(tr("Bookmark disimpan."))
+      try { setBookmarks(await apiGet<BookmarkItem[]>("/api/bookmarks") || []) } catch {}
     } catch (e: any) {
       notify.err(trf("Gagal menyimpan bookmark: {0}", pesanError(e)))
     }
@@ -1744,6 +1754,38 @@ export function FileManagerView() {
                 {roots.filter((r) => r.grup === grup).map(pintasan)}
               </Fragment>
             ) : null,
+          )}
+          {bookmarks.length > 0 && (
+            <div className="relative ml-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1"
+                onClick={() => setBookmarkOpen((v) => !v)}
+              >
+                <Bookmark className="size-3.5" />
+                <span className="sr-only sm:not-sr-only">{tr("Bookmarks")}</span>
+                <ChevronDown className={`size-3 text-muted-foreground transition-transform duration-200${bookmarkOpen ? " rotate-180" : ""}`} />
+              </Button>
+              {bookmarkOpen && (
+                <div
+                  className="absolute left-0 top-full z-50 mt-1 min-w-[200px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface-2 p-1 shadow-xl"
+                  onClick={(ev) => ev.stopPropagation()}
+                >
+                  {bookmarks.map((b) => (
+                    <button
+                      key={b.id}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
+                      onClick={() => { setBookmarkOpen(false); loadDir(b.path) }}
+                      title={b.path}
+                    >
+                      <Folder className="size-3.5 shrink-0 text-amber-500 fill-amber-500/20" />
+                      <span className="truncate">{b.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
 

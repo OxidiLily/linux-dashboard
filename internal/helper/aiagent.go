@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	osuser "os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -613,7 +615,47 @@ func bersihAgenDi(nama string, homes []string) []string {
 // menghapus milik satu user saja akan menyisakan kartu yang tetap berkata
 // "terpasang" sesudah tombol Hapus ditekan, tanpa cara apa pun dari panel
 // untuk membereskannya.
+func uninstallHermesFull(home, path string) error {
+	fi, err := os.Stat(home)
+	if err != nil || !fi.IsDir() {
+		return nil
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("pemilik HOME Hermes tidak dapat diverifikasi: %s", home)
+	}
+	owner, err := osuser.LookupId(fmt.Sprint(st.Uid))
+	if err != nil || owner.HomeDir != home {
+		return fmt.Errorf("pemilik HOME Hermes tidak dapat diverifikasi: %s", home)
+	}
+	u, err := lookupUser(owner.Username)
+	if err != nil {
+		return err
+	}
+	_, err = jalankanAgen(u, 15*time.Minute, path, "uninstall", "--full", "--yes")
+	return err
+}
+
 func uninstallAgen(nama, binary string) error {
+	var nativeErr error
+	// Hermes punya uninstaller native. Jalankan --full SEBELUM menghapus shim,
+	// checkout, atau ~/.hermes; kalau tidak, cleanup manual melewati artefak
+	// yang hanya diketahui Hermes sendiri (profile, desktop userdata, service).
+	if nama == "hermes" {
+		for _, home := range rumahAgen() {
+			path := filepath.Join(home, ".local/bin", binary)
+			if !bisaDieksekusi(path) {
+				path = filepath.Join(home, ".hermes/hermes-agent/.hermes/bin", binary)
+			}
+			if bisaDieksekusi(path) {
+				if err := uninstallHermesFull(home, path); err != nil {
+					nativeErr = errors.Join(nativeErr, fmt.Errorf("%s: %w", home, err))
+					log.Printf("hermes uninstall --full (%s): %v", home, err)
+				}
+			}
+		}
+	}
+
 	// npm lebih dulu: ia yang tahu symlink mana yang dibuatnya sendiri.
 	// Menghapus symlink-nya duluan hanya menyisakan paketnya di
 	// /usr/lib/node_modules, dan `npm uninstall` sesudahnya tidak lagi punya
@@ -633,7 +675,7 @@ func uninstallAgen(nama, binary string) error {
 	// Terakhir, seluruh jejaknya — termasuk direktori tempat biner itu
 	// tinggal, yang dihapus bulat di sini alih-alih berkas demi berkas.
 	bersihAgen(nama)
-	return nil
+	return nativeErr
 }
 
 func purgeAgen(nama, binary string) error {
