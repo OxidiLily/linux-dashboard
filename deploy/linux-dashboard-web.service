@@ -30,7 +30,9 @@ StateDirectoryMode=0750
 # helper daemon. Karena itu hardening di sini bisa ketat.
 NoNewPrivileges=yes
 PrivateTmp=yes
-PrivateDevices=yes
+# NVIDIA metrics require access to /dev/nvidia*; PrivateDevices=yes hides every
+# physical device from nvidia-smi, so the GPU appears absent to the collector.
+PrivateDevices=no
 ProtectSystem=strict
 ProtectHome=read-only
 ProtectKernelTunables=yes

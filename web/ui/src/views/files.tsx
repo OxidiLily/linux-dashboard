@@ -1749,23 +1749,11 @@ export function FileManagerView() {
           {(() => {
             const daftarBookmarksElemen = bookmarks.length > 0 && (
               <Fragment key="daftar-bookmarks">
-                {bookmarks.map((b) => (
-                  <Badge
-                    key={`bm-${b.id}`}
-                    tone={b.path === currentPath ? "signal" : "muted"}
-                    className="cursor-pointer gap-1"
-                    onClick={() => loadDir(b.path)}
-                    title={b.path}
-                  >
-                    <Bookmark className="size-3 shrink-0 text-amber-500 fill-amber-500/30" />
-                    <span className="truncate max-w-[140px]">{b.name}</span>
-                  </Badge>
-                ))}
                 <div className="relative inline-block">
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    className="h-6 px-1.5 text-xs gap-1"
+                    className="h-7 gap-1 px-2 text-xs"
                     onClick={(e) => { e.stopPropagation(); setBookmarkOpen((v) => !v) }}
                     title={tr("Daftar Bookmarks")}
                   >
