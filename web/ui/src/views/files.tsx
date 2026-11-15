@@ -1746,7 +1746,78 @@ export function FileManagerView() {
           <Button variant="ghost" size="sm" onClick={upDir} disabled={currentPath === "/" || loading}>
             <ArrowLeft className="size-3.5 sm:mr-1" /> <span className="sr-only sm:not-sr-only">{tr("Naik")}</span>
           </Button>
-          {roots.filter((r) => !r.grup).map(pintasan)}
+          {(() => {
+            const daftarBookmarksElemen = bookmarks.length > 0 && (
+              <Fragment key="daftar-bookmarks">
+                {bookmarks.map((b) => (
+                  <Badge
+                    key={`bm-${b.id}`}
+                    tone={b.path === currentPath ? "signal" : "muted"}
+                    className="cursor-pointer gap-1"
+                    onClick={() => loadDir(b.path)}
+                    title={b.path}
+                  >
+                    <Bookmark className="size-3 shrink-0 text-amber-500 fill-amber-500/30" />
+                    <span className="truncate max-w-[140px]">{b.name}</span>
+                  </Badge>
+                ))}
+                <div className="relative inline-block">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1.5 text-xs gap-1"
+                    onClick={(e) => { e.stopPropagation(); setBookmarkOpen((v) => !v) }}
+                    title={tr("Daftar Bookmarks")}
+                  >
+                    <Bookmark className="size-3.5 text-amber-500 fill-amber-500/20" />
+                    <span className="sr-only sm:not-sr-only text-xs">{tr("Daftar Bookmarks")}</span>
+                    <ChevronDown className={`size-3 text-muted-foreground transition-transform duration-200${bookmarkOpen ? " rotate-180" : ""}`} />
+                  </Button>
+                  {bookmarkOpen && (
+                    <div
+                      className="absolute left-0 top-full z-50 mt-1 min-w-[220px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface-2 p-1 shadow-xl"
+                      onClick={(ev) => ev.stopPropagation()}
+                    >
+                      <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground border-b border-border/50 mb-1">
+                        {tr("Daftar Bookmarks")} ({bookmarks.length})
+                      </div>
+                      {bookmarks.map((b) => (
+                        <button
+                          key={b.id}
+                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
+                          onClick={() => { setBookmarkOpen(false); loadDir(b.path) }}
+                          title={b.path}
+                        >
+                          <Folder className="size-3.5 shrink-0 text-amber-500 fill-amber-500/20" />
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="truncate font-medium">{b.name}</span>
+                            <span className="truncate text-[10px] text-muted-foreground">{b.path}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Fragment>
+            )
+            const nonGrupRoots = roots.filter((r) => !r.grup)
+            const adaRoot = nonGrupRoots.some((r) => r.path === "/" || r.name.startsWith("Root"))
+
+            return (
+              <>
+                {nonGrupRoots.map((r) => {
+                  const isRoot = r.path === "/" || r.name.startsWith("Root")
+                  return (
+                    <Fragment key={r.path}>
+                      {pintasan(r)}
+                      {isRoot && daftarBookmarksElemen}
+                    </Fragment>
+                  )
+                })}
+                {!adaRoot && daftarBookmarksElemen}
+              </>
+            )
+          })()}
           {GRUP_ROOT.map(([grup, label]) =>
             roots.some((r) => r.grup === grup) ? (
               <Fragment key={grup}>
@@ -1754,38 +1825,6 @@ export function FileManagerView() {
                 {roots.filter((r) => r.grup === grup).map(pintasan)}
               </Fragment>
             ) : null,
-          )}
-          {bookmarks.length > 0 && (
-            <div className="relative ml-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1"
-                onClick={() => setBookmarkOpen((v) => !v)}
-              >
-                <Bookmark className="size-3.5" />
-                <span className="sr-only sm:not-sr-only">{tr("Bookmarks")}</span>
-                <ChevronDown className={`size-3 text-muted-foreground transition-transform duration-200${bookmarkOpen ? " rotate-180" : ""}`} />
-              </Button>
-              {bookmarkOpen && (
-                <div
-                  className="absolute left-0 top-full z-50 mt-1 min-w-[200px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface-2 p-1 shadow-xl"
-                  onClick={(ev) => ev.stopPropagation()}
-                >
-                  {bookmarks.map((b) => (
-                    <button
-                      key={b.id}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-secondary"
-                      onClick={() => { setBookmarkOpen(false); loadDir(b.path) }}
-                      title={b.path}
-                    >
-                      <Folder className="size-3.5 shrink-0 text-amber-500 fill-amber-500/20" />
-                      <span className="truncate">{b.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           )}
         </div>
 

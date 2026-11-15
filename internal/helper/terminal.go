@@ -86,6 +86,7 @@ func (s *Server) handleTerminal(conn net.Conn, br *bufio.Reader, u *userInfo, re
 	defer func() {
 		_ = ptmx.Close()
 		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			_ = cmd.Process.Kill()
 		}
 		_, _ = cmd.Process.Wait()
@@ -265,6 +266,7 @@ func (s *Server) handleDockerTerm(conn net.Conn, br *bufio.Reader, req helperpro
 	defer func() {
 		_ = ptmx.Close()
 		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			_ = cmd.Process.Kill()
 		}
 		_, _ = cmd.Process.Wait()

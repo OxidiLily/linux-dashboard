@@ -13,6 +13,7 @@ import (
 	osuser "os/user"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -636,7 +637,117 @@ func uninstallHermesFull(home, path string) error {
 	return err
 }
 
+// hentikanProsesAgen membunuh seluruh proses aktif yang berhubungan dengan
+// agent ini sebelum pencopotan (uninstall): supervisor agent-loop.sh, biner
+// CLI, proses background (seperti gateway Hermes), runtime terisolasi
+// (mis. python di ~/.hermes), dan proses yang menahan file descriptor
+// di direktori jejak agent.
+//
+// Tanpa langkah ini, menghapus ~/.hermes selagi proses Python Hermes atau
+// agent-loop masih berjalan meninggalkan deleted inode (state.db-wal)
+// yang memicu DeletedWalGenerationError saat Hermes dipasang atau
+// dijalankan kembali.
+func hentikanProsesAgen(nama, binary string) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	selfPid := os.Getpid()
+	var targetPIDs []int
+
+	var jejakDir []string
+	for _, d := range dirSistemAgen[nama] {
+		jejakDir = append(jejakDir, d)
+	}
+	for _, j := range jejakAgen[nama] {
+		jejakDir = append(jejakDir, "/"+j+"/")
+		jejakDir = append(jejakDir, "/"+j)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 1 || pid == selfPid {
+			continue
+		}
+
+		commBytes, _ := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+		comm := strings.TrimSpace(string(commBytes))
+
+		cmdBytes, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+		cmdline := string(cmdBytes)
+
+		exe, _ := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+
+		cocok := false
+
+		// Supervisor agent-loop untuk agent ini
+		if strings.Contains(cmdline, "agent-loop.sh") && (strings.Contains(cmdline, binary) || strings.Contains(cmdline, nama)) {
+			cocok = true
+		}
+
+		// Nama biner cocok langsung (hindari nama generik seperti sh, bash, python)
+		if !cocok && binary != "" && comm != "sh" && comm != "bash" && comm != "python" && comm != "python3" {
+			if comm == binary || filepath.Base(exe) == binary {
+				cocok = true
+			}
+		}
+
+		// Menjalankan biner atau skrip dari dalam folder jejak agen
+		if !cocok {
+			for _, j := range jejakDir {
+				if strings.Contains(exe, j) || strings.Contains(cmdline, j) {
+					cocok = true
+					break
+				}
+			}
+		}
+
+		// Menahan file descriptor di direktori jejak agen (mis. state.db / state.db-wal)
+		if !cocok && (nama == "hermes" || nama == "openclaw") {
+			fds, _ := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid))
+			for _, fd := range fds {
+				target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pid, fd.Name()))
+				if err == nil {
+					for _, j := range jejakDir {
+						if strings.Contains(target, j) {
+							cocok = true
+							break
+						}
+					}
+				}
+				if cocok {
+					break
+				}
+			}
+		}
+
+		if cocok {
+			targetPIDs = append(targetPIDs, pid)
+		}
+	}
+
+	if len(targetPIDs) == 0 {
+		return
+	}
+
+	for _, pid := range targetPIDs {
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	for _, pid := range targetPIDs {
+		if syscall.Kill(pid, 0) == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+}
+
 func uninstallAgen(nama, binary string) error {
+	hentikanProsesAgen(nama, binary)
 	var nativeErr error
 	// Hermes punya uninstaller native. Jalankan --full SEBELUM menghapus shim,
 	// checkout, atau ~/.hermes; kalau tidak, cleanup manual melewati artefak
@@ -672,6 +783,7 @@ func uninstallAgen(nama, binary string) error {
 	for _, d := range []string{"/usr/local/bin", "/usr/bin"} {
 		_ = os.Remove(filepath.Join(d, binary))
 	}
+	hentikanProsesAgen(nama, binary)
 	// Terakhir, seluruh jejaknya — termasuk direktori tempat biner itu
 	// tinggal, yang dihapus bulat di sini alih-alih berkas demi berkas.
 	bersihAgen(nama)
