@@ -414,12 +414,12 @@ for dir in / /usr /usr/local /usr/local/share /usr/local/share/linux-dashboard \
   fi
 done
 install -d -o root -g root -m 0755 "$seed_root/deploy" "$seed_root/internal/helper"
-for file in "$seed_root/deploy/"{install-ai-state.sh,install-ai-state.py,soul-default.md,knowledge-base-default.md,knowledge-base-placeholder.md,prompt-deploy-shared-default.md,install-shared-adapters-reference.sh} \
+for file in "$seed_root/deploy/"{install-ai-state.sh,install-ai-state.py,soul-default.md,knowledge-base-default.md,knowledge-base-placeholder.md,prompt-deploy-shared-default.md,install-shared-adapters-reference.sh,install-security-audit-skill.sh} \
     "$seed_root/internal/helper/"{grounded-search.py,policy-seed.md}; do
   [[ ! -e "$file" && ! -L "$file" ]] ||
     [[ ! -L "$file" && -f "$file" && $(stat -c %u -- "$file") -eq 0 && $(stat -c %h -- "$file") -eq 1 ]] || die "File seed AI tidak aman: $file"
 done
-for file in install-ai-state.sh install-ai-state.py soul-default.md knowledge-base-default.md knowledge-base-placeholder.md prompt-deploy-shared-default.md install-shared-adapters-reference.sh; do
+for file in install-ai-state.sh install-ai-state.py soul-default.md knowledge-base-default.md knowledge-base-placeholder.md prompt-deploy-shared-default.md install-shared-adapters-reference.sh install-security-audit-skill.sh; do
   install -m 0644 "deploy/$file" "$seed_root/deploy/$file"
 done
 for file in grounded-search.py policy-seed.md; do

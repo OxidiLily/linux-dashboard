@@ -19,6 +19,7 @@ FILES = (
     ("deploy/knowledge-base-default.md", "knowledge-base.md", False),
     ("deploy/prompt-deploy-shared-default.md", "PROMPT-DEPLOY-SHARED.md", False),
     ("deploy/install-shared-adapters-reference.sh", "install-shared-adapters-reference.sh", False),
+    ("deploy/install-security-audit-skill.sh", "install-security-audit-skill.sh", False),
 )
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
